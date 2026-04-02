@@ -1,6 +1,6 @@
 import "./styles.css";
 
-import type { ExtensionSettings, RuntimeMessage, SyncStatus } from "../shared/types";
+import type { ExtensionSettings, ProviderDriftAlert, RuntimeMessage, SyncStatus } from "../shared/types";
 
 const form = document.querySelector<HTMLFormElement>("#settings-form");
 const backendUrlInput = document.querySelector<HTMLInputElement>("#backend-url");
@@ -15,6 +15,8 @@ const lastSuccess = document.querySelector<HTMLParagraphElement>("#last-success"
 const lastSession = document.querySelector<HTMLParagraphElement>("#last-session");
 const lastError = document.querySelector<HTMLParagraphElement>("#last-error");
 const historySync = document.querySelector<HTMLParagraphElement>("#history-sync");
+const providerDriftCard = document.querySelector<HTMLDivElement>("#provider-drift-card");
+const providerDrift = document.querySelector<HTMLParagraphElement>("#provider-drift");
 
 function formatDate(value?: string): string {
   if (!value) {
@@ -22,6 +24,45 @@ function formatDate(value?: string): string {
   }
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function formatHistorySync(settings: ExtensionSettings, status: SyncStatus): string {
+  if (!settings.autoSyncHistory) {
+    return "Disabled";
+  }
+
+  if (status.historySyncInProgress) {
+    const provider = status.historySyncProvider ?? "";
+    const progress =
+      typeof status.historySyncTotalCount === "number"
+        ? ` ${status.historySyncProcessedCount ?? 0}/${status.historySyncTotalCount}`
+        : "";
+    const skipped =
+      typeof status.historySyncSkippedCount === "number" && status.historySyncSkippedCount > 0
+        ? ` (${status.historySyncSkippedCount} skipped)`
+        : "";
+    return `Running ${provider}${progress}${skipped}`.trim();
+  }
+
+  if (status.historySyncLastCompletedAt) {
+    const count =
+      typeof status.historySyncLastConversationCount === "number"
+        ? `, ${status.historySyncLastConversationCount} conversations`
+        : "";
+    return `${status.historySyncLastResult ?? "success"} ${formatDate(status.historySyncLastCompletedAt)}${count}`;
+  }
+
+  return "Idle";
+}
+
+function formatProviderDriftAlert(alert?: ProviderDriftAlert | null): string {
+  if (!alert) {
+    return "None";
+  }
+
+  const headline = `${alert.provider}: ${alert.message}`;
+  const evidence = alert.evidence ? ` Evidence: ${alert.evidence}` : "";
+  return `${headline} ${formatDate(alert.detectedAt)}.${evidence}`.trim();
 }
 
 async function sendMessage<TResponse>(message: RuntimeMessage): Promise<TResponse> {
@@ -54,22 +95,14 @@ async function load(): Promise<void> {
     lastSession.textContent = status.lastSessionKey ?? "n/a";
   }
   if (lastError) {
-    lastError.textContent = status.lastError ?? "None";
+    lastError.textContent = status.historySyncLastError ?? status.lastError ?? "None";
   }
   if (historySync) {
-    if (status.historySyncInProgress) {
-      historySync.textContent = `Running ${status.historySyncProvider ?? ""}`.trim();
-    } else if (status.historySyncLastCompletedAt) {
-      const count =
-        typeof status.historySyncLastConversationCount === "number"
-          ? `, ${status.historySyncLastConversationCount} conversations`
-          : "";
-      historySync.textContent = `${status.historySyncLastResult ?? "success"} ${formatDate(
-        status.historySyncLastCompletedAt
-      )}${count}`;
-    } else {
-      historySync.textContent = settings.autoSyncHistory ? "Idle" : "Disabled";
-    }
+    historySync.textContent = formatHistorySync(settings, status);
+  }
+  if (providerDriftCard && providerDrift) {
+    providerDriftCard.hidden = !status.providerDriftAlert;
+    providerDrift.textContent = formatProviderDriftAlert(status.providerDriftAlert);
   }
 }
 
@@ -98,6 +131,16 @@ form?.addEventListener("submit", async (event) => {
     saveStatus.textContent = "Settings saved.";
   }
   await load();
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local" && areaName !== "sync") {
+    return;
+  }
+
+  if (changes["tsmc.status"] || changes["tsmc.settings"]) {
+    void load();
+  }
 });
 
 void load();

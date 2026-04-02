@@ -13,8 +13,12 @@ export function buildIngestPayload(
   rawCapture: CapturedNetworkEvent,
   syncState: SessionSyncState
 ): BackendIngestPayload | null {
+  const syncMode = rawCapture.captureMode === "full_snapshot" ? "full_snapshot" : "incremental";
   const seen = new Set(syncState.seenMessageIds);
-  const messages = snapshot.messages.filter((message) => !seen.has(message.id));
+  const messages =
+    syncMode === "full_snapshot"
+      ? snapshot.messages
+      : snapshot.messages.filter((message) => !seen.has(message.id));
   if (!messages.length) {
     return null;
   }
@@ -22,6 +26,7 @@ export function buildIngestPayload(
   return {
     provider: snapshot.provider,
     external_session_id: snapshot.externalSessionId,
+    sync_mode: syncMode,
     title: snapshot.title,
     source_url: snapshot.sourceUrl,
     captured_at: snapshot.capturedAt,
@@ -54,4 +59,3 @@ export function mergeSeenMessageIds(
   }
   return merged.slice(-limit);
 }
-

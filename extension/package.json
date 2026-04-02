@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite build --watch --mode development",
     "build": "vite build",
+    "debug:browser": "node scripts/manual-debug-browser.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run tests",
     "test:e2e": "pnpm build && playwright test"

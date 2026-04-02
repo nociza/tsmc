@@ -181,6 +181,17 @@ button {
   color: var(--alert);
 }
 
+.alert-card {
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(189, 93, 56, 0.24);
+  background: rgba(189, 93, 56, 0.08);
+}
+
+.alert-card .status-value {
+  color: var(--alert);
+}
+
 @media (max-width: 640px) {
   .shell {
     padding: 40px 16px 48px;

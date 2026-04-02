@@ -1,5 +1,6 @@
 export type ProviderName = "chatgpt" | "gemini" | "grok";
 export type MessageRole = "user" | "assistant" | "system" | "tool" | "unknown";
+export type CaptureMode = "incremental" | "full_snapshot";
 
 export interface CapturedBody {
   text?: string;
@@ -9,6 +10,8 @@ export interface CapturedBody {
 export interface CapturedNetworkEvent {
   source: "tsmc-network-observer";
   providerHint?: ProviderName;
+  captureMode?: CaptureMode;
+  historySyncRunId?: string;
   pageUrl: string;
   requestId: string;
   method: string;
@@ -47,12 +50,25 @@ export interface SessionSyncState {
   lastSyncedAt?: string;
 }
 
+export interface ProviderDriftAlert {
+  provider: ProviderName;
+  detectedAt: string;
+  pageUrl: string;
+  message: string;
+  evidence?: string;
+}
+
 export interface ProviderHistorySyncState {
   inProgress?: boolean;
   lastStartedAt?: string;
   lastCompletedAt?: string;
+  lastTopSessionId?: string;
   lastConversationCount?: number;
   lastPageUrl?: string;
+  processedCount?: number;
+  totalCount?: number;
+  skippedCount?: number;
+  lastDriftAlert?: ProviderDriftAlert | null;
 }
 
 export interface ExtensionSettings {
@@ -77,6 +93,10 @@ export interface SyncStatus {
   historySyncLastPageUrl?: string;
   historySyncLastResult?: "success" | "failed" | "unsupported";
   historySyncLastError?: string | null;
+  historySyncProcessedCount?: number;
+  historySyncTotalCount?: number;
+  historySyncSkippedCount?: number;
+  providerDriftAlert?: ProviderDriftAlert | null;
 }
 
 export interface PageVisitPayload {
@@ -84,12 +104,25 @@ export interface PageVisitPayload {
   pageUrl: string;
 }
 
+export interface HistorySyncTriggerPayload {
+  provider: ProviderName;
+  syncedSessionIds?: string[];
+  previousTopSessionId?: string;
+  refreshSessionIds?: string[];
+}
+
 export interface HistorySyncUpdate {
   provider: ProviderName;
   phase: "started" | "completed" | "failed" | "unsupported";
+  runId?: string;
   conversationCount?: number;
+  processedCount?: number;
+  totalCount?: number;
+  skippedCount?: number;
+  topSessionId?: string;
   pageUrl: string;
   message?: string;
+  providerDriftAlert?: ProviderDriftAlert | null;
 }
 
 export interface BackendIngestMessage {
@@ -104,6 +137,7 @@ export interface BackendIngestMessage {
 export interface BackendIngestPayload {
   provider: ProviderName;
   external_session_id: string;
+  sync_mode: CaptureMode;
   title?: string;
   source_url: string;
   captured_at: string;
@@ -115,7 +149,7 @@ export interface BackendIngestPayload {
 export type RuntimeMessage =
   | { type: "NETWORK_CAPTURE"; payload: CapturedNetworkEvent }
   | { type: "PAGE_VISIT"; payload: PageVisitPayload }
-  | { type: "TRIGGER_HISTORY_SYNC"; payload: { provider: ProviderName } }
+  | { type: "TRIGGER_HISTORY_SYNC"; payload: HistorySyncTriggerPayload }
   | { type: "HISTORY_SYNC_STATUS"; payload: HistorySyncUpdate }
   | { type: "GET_SETTINGS" }
   | { type: "SAVE_SETTINGS"; payload: Partial<ExtensionSettings> }

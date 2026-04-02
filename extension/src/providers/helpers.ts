@@ -20,11 +20,12 @@ export function safeJsonParse(text: string): unknown | null {
   }
 }
 
-export function extractStructuredCandidates(text?: string): unknown[] {
-  if (!text) {
+export function extractStructuredCandidates(value?: unknown): unknown[] {
+  if (typeof value !== "string" || !value) {
     return [];
   }
 
+  const text = value;
   const candidates: unknown[] = [];
   const direct = safeJsonParse(text);
   if (direct !== null) {

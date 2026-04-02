@@ -19,5 +19,5 @@ export function detectProviderFromUrl(url: string): ProviderName | null {
 }
 
 export function supportsProactiveHistorySync(provider: ProviderName): boolean {
-  return provider === "chatgpt" || provider === "gemini";
+  return provider === "chatgpt" || provider === "gemini" || provider === "grok";
 }

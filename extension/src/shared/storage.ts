@@ -21,15 +21,8 @@ export const defaultSettings: ExtensionSettings = {
   autoSyncHistory: true
 };
 
-export async function initializeStorage(): Promise<void> {
-  await getSettings();
-  await getStatus();
-}
-
-export async function getSettings(): Promise<ExtensionSettings> {
-  const stored = await chrome.storage.sync.get(SETTINGS_KEY);
-  const current = (stored[SETTINGS_KEY] ?? {}) as Partial<ExtensionSettings>;
-  const merged: ExtensionSettings = {
+function mergeSettings(current: Partial<ExtensionSettings>): ExtensionSettings {
+  return {
     backendUrl: current.backendUrl ?? defaultSettings.backendUrl,
     enabledProviders: {
       ...defaultSettings.enabledProviders,
@@ -37,8 +30,32 @@ export async function getSettings(): Promise<ExtensionSettings> {
     },
     autoSyncHistory: current.autoSyncHistory ?? defaultSettings.autoSyncHistory
   };
-  await chrome.storage.sync.set({ [SETTINGS_KEY]: merged });
-  return merged;
+}
+
+function shouldPersistSettings(current: Partial<ExtensionSettings>): boolean {
+  if (!current.backendUrl || current.autoSyncHistory === undefined || !current.enabledProviders) {
+    return true;
+  }
+
+  return (Object.keys(defaultSettings.enabledProviders) as ProviderName[]).some(
+    (provider) => current.enabledProviders?.[provider] === undefined
+  );
+}
+
+export async function initializeStorage(): Promise<void> {
+  const stored = await chrome.storage.sync.get(SETTINGS_KEY);
+  const current = (stored[SETTINGS_KEY] ?? {}) as Partial<ExtensionSettings>;
+  if (shouldPersistSettings(current)) {
+    await chrome.storage.sync.set({ [SETTINGS_KEY]: mergeSettings(current) });
+  }
+  await getSettings();
+  await getStatus();
+}
+
+export async function getSettings(): Promise<ExtensionSettings> {
+  const stored = await chrome.storage.sync.get(SETTINGS_KEY);
+  const current = (stored[SETTINGS_KEY] ?? {}) as Partial<ExtensionSettings>;
+  return mergeSettings(current);
 }
 
 export async function saveSettings(update: Partial<ExtensionSettings>): Promise<ExtensionSettings> {
@@ -60,16 +77,27 @@ export async function saveSettings(update: Partial<ExtensionSettings>): Promise<
 }
 
 export async function getSessionSyncState(sessionKey: string): Promise<SessionSyncState> {
-  const stored = await chrome.storage.local.get(SYNC_STATE_KEY);
-  const allStates = (stored[SYNC_STATE_KEY] ?? {}) as Record<string, SessionSyncState>;
+  const allStates = await getAllSessionSyncStates();
   return allStates[sessionKey] ?? { seenMessageIds: [] };
 }
 
-export async function saveSessionSyncState(sessionKey: string, state: SessionSyncState): Promise<void> {
+export async function getAllSessionSyncStates(): Promise<Record<string, SessionSyncState>> {
   const stored = await chrome.storage.local.get(SYNC_STATE_KEY);
-  const allStates = (stored[SYNC_STATE_KEY] ?? {}) as Record<string, SessionSyncState>;
+  return (stored[SYNC_STATE_KEY] ?? {}) as Record<string, SessionSyncState>;
+}
+
+export async function saveSessionSyncState(sessionKey: string, state: SessionSyncState): Promise<void> {
+  const allStates = await getAllSessionSyncStates();
   allStates[sessionKey] = state;
   await chrome.storage.local.set({ [SYNC_STATE_KEY]: allStates });
+}
+
+export async function getProviderSessionSyncStates(
+  provider: ProviderName
+): Promise<Record<string, SessionSyncState>> {
+  const prefix = `${provider}:`;
+  const allStates = await getAllSessionSyncStates();
+  return Object.fromEntries(Object.entries(allStates).filter(([sessionKey]) => sessionKey.startsWith(prefix)));
 }
 
 export async function getStatus(): Promise<SyncStatus> {
@@ -109,4 +137,3 @@ export async function saveProviderHistorySyncState(
   states[provider] = state;
   await chrome.storage.local.set({ [HISTORY_SYNC_KEY]: states });
 }
-

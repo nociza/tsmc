@@ -6,7 +6,7 @@ from collections.abc import Iterable
 
 from app.models import ChatMessage, MessageRole, SessionCategory
 from app.schemas.processing import ClassificationResult, IdeaResult, JournalResult, TripletResult
-from app.services.text import compact_lines, normalize_whitespace, truncate_text
+from app.services.text import compact_lines, normalize_whitespace, take_sentences, truncate_text
 
 
 JOURNAL_TERMS = {
@@ -63,6 +63,7 @@ ACTION_PATTERNS = (
     re.compile(r"\b(?:need to|should|must|todo|next step|remember to)\b(?P<rest>[^.!\n]+)", re.I),
     re.compile(r"\b(?:action item|follow up):\s*(?P<rest>[^.!\n]+)", re.I),
 )
+FALLBACK_ACTION_RE = re.compile(r"\b(?:next|try|consider|start)\b", re.I)
 
 TRIPLET_PATTERNS = (
     (re.compile(r"(?P<subject>[A-Za-z][A-Za-z0-9_.+\-/ ]{1,80}?)\s+uses\s+(?P<object>[A-Za-z][A-Za-z0-9_.+\-/ ]{1,80})"), "uses"),
@@ -135,8 +136,10 @@ def extract_action_items(messages: list[ChatMessage]) -> list[str]:
     if not items:
         assistant_texts = message_texts(messages, MessageRole.ASSISTANT)
         for line in assistant_texts[:3]:
-            if any(word in line.lower() for word in ("next", "try", "consider", "start")):
-                items.append(truncate_text(line, 120))
+            if FALLBACK_ACTION_RE.search(line):
+                candidate = take_sentences(line, 1)
+                if candidate:
+                    items.append(candidate)
     deduped: list[str] = []
     seen: set[str] = set()
     for item in items:
@@ -151,12 +154,16 @@ def extract_action_items(messages: list[ChatMessage]) -> list[str]:
 def heuristic_journal(messages: list[ChatMessage]) -> JournalResult:
     user_lines = message_texts(messages, MessageRole.USER)[:4]
     assistant_lines = message_texts(messages, MessageRole.ASSISTANT)[:2]
-    summary_bits = compact_lines(user_lines + assistant_lines)
-    summary = " ".join(summary_bits[:4])
+    summary_bits = compact_lines(
+        [
+            *(take_sentences(line, 1) for line in user_lines[:2]),
+            *(take_sentences(line, 2) for line in assistant_lines[:1]),
+        ]
+    )
+    summary = " ".join(summary_bits)
     if not summary:
         summary = "The session focused on personal context and planning."
-    entry = truncate_text(summary, 420)
-    return JournalResult(entry=entry, action_items=extract_action_items(messages))
+    return JournalResult(entry=summary, action_items=extract_action_items(messages))
 
 
 def heuristic_triplets(messages: list[ChatMessage]) -> list[TripletResult]:

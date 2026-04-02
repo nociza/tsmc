@@ -73,6 +73,17 @@ h1 {
   color: var(--alert);
 }
 
+.alert {
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(189, 93, 56, 0.24);
+  background: rgba(189, 93, 56, 0.08);
+}
+
+.alert .value {
+  color: var(--alert);
+}
+
 button {
   width: 100%;
   margin-top: 18px;
@@ -85,4 +96,3 @@ button {
   font-weight: 700;
   cursor: pointer;
 }
-

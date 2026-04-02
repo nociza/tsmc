@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -20,7 +20,8 @@ class IngestMessage(BaseModel):
 class IngestDiffRequest(BaseModel):
     provider: ProviderName
     external_session_id: str = Field(min_length=1, max_length=255)
-    title: str | None = Field(default=None, max_length=500)
+    sync_mode: Literal["incremental", "full_snapshot"] = "incremental"
+    title: str | None = None
     source_url: str | None = None
     captured_at: datetime | None = None
     custom_tags: list[str] = Field(default_factory=list)
@@ -34,4 +35,3 @@ class IngestResponse(BaseModel):
     new_message_count: int
     markdown_path: str | None = None
     processed: bool = False
-

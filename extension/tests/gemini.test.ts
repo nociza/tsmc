@@ -60,4 +60,52 @@ describe("GeminiScraper", () => {
     ]);
     expect(snapshot?.messages[1]?.parentId).toBe("msg-user-1");
   });
+
+  it("ignores non-string request and response text payloads without throwing", () => {
+    const scraper = new GeminiScraper();
+
+    const event = {
+      source: "tsmc-network-observer",
+      providerHint: "gemini",
+      pageUrl: "https://gemini.google.com/app/runtime-shape-test",
+      requestId: "req-gemini-runtime-shape",
+      method: "POST",
+      url: "/_/BardFrontendService/StreamGenerate?rpcids=runtimeShape",
+      capturedAt: "2026-04-01T12:00:00.000Z",
+      requestBody: {
+        text: { unexpected: true } as unknown as string
+      },
+      response: {
+        status: 200,
+        ok: true,
+        contentType: "application/json",
+        text: [{ not: "a string" }] as unknown as string,
+        json: {
+          conversationId: "c_runtime-shape-test",
+          messages: [
+            {
+              id: "msg-user-shape",
+              role: "user",
+              content: "Test prompt"
+            },
+            {
+              id: "msg-assistant-shape",
+              role: "assistant",
+              content: "Test reply"
+            }
+          ]
+        }
+      }
+    } satisfies CapturedNetworkEvent;
+
+    const snapshot = scraper.parse(event);
+
+    expect(() => scraper.parse(event)).not.toThrow();
+    expect(snapshot).not.toBeNull();
+    expect(snapshot?.messages).toHaveLength(2);
+    expect(snapshot?.messages.map((message) => message.id).sort()).toEqual([
+      "msg-assistant-shape",
+      "msg-user-shape"
+    ]);
+  });
 });

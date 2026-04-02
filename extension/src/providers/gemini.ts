@@ -66,8 +66,8 @@ function buildExplicitMessage(item: unknown, index: number, externalSessionId: s
   };
 }
 
-function parseRequestBody(body?: string): unknown[] {
-  if (!body) {
+function parseRequestBody(body?: unknown): unknown[] {
+  if (typeof body !== "string" || !body) {
     return [];
   }
 

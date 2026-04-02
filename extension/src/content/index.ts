@@ -1,11 +1,18 @@
-import type { CapturedNetworkEvent, HistorySyncUpdate, RuntimeMessage } from "../shared/types";
+import type { CapturedNetworkEvent, HistorySyncTriggerPayload, HistorySyncUpdate, RuntimeMessage } from "../shared/types";
 
 const CONTROL_SOURCE = "tsmc-history-control";
 const CONTROL_READY_SOURCE = "tsmc-history-control-ready";
 const MAIN_WORLD_READY_ATTRIBUTE = "data-tsmc-main-world-ready";
 
 let injectedReady = false;
-let pendingHistorySync = false;
+let pendingHistorySyncPayload: HistorySyncControlPayload | null = null;
+
+type HistorySyncControlPayload = {
+  type: "START_HISTORY_SYNC";
+  syncedSessionIds?: string[];
+  previousTopSessionId?: string;
+  refreshSessionIds?: string[];
+};
 
 function detectProviderFromUrl(url: string): "chatgpt" | "gemini" | "grok" | null {
   try {
@@ -38,9 +45,10 @@ window.addEventListener(
 
     if (event.data?.source === CONTROL_READY_SOURCE) {
       injectedReady = true;
-      if (pendingHistorySync) {
-        pendingHistorySync = false;
-        postControlMessage({ type: "START_HISTORY_SYNC" });
+      if (pendingHistorySyncPayload) {
+        const payload = pendingHistorySyncPayload;
+        pendingHistorySyncPayload = null;
+        postControlMessage(payload);
       }
       return;
     }
@@ -67,10 +75,10 @@ window.addEventListener(
   }
 );
 
-function postControlMessage(payload: { type: "START_HISTORY_SYNC" }): void {
+function postControlMessage(payload: HistorySyncControlPayload): void {
   injectedReady ||= isMainWorldReady();
   if (!injectedReady) {
-    pendingHistorySync = true;
+    pendingHistorySyncPayload = payload;
     return;
   }
 
@@ -97,35 +105,6 @@ function notifyPageVisit(): void {
     }
   };
   void chrome.runtime.sendMessage(message).catch(() => undefined);
-  void maybeStartHistorySync(provider);
-}
-
-async function maybeStartHistorySync(provider: NonNullable<ReturnType<typeof detectProviderFromUrl>>): Promise<void> {
-  try {
-    const settings = (await chrome.runtime.sendMessage({
-      type: "GET_SETTINGS"
-    } satisfies RuntimeMessage)) as
-      | {
-          enabledProviders?: Record<string, boolean>;
-          autoSyncHistory?: boolean;
-        }
-      | undefined;
-
-    if (!settings) {
-      return;
-    }
-
-    if (!settings.autoSyncHistory) {
-      return;
-    }
-    if (!settings.enabledProviders?.[provider]) {
-      return;
-    }
-
-    postControlMessage({ type: "START_HISTORY_SYNC" });
-  } catch {
-    // If settings are temporarily unavailable, passive capture still remains active.
-  }
 }
 
 function installNavigationObserver(): void {
@@ -156,7 +135,13 @@ function installNavigationObserver(): void {
 
 chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
   if (message.type === "TRIGGER_HISTORY_SYNC") {
-    postControlMessage({ type: "START_HISTORY_SYNC" });
+    const payload: HistorySyncTriggerPayload = message.payload;
+    postControlMessage({
+      type: "START_HISTORY_SYNC",
+      syncedSessionIds: payload.syncedSessionIds,
+      previousTopSessionId: payload.previousTopSessionId,
+      refreshSessionIds: payload.refreshSessionIds
+    });
     sendResponse({ ok: true });
     return false;
   }

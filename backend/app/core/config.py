@@ -23,7 +23,8 @@ class Settings(BaseSettings):
     google_api_key: str | None = None
     google_model: str = "gemini-2.5-flash"
     request_timeout_seconds: float = 30.0
-    cors_origins: list[str] = Field(default_factory=lambda: ["*"])
+    cors_origins: list[str] = Field(default_factory=list)
+    cors_origin_regex: str | None = r"chrome-extension://[a-p]{32}"
 
     model_config = SettingsConfigDict(
         env_prefix="TSMC_",
@@ -53,4 +54,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

@@ -60,3 +60,34 @@ def test_journal_summary_includes_action_items() -> None:
 
     result = heuristic_journal(messages)  # type: ignore[arg-type]
     assert "call the contractor" in " ".join(result.action_items).lower()
+
+
+def test_journal_summary_does_not_emit_ellipsis_for_long_assistant_message() -> None:
+    messages = [
+        StubMessage(MessageRole.USER, "What should I bring on a ski trip tomorrow?"),
+        StubMessage(
+            MessageRole.ASSISTANT,
+            (
+                "For your trip tomorrow, bring warm layers and waterproof gloves. "
+                "Check the snow forecast before you leave. "
+                "Pack sunscreen because the snow reflects UV strongly."
+            ),
+        ),
+    ]
+
+    result = heuristic_journal(messages)  # type: ignore[arg-type]
+    assert "…" not in result.entry
+    assert "For your trip tomorrow, bring warm layers and waterproof gloves." in result.entry
+
+
+def test_journal_fallback_action_items_do_not_match_partial_words() -> None:
+    messages = [
+        StubMessage(MessageRole.USER, "What should I bring on a ski trip tomorrow?"),
+        StubMessage(
+            MessageRole.ASSISTANT,
+            "Snow is starting in the late evening, but the current forecast is still uncertain.",
+        ),
+    ]
+
+    result = heuristic_journal(messages)  # type: ignore[arg-type]
+    assert not any("starting in the late evening" in item.lower() for item in result.action_items)

@@ -44,8 +44,28 @@ describe("diff helpers", () => {
       seenMessageIds: ["m1"]
     });
 
+    expect(payload?.sync_mode).toBe("incremental");
     expect(payload?.messages).toHaveLength(1);
     expect(payload?.messages[0]?.external_message_id).toBe("m2");
+  });
+
+  it("sends the full snapshot for proactive history captures", () => {
+    const payload = buildIngestPayload(
+      {
+        ...snapshot
+      },
+      {
+        ...rawCapture,
+        captureMode: "full_snapshot",
+        historySyncRunId: "history-run-1"
+      },
+      {
+        seenMessageIds: ["m1", "m2"]
+      }
+    );
+
+    expect(payload?.sync_mode).toBe("full_snapshot");
+    expect(payload?.messages.map((message) => message.external_message_id)).toEqual(["m1", "m2"]);
   });
 
   it("merges seen ids without duplicates", () => {
@@ -53,4 +73,3 @@ describe("diff helpers", () => {
     expect(merged).toEqual(["m1", "m2"]);
   });
 });
-

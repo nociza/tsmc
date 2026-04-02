@@ -19,28 +19,10 @@ class IngestService:
 
     async def ingest(self, payload: IngestDiffRequest) -> tuple[ChatSession, int]:
         session = await self._get_or_create_session(payload)
-        existing_ids = await self._existing_message_ids(session.id)
-        next_index = await self._next_sequence_index(session.id)
-        new_message_count = 0
-
-        for message in sorted(payload.messages, key=self._message_sort_key):
-            if message.external_message_id in existing_ids:
-                continue
-            self.db.add(
-                ChatMessage(
-                    session_id=session.id,
-                    external_message_id=message.external_message_id,
-                    parent_external_message_id=message.parent_external_message_id,
-                    role=message.role,
-                    content=message.content,
-                    sequence_index=next_index,
-                    occurred_at=message.occurred_at,
-                    raw_payload=message.raw_payload,
-                )
-            )
-            existing_ids.add(message.external_message_id)
-            next_index += 1
-            new_message_count += 1
+        if payload.sync_mode == "full_snapshot":
+            new_message_count = await self._ingest_full_snapshot(session.id, payload)
+        else:
+            new_message_count = await self._ingest_incremental(session.id, payload)
 
         if payload.raw_capture is not None or new_message_count:
             self.db.add(
@@ -57,6 +39,64 @@ class IngestService:
         session.markdown_path = str(markdown_path)
         await self.db.commit()
         return await self._load_session(session.id), new_message_count
+
+    async def _ingest_incremental(self, session_id: str, payload: IngestDiffRequest) -> int:
+        existing_ids = await self._existing_message_ids(session_id)
+        next_index = await self._next_sequence_index(session_id)
+        new_message_count = 0
+
+        for message in sorted(payload.messages, key=self._message_sort_key):
+            if message.external_message_id in existing_ids:
+                continue
+            self.db.add(
+                ChatMessage(
+                    session_id=session_id,
+                    external_message_id=message.external_message_id,
+                    parent_external_message_id=message.parent_external_message_id,
+                    role=message.role,
+                    content=message.content,
+                    sequence_index=next_index,
+                    occurred_at=message.occurred_at,
+                    raw_payload=message.raw_payload,
+                )
+            )
+            existing_ids.add(message.external_message_id)
+            next_index += 1
+            new_message_count += 1
+
+        return new_message_count
+
+    async def _ingest_full_snapshot(self, session_id: str, payload: IngestDiffRequest) -> int:
+        existing_messages = await self._existing_messages(session_id)
+        next_index = await self._next_sequence_index(session_id)
+        new_message_count = 0
+
+        for message in payload.messages:
+            existing = existing_messages.get(message.external_message_id)
+            if existing is not None:
+                existing.parent_external_message_id = message.parent_external_message_id
+                existing.role = message.role
+                existing.content = message.content
+                existing.occurred_at = message.occurred_at
+                existing.raw_payload = message.raw_payload
+                continue
+
+            self.db.add(
+                ChatMessage(
+                    session_id=session_id,
+                    external_message_id=message.external_message_id,
+                    parent_external_message_id=message.parent_external_message_id,
+                    role=message.role,
+                    content=message.content,
+                    sequence_index=next_index,
+                    occurred_at=message.occurred_at,
+                    raw_payload=message.raw_payload,
+                )
+            )
+            next_index += 1
+            new_message_count += 1
+
+        return new_message_count
 
     async def _get_or_create_session(self, payload: IngestDiffRequest) -> ChatSession:
         statement = select(ChatSession).where(
@@ -92,6 +132,14 @@ class IngestService:
         statement = select(ChatMessage.external_message_id).where(ChatMessage.session_id == session_id)
         result = await self.db.execute(statement)
         return set(result.scalars().all())
+
+    async def _existing_messages(self, session_id: str) -> dict[str, ChatMessage]:
+        statement = select(ChatMessage).where(ChatMessage.session_id == session_id)
+        result = await self.db.execute(statement)
+        return {
+            message.external_message_id: message
+            for message in result.scalars().all()
+        }
 
     async def _next_sequence_index(self, session_id: str) -> int:
         statement = select(func.max(ChatMessage.sequence_index)).where(ChatMessage.session_id == session_id)

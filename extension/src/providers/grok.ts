@@ -1,6 +1,7 @@
 import type { CapturedNetworkEvent, NormalizedMessage, NormalizedSessionSnapshot } from "../shared/types";
 import type { IProviderScraper } from "./provider";
 import {
+  coerceOccurredAt,
   collectStrings,
   dedupeMessages,
   extractStructuredCandidates,
@@ -18,6 +19,40 @@ type JsonRecord = Record<string, unknown>;
 
 function asRecord(value: unknown): JsonRecord | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
+}
+
+function buildExplicitMessage(item: unknown, index: number, externalSessionId: string): NormalizedMessage | null {
+  const record = asRecord(item);
+  if (!record) {
+    return null;
+  }
+
+  const role = normalizeRole(record.role ?? record.sender ?? record.author);
+  const content = flattenText(record.content ?? record.message ?? record.query ?? record.text ?? record.body);
+  if (!content) {
+    return null;
+  }
+
+  const explicitId = typeof record.id === "string" && record.id.trim() ? record.id.trim() : undefined;
+  const parentId =
+    typeof record.parentId === "string" && record.parentId.trim()
+      ? record.parentId.trim()
+      : typeof record.parentResponseId === "string" && record.parentResponseId.trim()
+        ? record.parentResponseId.trim()
+        : typeof record.parent_id === "string" && record.parent_id.trim()
+          ? record.parent_id.trim()
+          : typeof record.threadParentId === "string" && record.threadParentId.trim()
+            ? record.threadParentId.trim()
+            : undefined;
+
+  return {
+    id: explicitId ?? stableId("grok-msg", `${externalSessionId}:${role}:${index}:${content}`),
+    parentId,
+    role,
+    content,
+    occurredAt: coerceOccurredAt(record.occurredAt ?? record.occurred_at ?? record.createdAt ?? record.createTime),
+    raw: record
+  };
 }
 
 function buildGenericMessage(value: unknown): NormalizedMessage | null {
@@ -75,6 +110,29 @@ export class GrokScraper implements IProviderScraper {
       event.url.match(/conversations\/([^/?]+)/)?.[1] ??
       sessionIdFromPageUrl(event.pageUrl) ??
       stableId("grok-session", event.pageUrl);
+
+    const explicitMessages = dedupeMessages(
+      responseCandidates.flatMap((candidate) => {
+        const record = asRecord(candidate);
+        if (!record || !Array.isArray(record.messages)) {
+          return [];
+        }
+
+        return record.messages
+          .map((message, index) => buildExplicitMessage(message, index, externalSessionId))
+          .filter((message): message is NormalizedMessage => Boolean(message));
+      })
+    );
+    if (explicitMessages.length) {
+      return {
+        provider: this.provider,
+        externalSessionId,
+        title,
+        sourceUrl: event.pageUrl,
+        capturedAt: event.capturedAt,
+        messages: sortMessages(explicitMessages)
+      };
+    }
 
     for (const candidate of structured) {
       const record = asRecord(candidate);

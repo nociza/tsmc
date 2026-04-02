@@ -29,7 +29,7 @@ class ChatSession(TimestampMixin, Base):
         index=True,
     )
     external_session_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    title: Mapped[str | None] = mapped_column(String(500))
+    title: Mapped[str | None] = mapped_column(Text)
     source_url: Mapped[str | None] = mapped_column(Text)
     markdown_path: Mapped[str | None] = mapped_column(Text)
     category: Mapped[SessionCategory | None] = mapped_column(
@@ -60,4 +60,3 @@ class ChatSession(TimestampMixin, Base):
         back_populates="session",
         cascade="all, delete-orphan",
     )
-
