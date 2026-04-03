@@ -1,0 +1,2 @@
+class BrowserProxyServiceError(RuntimeError):
+    pass

@@ -5,9 +5,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes_openai import router as openai_router
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.db.session import init_db
+from app.services.browser_proxy.service import BrowserProxyService
 
 try:
     import uvloop
@@ -23,10 +25,15 @@ settings = get_settings()
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(app: FastAPI):
     settings.resolved_markdown_dir.mkdir(parents=True, exist_ok=True)
+    settings.resolved_browser_profile_dir.mkdir(parents=True, exist_ok=True)
     await init_db()
+    browser_proxy_service = BrowserProxyService(settings)
+    await browser_proxy_service.start()
+    app.state.browser_proxy_service = browser_proxy_service
     yield
+    await browser_proxy_service.close()
 
 
 app = FastAPI(
@@ -44,3 +51,4 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
+app.include_router(openai_router, prefix="/v1")

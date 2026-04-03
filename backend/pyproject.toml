@@ -10,6 +10,7 @@ dependencies = [
   "greenlet>=3.2.4",
   "httpx>=0.28.1",
   "orjson>=3.10.0",
+  "playwright>=1.58.0",
   "pwdlib[argon2]>=0.3.0",
   "pydantic-settings>=2.10.1",
   "sqlalchemy>=2.0.44",

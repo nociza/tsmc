@@ -22,6 +22,27 @@ tsmc config path
 tsmc doctor
 ```
 
+## Browser Proxy API
+
+TSMC exposes an OpenAI-compatible endpoint at `/v1/chat/completions`.
+
+Setup:
+
+```bash
+tsmc browser install
+tsmc browser login --provider chatgpt
+tsmc browser login --provider gemini
+tsmc browser login --provider grok
+```
+
+Then point your OpenAI client at `http://127.0.0.1:8000/v1` and use:
+
+- `browser-chatgpt`
+- `browser-gemini`
+- `browser-grok`
+
+Use `store=true` to send the proxy transcript through the normal TSMC ingest pipeline.
+
 ## Run In the Foreground
 
 ```bash

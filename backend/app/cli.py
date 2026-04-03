@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import getpass
 import json
+import subprocess
 import shutil
 import sys
 from importlib.metadata import PackageNotFoundError, version
@@ -32,8 +33,9 @@ from app.cli_service import (
     stream_service_logs,
     write_systemd_unit,
 )
-from app.models import APIToken, User
+from app.models import APIToken, ProviderName, User
 from app.models.base import Base
+from app.services.browser_proxy.service import BrowserProxyService
 from app.services.auth import create_api_token, ensure_admin_user, revoke_api_token
 
 
@@ -75,6 +77,11 @@ def load_effective_config(args: argparse.Namespace) -> tuple[CLIPaths, CLIConfig
         data_dir=getattr(args, "data_dir", None),
         markdown_dir=getattr(args, "markdown_dir", None),
         public_url=getattr(args, "public_url", None),
+        browser_profile_dir=getattr(args, "browser_profile_dir", None),
+        browser_headless=getattr(args, "browser_headless", None),
+        browser_channel=getattr(args, "browser_channel", None),
+        browser_executable_path=getattr(args, "browser_executable_path", None),
+        browser_timeout_seconds=getattr(args, "browser_timeout_seconds", None),
     )
     return paths, merged
 
@@ -119,6 +126,15 @@ def command_service_install(args: argparse.Namespace) -> int:
         config,
         data_dir=args.data_dir or config.data_dir,
         markdown_dir=args.markdown_dir or config.markdown_dir,
+        browser_profile_dir=args.browser_profile_dir or config.browser_profile_dir,
+        browser_headless=args.browser_headless if args.browser_headless is not None else config.browser_headless,
+        browser_channel=args.browser_channel if args.browser_channel is not None else config.browser_channel,
+        browser_executable_path=(
+            args.browser_executable_path if args.browser_executable_path is not None else config.browser_executable_path
+        ),
+        browser_timeout_seconds=(
+            args.browser_timeout_seconds if args.browser_timeout_seconds is not None else config.browser_timeout_seconds
+        ),
     )
 
     ensure_cli_directories(effective_config, paths)
@@ -140,6 +156,7 @@ def command_service_install(args: argparse.Namespace) -> int:
     print_kv("Data", effective_config.data_dir)
     print_kv("Markdown", effective_config.markdown_dir)
     print_kv("Database", effective_config.database_path)
+    print_kv("Browser Profile", effective_config.browser_profile_dir)
     linger_warning = maybe_warn_about_linger()
     if linger_warning:
         print()
@@ -174,6 +191,7 @@ def command_service_status(args: argparse.Namespace) -> int:
     print_kv("Data", config.data_dir)
     print_kv("Markdown", config.markdown_dir)
     print_kv("Database", config.database_path)
+    print_kv("Browser Profile", config.browser_profile_dir)
     return 0 if status.active else 1
 
 
@@ -241,6 +259,7 @@ def command_doctor(args: argparse.Namespace) -> int:
     print_kv("Config", paths.config_path)
     print_kv("Markdown", config.markdown_dir)
     print_kv("Database", config.database_path)
+    print_kv("Browser Profile", config.browser_profile_dir)
 
     if problems:
         print()
@@ -271,6 +290,13 @@ def command_config_show(args: argparse.Namespace) -> int:
         "processing": {
             "llm_backend": config.llm_backend,
         },
+        "browser": {
+            "profile_dir": str(config.browser_profile_dir),
+            "headless": config.browser_headless,
+            "channel": config.browser_channel,
+            "executable_path": config.browser_executable_path,
+            "timeout_seconds": config.browser_timeout_seconds,
+        },
         "service": {
             "name": config.service_name,
         },
@@ -288,6 +314,50 @@ def command_config_path(args: argparse.Namespace) -> int:
     print_kv("Data", config.data_dir)
     print_kv("Markdown", config.markdown_dir)
     print_kv("Database", config.database_path)
+    print_kv("Browser Profile", config.browser_profile_dir)
+    return 0
+
+
+def command_browser_install(_args: argparse.Namespace) -> int:
+    result = subprocess.run(
+        [sys.executable, "-m", "playwright", "install", "chromium"],
+        check=False,
+    )
+    if result.returncode != 0:
+        return int(result.returncode)
+    print("Installed Playwright Chromium.")
+    return 0
+
+
+def command_browser_login(args: argparse.Namespace) -> int:
+    paths, config = load_effective_config(args)
+    provider = ProviderName(args.provider)
+
+    async def run() -> dict[str, object]:
+        ensure_cli_directories(config, paths)
+        ensure_env_file(paths.env_path)
+        apply_runtime_environment(config, paths.env_path)
+        service = BrowserProxyService()
+        await service.start()
+        try:
+            handle = await service.open_login_browser(provider)
+            print(f"Opened {provider.value} in a managed browser profile.")
+            print_kv("Profile", handle.profile_dir)
+            print_kv("URL", handle.start_url)
+            print("Log in and verify the chat page loads, then press Enter here to close the browser.")
+            input()
+            await handle.context.close()
+            return {
+                "provider": provider.value,
+                "profile_dir": str(handle.profile_dir),
+                "start_url": handle.start_url,
+            }
+        finally:
+            await service.close()
+
+    payload = asyncio.run(run())
+    if args.json:
+        print_json(payload)
     return 0
 
 
@@ -444,6 +514,14 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--port", type=int)
     run_parser.add_argument("--data-dir", type=Path)
     run_parser.add_argument("--markdown-dir", type=Path)
+    run_parser.add_argument("--browser-profile-dir", type=Path)
+    run_parser.add_argument("--browser-channel")
+    run_parser.add_argument("--browser-executable-path")
+    run_parser.add_argument("--browser-timeout-seconds", type=float)
+    run_headless_group = run_parser.add_mutually_exclusive_group()
+    run_headless_group.add_argument("--browser-headless", dest="browser_headless", action="store_true")
+    run_headless_group.add_argument("--browser-headed", dest="browser_headless", action="store_false")
+    run_parser.set_defaults(browser_headless=None)
     run_parser.set_defaults(func=command_run)
 
     service_parser = subparsers.add_parser("service", help="Manage the TSMC background service.")
@@ -457,6 +535,14 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("--data-dir", type=Path)
     install_parser.add_argument("--markdown-dir", type=Path)
     install_parser.add_argument("--public-url")
+    install_parser.add_argument("--browser-profile-dir", type=Path)
+    install_parser.add_argument("--browser-channel")
+    install_parser.add_argument("--browser-executable-path")
+    install_parser.add_argument("--browser-timeout-seconds", type=float)
+    install_headless_group = install_parser.add_mutually_exclusive_group()
+    install_headless_group.add_argument("--browser-headless", dest="browser_headless", action="store_true")
+    install_headless_group.add_argument("--browser-headed", dest="browser_headless", action="store_false")
+    install_parser.set_defaults(browser_headless=None)
     install_parser.add_argument("--force", action="store_true")
     install_parser.set_defaults(func=command_service_install)
 
@@ -505,6 +591,15 @@ def build_parser() -> argparse.ArgumentParser:
     token_revoke_parser.add_argument("token_id")
     token_revoke_parser.add_argument("--json", action="store_true")
     token_revoke_parser.set_defaults(func=command_token_revoke)
+
+    browser_parser = subparsers.add_parser("browser", help="Manage the browser automation profile.")
+    browser_subparsers = browser_parser.add_subparsers(dest="browser_command", required=True)
+    browser_install_parser = browser_subparsers.add_parser("install", help="Install Playwright Chromium.")
+    browser_install_parser.set_defaults(func=command_browser_install)
+    browser_login_parser = browser_subparsers.add_parser("login", help="Open a managed browser to log into a provider.")
+    browser_login_parser.add_argument("--provider", choices=[provider.value for provider in ProviderName], required=True)
+    browser_login_parser.add_argument("--json", action="store_true")
+    browser_login_parser.set_defaults(func=command_browser_login)
 
     config_parser = subparsers.add_parser("config", help="Inspect TSMC configuration.")
     config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)

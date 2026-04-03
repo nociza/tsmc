@@ -16,6 +16,8 @@ class CapabilityFeatureSet(BaseModel):
     obsidian_vault: bool = True
     knowledge_graph_files: bool = True
     agent_api: bool = True
+    browser_proxy: bool = True
+    openai_compatible_api: bool = True
 
 
 class CapabilityStorage(BaseModel):

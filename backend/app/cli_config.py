@@ -13,6 +13,7 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
 DEFAULT_LLM_BACKEND = "auto"
 DEFAULT_SERVICE_NAME = "tsmc"
+DEFAULT_BROWSER_TIMEOUT_SECONDS = 120.0
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,11 @@ class CLIConfig:
     llm_backend: str
     public_url: str | None
     service_name: str
+    browser_profile_dir: Path
+    browser_headless: bool
+    browser_channel: str | None
+    browser_executable_path: str | None
+    browser_timeout_seconds: float
 
     @property
     def database_path(self) -> Path:
@@ -44,6 +50,11 @@ def default_cli_config(paths: CLIPaths | None = None) -> CLIConfig:
         llm_backend=DEFAULT_LLM_BACKEND,
         public_url=None,
         service_name=DEFAULT_SERVICE_NAME,
+        browser_profile_dir=resolved_paths.data_dir / "browser-profile",
+        browser_headless=True,
+        browser_channel="chromium",
+        browser_executable_path=None,
+        browser_timeout_seconds=DEFAULT_BROWSER_TIMEOUT_SECONDS,
     )
 
 
@@ -63,6 +74,13 @@ def render_cli_config(config: CLIConfig) -> str:
         [processing]
         llm_backend = "{config.llm_backend}"
 
+        [browser]
+        profile_dir = "{config.browser_profile_dir}"
+        headless = {str(config.browser_headless).lower()}
+        channel = "{config.browser_channel or ''}"
+        executable_path = "{config.browser_executable_path or ''}"
+        timeout_seconds = {config.browser_timeout_seconds}
+
         [service]
         name = "{config.service_name}"
         """
@@ -79,6 +97,7 @@ def parse_cli_config(config_path: Path, *, paths: CLIPaths | None = None) -> CLI
     server = raw.get("server", {})
     storage = raw.get("storage", {})
     processing = raw.get("processing", {})
+    browser = raw.get("browser", {})
     service = raw.get("service", {})
 
     data_dir = Path(storage.get("data_dir", default_config.data_dir)).expanduser().resolve()
@@ -92,6 +111,13 @@ def parse_cli_config(config_path: Path, *, paths: CLIPaths | None = None) -> CLI
         llm_backend=str(processing.get("llm_backend", default_config.llm_backend)),
         public_url=(str(server.get("public_url")).strip() if server.get("public_url") else None),
         service_name=str(service.get("name", default_config.service_name)),
+        browser_profile_dir=Path(browser.get("profile_dir", default_config.browser_profile_dir)).expanduser().resolve(),
+        browser_headless=bool(browser.get("headless", default_config.browser_headless)),
+        browser_channel=(str(browser.get("channel")).strip() if browser.get("channel") else default_config.browser_channel),
+        browser_executable_path=(
+            str(browser.get("executable_path")).strip() if browser.get("executable_path") else default_config.browser_executable_path
+        ),
+        browser_timeout_seconds=float(browser.get("timeout_seconds", default_config.browser_timeout_seconds)),
     )
 
 
@@ -121,6 +147,11 @@ def merge_cli_config(
     llm_backend: str | None = None,
     public_url: str | None = None,
     service_name: str | None = None,
+    browser_profile_dir: Path | None = None,
+    browser_headless: bool | None = None,
+    browser_channel: str | None = None,
+    browser_executable_path: str | None = None,
+    browser_timeout_seconds: float | None = None,
 ) -> CLIConfig:
     next_data_dir = (data_dir or base.data_dir).expanduser().resolve()
     if markdown_dir is not None:
@@ -129,6 +160,12 @@ def merge_cli_config(
         next_markdown_dir = (next_data_dir / "markdown").resolve()
     else:
         next_markdown_dir = base.markdown_dir.expanduser().resolve()
+    if browser_profile_dir is not None:
+        next_browser_profile_dir = browser_profile_dir.expanduser().resolve()
+    elif data_dir is not None and base.browser_profile_dir == (base.data_dir / "browser-profile"):
+        next_browser_profile_dir = (next_data_dir / "browser-profile").resolve()
+    else:
+        next_browser_profile_dir = base.browser_profile_dir.expanduser().resolve()
     return CLIConfig(
         host=host or base.host,
         port=port or base.port,
@@ -137,6 +174,13 @@ def merge_cli_config(
         llm_backend=llm_backend or base.llm_backend,
         public_url=public_url if public_url is not None else base.public_url,
         service_name=service_name or base.service_name,
+        browser_profile_dir=next_browser_profile_dir,
+        browser_headless=base.browser_headless if browser_headless is None else browser_headless,
+        browser_channel=base.browser_channel if browser_channel is None else browser_channel,
+        browser_executable_path=(
+            base.browser_executable_path if browser_executable_path is None else browser_executable_path
+        ),
+        browser_timeout_seconds=base.browser_timeout_seconds if browser_timeout_seconds is None else browser_timeout_seconds,
     )
 
 
@@ -145,6 +189,7 @@ def ensure_cli_directories(config: CLIConfig, paths: CLIPaths | None = None) -> 
     resolved_paths.config_dir.mkdir(parents=True, exist_ok=True)
     config.data_dir.mkdir(parents=True, exist_ok=True)
     config.markdown_dir.mkdir(parents=True, exist_ok=True)
+    config.browser_profile_dir.mkdir(parents=True, exist_ok=True)
     resolved_paths.systemd_user_dir.mkdir(parents=True, exist_ok=True)
 
 
@@ -193,3 +238,10 @@ def apply_runtime_environment(config: CLIConfig, env_path: Path) -> None:
     os.environ.setdefault("TSMC_LLM_BACKEND", config.llm_backend)
     if config.public_url:
         os.environ.setdefault("TSMC_PUBLIC_URL", config.public_url)
+    os.environ.setdefault("TSMC_BROWSER_PROFILE_DIR", str(config.browser_profile_dir))
+    os.environ.setdefault("TSMC_BROWSER_HEADLESS", "true" if config.browser_headless else "false")
+    if config.browser_channel:
+        os.environ.setdefault("TSMC_BROWSER_CHANNEL", config.browser_channel)
+    if config.browser_executable_path:
+        os.environ.setdefault("TSMC_BROWSER_EXECUTABLE_PATH", config.browser_executable_path)
+    os.environ.setdefault("TSMC_BROWSER_TIMEOUT_SECONDS", str(config.browser_timeout_seconds))

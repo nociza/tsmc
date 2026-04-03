@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     public_url: str | None = None
     minimum_extension_version: str = "0.2.0"
     llm_backend: str = "auto"
+    browser_profile_dir: Path = Field(default=BACKEND_DIR / "data" / "browser-profile")
+    browser_headless: bool = True
+    browser_channel: str | None = "chromium"
+    browser_executable_path: str | None = None
+    browser_timeout_seconds: float = 120.0
     openai_api_key: str | None = None
     openai_model: str = "gpt-5-mini"
     google_api_key: str | None = None
@@ -56,6 +61,12 @@ class Settings(BaseSettings):
     @property
     def resolved_vault_root(self) -> Path:
         return self.resolved_markdown_dir / self.vault_root_name
+
+    @property
+    def resolved_browser_profile_dir(self) -> Path:
+        if self.browser_profile_dir.is_absolute():
+            return self.browser_profile_dir
+        return (BACKEND_DIR / self.browser_profile_dir).resolve()
 
 
 @lru_cache

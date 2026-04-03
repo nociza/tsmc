@@ -43,6 +43,9 @@ def test_cli_config_round_trip(tmp_path: Path) -> None:
     assert parsed.data_dir == (tmp_path / "srv" / "tsmc").resolve()
     assert parsed.markdown_dir == (tmp_path / "srv" / "tsmc" / "markdown").resolve()
     assert parsed.public_url == "https://example.test/tsmc"
+    assert parsed.browser_profile_dir == (tmp_path / "srv" / "tsmc" / "browser-profile").resolve()
+    assert parsed.browser_headless is True
+    assert parsed.browser_channel == "chromium"
 
 
 def test_render_systemd_unit_uses_tsmc_run_command(tmp_path: Path) -> None:
@@ -55,6 +58,11 @@ def test_render_systemd_unit_uses_tsmc_run_command(tmp_path: Path) -> None:
         llm_backend="auto",
         public_url=None,
         service_name="tsmc",
+        browser_profile_dir=(tmp_path / "srv" / "tsmc" / "browser-profile").resolve(),
+        browser_headless=True,
+        browser_channel="chromium",
+        browser_executable_path=None,
+        browser_timeout_seconds=120.0,
     )
 
     unit = render_systemd_unit(config, paths)
