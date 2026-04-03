@@ -39,7 +39,11 @@ describe("storage", () => {
 
   it("does not write to chrome.storage.sync when reading settings", async () => {
     const sync = createStorageArea();
-    const local = createStorageArea();
+    const local = createStorageArea({
+      "tsmc.settings.secrets": {
+        backendToken: "secret-token"
+      }
+    });
     vi.stubGlobal("chrome", {
       storage: {
         sync,
@@ -50,7 +54,10 @@ describe("storage", () => {
     const { defaultSettings, getSettings } = await import("../src/shared/storage");
     const settings = await getSettings();
 
-    expect(settings).toEqual(defaultSettings);
+    expect(settings).toEqual({
+      ...defaultSettings,
+      backendToken: "secret-token"
+    });
     expect(sync.get).toHaveBeenCalledOnce();
     expect(sync.set).not.toHaveBeenCalled();
   });

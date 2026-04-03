@@ -24,6 +24,11 @@
             <input id="backend-url" name="backend-url" type="url" placeholder="http://127.0.0.1:8000" required />
           </label>
 
+          <label class="field">
+            <span>Backend App Token</span>
+            <input id="backend-token" name="backend-token" type="password" placeholder="tsmc_pat_..." />
+          </label>
+
           <label class="toggle toggle-wide">
             <input id="auto-sync-history" type="checkbox" />
             <span>
@@ -67,6 +72,10 @@
           <div>
             <p class="status-label">History Sync</p>
             <p id="history-sync" class="status-value">Idle</p>
+          </div>
+          <div>
+            <p class="status-label">Backend Validation</p>
+            <p id="backend-validation" class="status-value">Not validated yet</p>
           </div>
           <div id="provider-drift-card" class="alert-card" hidden>
             <p class="status-label">Provider Drift</p>

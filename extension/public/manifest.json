@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TSMC",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Capture AI chat deltas from supported providers and sync them to a local TSMC backend.",
   "permissions": ["storage"],
   "host_permissions": [
@@ -10,6 +10,7 @@
     "https://gemini.google.com/*",
     "https://grok.com/*",
     "https://x.com/*",
+    "https://*/*",
     "http://127.0.0.1/*",
     "http://localhost/*"
   ],

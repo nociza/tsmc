@@ -10,6 +10,9 @@ TSMC (Total Sync: My Context) is a local-first second-brain pipeline for web AI 
 - `backend/`: FastAPI app, persistence, Markdown export, LLM abstraction, processing pipelines, and tests.
 - `extension/`: MV3 Chrome extension built with TypeScript and Vite.
 - `docs/architecture.md`: implementation plan and system design.
+- `docs/agentic-system-design.md`: implemented machine-readable API, token, and vault design for agents.
+- `docs/cli-service-design.md`: proposed self-hosted CLI and Linux service UX.
+- `docs/product-platform-design.md`: proposed auth, dashboard, Obsidian, graph, and hosted product design.
 - `spec.md`: original project specification.
 
 ## Backend Quickstart
@@ -21,6 +24,15 @@ uv run dev
 ```
 
 The backend stores runtime data under `backend/data/`.
+
+For secure remote extension or agent access, bootstrap an admin and create an app token:
+
+```bash
+cd backend
+uv sync
+tsmc init-admin --username admin
+tsmc token create --name chrome-extension --scope ingest --scope read
+```
 
 Copy [`backend/.env.example`](/Volumes/Brookline/Projects/Personal/tsmc/backend/.env.example) to `backend/.env` if you want to enable OpenAI or Google-backed processing.
 
@@ -53,6 +65,7 @@ TSMC_E2E_BACKEND_URL=http://127.0.0.1:8000 pnpm test:e2e
 ```
 
 Load `extension/dist/` as an unpacked Chrome extension. Open the extension options page and point it at your FastAPI backend, usually `http://127.0.0.1:8000`.
+If you are using a remote backend, use `https://...` plus an app token from `tsmc token create`.
 
 ## Local Dev Loop
 

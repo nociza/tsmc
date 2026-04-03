@@ -14,7 +14,7 @@ from app.services.processing import SessionProcessor
 class IngestService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
-        self.exporter = MarkdownExporter()
+        self.exporter = MarkdownExporter(db)
         self.processor = SessionProcessor(db)
 
     async def ingest(self, payload: IngestDiffRequest) -> tuple[ChatSession, int]:

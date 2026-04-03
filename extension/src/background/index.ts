@@ -1,3 +1,4 @@
+import { buildBackendHeaders, validateBackendConfiguration } from "./backend";
 import { buildIngestPayload, mergeSeenMessageIds } from "./diff";
 import { providerRegistry } from "../providers/registry";
 import { supportsProactiveHistorySync } from "../shared/provider";
@@ -8,6 +9,7 @@ import {
   getSettings,
   getStatus,
   initializeStorage,
+  saveBackendValidation,
   saveProviderHistorySyncState,
   saveSessionSyncState,
   saveSettings,
@@ -15,10 +17,12 @@ import {
 } from "../shared/storage";
 import type {
   CapturedNetworkEvent,
+  ExtensionSettings,
   HistorySyncUpdate,
   ProviderDriftAlert,
   ProviderName,
   RuntimeMessage,
+  SaveSettingsResponse,
   SyncStatus
 } from "../shared/types";
 
@@ -121,7 +125,15 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
   }
 
   if (message.type === "SAVE_SETTINGS") {
-    void saveSettings(message.payload).then(sendResponse);
+    void enqueueTask(() => handleSaveSettings(message.payload))
+      .then(sendResponse)
+      .catch((error) => {
+        console.error("TSMC settings save failed", error);
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error)
+        } satisfies SaveSettingsResponse);
+      });
     return true;
   }
 
@@ -444,9 +456,7 @@ async function handleCapture(event: CapturedNetworkEvent): Promise<void> {
   try {
     response = await fetch(`${backendUrl}/api/v1/ingest/diff`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: buildBackendHeaders(settings),
       body: JSON.stringify(payload)
     });
   } catch (error) {
@@ -482,4 +492,45 @@ async function handleCapture(event: CapturedNetworkEvent): Promise<void> {
     lastSyncedMessageCount: payload.messages.length,
     autoSyncHistory: settings.autoSyncHistory
   });
+}
+
+async function handleSaveSettings(update: Partial<ExtensionSettings>): Promise<SaveSettingsResponse> {
+  const candidateSettings: ExtensionSettings = {
+    ...(await getSettings()),
+    ...update
+  };
+
+  try {
+    const { normalizedUrl, capabilities } = await validateBackendConfiguration(candidateSettings);
+    const saved = await saveSettings({
+      ...update,
+      backendUrl: normalizedUrl
+    });
+    await saveBackendValidation(capabilities, null);
+    await setExtensionStatus({
+      backendUrl: normalizedUrl,
+      autoSyncHistory: saved.autoSyncHistory,
+      backendValidatedAt: new Date().toISOString(),
+      backendProduct: capabilities.product,
+      backendVersion: capabilities.version,
+      backendAuthMode: capabilities.auth.mode,
+      backendValidationError: null,
+      backendVaultRoot: capabilities.storage.vault_root
+    });
+    return {
+      ok: true,
+      settings: saved,
+      capabilities
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await saveBackendValidation(null, message);
+    await setExtensionStatus({
+      backendValidationError: message
+    });
+    return {
+      ok: false,
+      error: message
+    };
+  }
 }

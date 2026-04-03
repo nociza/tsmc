@@ -70,7 +70,8 @@ async function load(): Promise<void> {
   ]);
 
   if (backendUrl) {
-    backendUrl.textContent = settings.backendUrl;
+    const suffix = status.backendVersion ? ` (${status.backendVersion})` : "";
+    backendUrl.textContent = `${settings.backendUrl}${suffix}`;
   }
   if (lastSuccess) {
     lastSuccess.textContent = formatDate(status.lastSuccessAt);

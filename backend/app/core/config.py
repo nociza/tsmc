@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     database_url: str = "sqlite+aiosqlite:///./data/tsmc.db"
     markdown_dir: Path = Field(default=BACKEND_DIR / "data" / "markdown")
+    vault_root_name: str = "TSMC"
+    public_url: str | None = None
+    minimum_extension_version: str = "0.2.0"
     llm_backend: str = "auto"
     openai_api_key: str | None = None
     openai_model: str = "gpt-5-mini"
@@ -49,6 +52,10 @@ class Settings(BaseSettings):
         if self.markdown_dir.is_absolute():
             return self.markdown_dir
         return (BACKEND_DIR / self.markdown_dir).resolve()
+
+    @property
+    def resolved_vault_root(self) -> Path:
+        return self.resolved_markdown_dir / self.vault_root_name
 
 
 @lru_cache

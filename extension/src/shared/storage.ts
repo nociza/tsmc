@@ -1,4 +1,5 @@
 import type {
+  BackendCapabilities,
   ExtensionSettings,
   ProviderHistorySyncState,
   ProviderName,
@@ -7,12 +8,14 @@ import type {
 } from "./types";
 
 const SETTINGS_KEY = "tsmc.settings";
+const SECRET_SETTINGS_KEY = "tsmc.settings.secrets";
 const SYNC_STATE_KEY = "tsmc.sync-state";
 const STATUS_KEY = "tsmc.status";
 const HISTORY_SYNC_KEY = "tsmc.history-sync";
 
 export const defaultSettings: ExtensionSettings = {
   backendUrl: "http://127.0.0.1:8000",
+  backendToken: "",
   enabledProviders: {
     chatgpt: true,
     gemini: true,
@@ -21,9 +24,13 @@ export const defaultSettings: ExtensionSettings = {
   autoSyncHistory: true
 };
 
-function mergeSettings(current: Partial<ExtensionSettings>): ExtensionSettings {
+function mergeSettings(
+  current: Partial<ExtensionSettings>,
+  secrets: Pick<ExtensionSettings, "backendToken">
+): ExtensionSettings {
   return {
     backendUrl: current.backendUrl ?? defaultSettings.backendUrl,
+    backendToken: secrets.backendToken ?? defaultSettings.backendToken,
     enabledProviders: {
       ...defaultSettings.enabledProviders,
       ...(current.enabledProviders ?? {})
@@ -46,29 +53,54 @@ export async function initializeStorage(): Promise<void> {
   const stored = await chrome.storage.sync.get(SETTINGS_KEY);
   const current = (stored[SETTINGS_KEY] ?? {}) as Partial<ExtensionSettings>;
   if (shouldPersistSettings(current)) {
-    await chrome.storage.sync.set({ [SETTINGS_KEY]: mergeSettings(current) });
+    await chrome.storage.sync.set({
+      [SETTINGS_KEY]: {
+        backendUrl: current.backendUrl ?? defaultSettings.backendUrl,
+        enabledProviders: {
+          ...defaultSettings.enabledProviders,
+          ...(current.enabledProviders ?? {})
+        },
+        autoSyncHistory: current.autoSyncHistory ?? defaultSettings.autoSyncHistory
+      }
+    });
   }
   await getSettings();
   await getStatus();
 }
 
 export async function getSettings(): Promise<ExtensionSettings> {
-  const stored = await chrome.storage.sync.get(SETTINGS_KEY);
+  const [stored, secrets] = await Promise.all([
+    chrome.storage.sync.get(SETTINGS_KEY),
+    chrome.storage.local.get(SECRET_SETTINGS_KEY)
+  ]);
   const current = (stored[SETTINGS_KEY] ?? {}) as Partial<ExtensionSettings>;
-  return mergeSettings(current);
+  const secretSettings = (secrets[SECRET_SETTINGS_KEY] ?? {}) as Pick<ExtensionSettings, "backendToken">;
+  return mergeSettings(current, secretSettings);
 }
 
 export async function saveSettings(update: Partial<ExtensionSettings>): Promise<ExtensionSettings> {
   const current = await getSettings();
   const next: ExtensionSettings = {
     backendUrl: update.backendUrl ?? current.backendUrl,
+    backendToken: update.backendToken ?? current.backendToken,
     enabledProviders: {
       ...current.enabledProviders,
       ...(update.enabledProviders ?? {})
     },
     autoSyncHistory: update.autoSyncHistory ?? current.autoSyncHistory
   };
-  await chrome.storage.sync.set({ [SETTINGS_KEY]: next });
+  await chrome.storage.sync.set({
+    [SETTINGS_KEY]: {
+      backendUrl: next.backendUrl,
+      enabledProviders: next.enabledProviders,
+      autoSyncHistory: next.autoSyncHistory
+    }
+  });
+  await chrome.storage.local.set({
+    [SECRET_SETTINGS_KEY]: {
+      backendToken: next.backendToken ?? ""
+    }
+  });
   await setStatus({
     backendUrl: next.backendUrl,
     autoSyncHistory: next.autoSyncHistory
@@ -120,6 +152,20 @@ export async function setStatus(update: Partial<SyncStatus>): Promise<SyncStatus
   } satisfies SyncStatus;
   await chrome.storage.local.set({ [STATUS_KEY]: next });
   return next;
+}
+
+export async function saveBackendValidation(
+  capabilities: BackendCapabilities | null,
+  error: string | null
+): Promise<SyncStatus> {
+  return setStatus({
+    backendValidatedAt: capabilities ? new Date().toISOString() : undefined,
+    backendProduct: capabilities?.product,
+    backendVersion: capabilities?.version,
+    backendAuthMode: capabilities?.auth.mode,
+    backendVaultRoot: capabilities?.storage.vault_root,
+    backendValidationError: error
+  });
 }
 
 export async function getProviderHistorySyncState(provider: ProviderName): Promise<ProviderHistorySyncState> {

@@ -74,8 +74,39 @@ export interface ProviderHistorySyncState {
 
 export interface ExtensionSettings {
   backendUrl: string;
+  backendToken?: string;
   enabledProviders: Record<ProviderName, boolean>;
   autoSyncHistory: boolean;
+}
+
+export interface BackendCapabilities {
+  product: string;
+  version: string;
+  api_prefix: string;
+  server_time: string;
+  auth: {
+    mode: "bootstrap_local" | "app_token";
+    token_verify_path: string;
+    local_unauthenticated_access: boolean;
+    remote_requires_token: boolean;
+  };
+  extension: {
+    min_version: string;
+    auth_mode: "bootstrap_local" | "app_token";
+  };
+  features: {
+    ingest: boolean;
+    search: boolean;
+    graph: boolean;
+    obsidian_vault: boolean;
+    knowledge_graph_files: boolean;
+    agent_api: boolean;
+  };
+  storage: {
+    markdown_root: string;
+    vault_root: string;
+    public_url?: string | null;
+  };
 }
 
 export interface SyncStatus {
@@ -98,6 +129,12 @@ export interface SyncStatus {
   historySyncTotalCount?: number;
   historySyncSkippedCount?: number;
   providerDriftAlert?: ProviderDriftAlert | null;
+  backendValidatedAt?: string;
+  backendProduct?: string;
+  backendVersion?: string;
+  backendAuthMode?: "bootstrap_local" | "app_token";
+  backendValidationError?: string | null;
+  backendVaultRoot?: string;
 }
 
 export interface PageVisitPayload {
@@ -147,6 +184,13 @@ export interface BackendIngestPayload {
   custom_tags: string[];
   raw_capture: CapturedNetworkEvent;
   messages: BackendIngestMessage[];
+}
+
+export interface SaveSettingsResponse {
+  ok: boolean;
+  settings?: ExtensionSettings;
+  capabilities?: BackendCapabilities;
+  error?: string;
 }
 
 export type RuntimeMessage =

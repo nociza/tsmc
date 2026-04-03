@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import AuthContext, require_scope
 from app.db.session import get_db_session
 from app.schemas.ingest import IngestDiffRequest, IngestResponse
 from app.services.ingest import IngestService
@@ -14,6 +15,7 @@ router = APIRouter()
 @router.post("/diff", response_model=IngestResponse, status_code=status.HTTP_202_ACCEPTED)
 async def ingest_diff(
     payload: IngestDiffRequest,
+    _: AuthContext = Depends(require_scope("ingest")),
     db: AsyncSession = Depends(get_db_session),
 ) -> IngestResponse:
     if not payload.messages:
@@ -27,4 +29,3 @@ async def ingest_diff(
         markdown_path=session.markdown_path,
         processed=session.last_processed_at is not None,
     )
-
