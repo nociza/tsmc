@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "TSMC",
+  "name": "SaveMyContext",
   "version": "0.2.0",
-  "description": "Capture AI chat deltas from supported providers and sync them to a local TSMC backend.",
+  "description": "Capture AI chat deltas from supported providers and sync them to a local SaveMyContext backend.",
   "permissions": ["storage", "tabs", "scripting", "activeTab"],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -43,12 +43,12 @@
         "default": "Ctrl+Shift+Y",
         "mac": "Command+Shift+Y"
       },
-      "description": "Open TSMC search and inject on the current page"
+      "description": "Open SaveMyContext search and inject on the current page"
     }
   },
   "options_page": "options.html",
   "action": {
-    "default_title": "TSMC",
+    "default_title": "SaveMyContext",
     "default_popup": "popup.html"
   }
 }

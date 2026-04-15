@@ -126,7 +126,7 @@ def build_raw_capture(
     accumulator: CaptureAccumulator,
 ) -> dict[str, Any]:
     return {
-        "source": "tsmc-browser-proxy",
+        "source": "savemycontext-browser-proxy",
         "provider": adapter.provider.value,
         "model": adapter.canonical_model,
         "source_url": source_url,

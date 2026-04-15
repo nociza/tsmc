@@ -11,7 +11,7 @@ from app.services.auth import create_api_token, ensure_admin_user, revoke_api_to
 
 @pytest.mark.asyncio
 async def test_admin_bootstrap_and_token_lifecycle(tmp_path) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-auth.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-auth.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
@@ -33,7 +33,7 @@ async def test_admin_bootstrap_and_token_lifecycle(tmp_path) -> None:
             name="chrome-extension",
             scopes=["ingest", "read"],
         )
-        assert created.plain_text.startswith("tsmc_pat_")
+        assert created.plain_text.startswith("savemycontext_pat_")
         assert created.token.scopes == ["ingest", "read"]
 
     async with session_factory() as session:

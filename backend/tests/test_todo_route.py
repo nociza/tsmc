@@ -14,13 +14,13 @@ from app.services.todo import TodoListService
 
 @pytest.mark.asyncio
 async def test_todo_route_returns_shared_document(tmp_path, monkeypatch) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-todo-route.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-todo-route.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
-    monkeypatch.setenv("TSMC_MARKDOWN_DIR", str(tmp_path / "markdown"))
+    monkeypatch.setenv("SAVEMYCONTEXT_MARKDOWN_DIR", str(tmp_path / "markdown"))
     get_settings.cache_clear()
     try:
         todo_service = TodoListService()

@@ -10,11 +10,11 @@ import {
   type HistorySyncControlPayload
 } from "./history-shared";
 
-const OBSERVER_FLAG = "__TSMC_NETWORK_OBSERVER__";
-const CONTROL_SOURCE = "tsmc-history-control";
-const CONTROL_READY_SOURCE = "tsmc-history-control-ready";
-const PROXY_RESULT_SOURCE = "tsmc-proxy-result";
-const MAIN_WORLD_READY_ATTRIBUTE = "data-tsmc-main-world-ready";
+const OBSERVER_FLAG = "__SAVEMYCONTEXT_NETWORK_OBSERVER__";
+const CONTROL_SOURCE = "savemycontext-history-control";
+const CONTROL_READY_SOURCE = "savemycontext-history-control-ready";
+const PROXY_RESULT_SOURCE = "savemycontext-proxy-result";
+const MAIN_WORLD_READY_ATTRIBUTE = "data-savemycontext-main-world-ready";
 const INTERESTING_PATH =
   /backend-api|conversation|conversations|BardFrontendService|StreamGenerate|batchexecute|app-chat|grok|chat/i;
 const CHATGPT_HISTORY_PAGE_LIMIT = 100;
@@ -23,8 +23,8 @@ const CHATGPT_HISTORY_DETAIL_CONCURRENCY = 4;
 const nativeFetch = window.fetch.bind(window);
 
 interface TrackedXHR extends XMLHttpRequest {
-  __tsmcMethod?: string;
-  __tsmcUrl?: string;
+  __savemycontextMethod?: string;
+  __savemycontextUrl?: string;
 }
 
 interface HistoryCandidates {
@@ -98,12 +98,12 @@ function shouldCapture(url: string): boolean {
 function postCapture(capture: Omit<CapturedNetworkEvent, "source">): void {
   const payload = {
     ...capture,
-    source: "tsmc-network-observer"
+    source: "savemycontext-network-observer"
   } satisfies CapturedNetworkEvent;
   observeProxyCapture(payload);
   window.postMessage(
     {
-      source: "tsmc-network-observer",
+      source: "savemycontext-network-observer",
       payload
     },
     window.location.origin
@@ -113,7 +113,7 @@ function postCapture(capture: Omit<CapturedNetworkEvent, "source">): void {
 function postHistorySyncStatus(update: HistorySyncUpdate): void {
   window.postMessage(
     {
-      source: "tsmc-history-sync",
+      source: "savemycontext-history-sync",
       payload: update
     },
     window.location.origin
@@ -253,8 +253,8 @@ function patchXHR(): void {
     username?: string | null,
     password?: string | null
   ): void {
-    this.__tsmcMethod = method;
-    this.__tsmcUrl = String(url);
+    this.__savemycontextMethod = method;
+    this.__savemycontextUrl = String(url);
     return nativeOpen.call(this, method, url, async ?? true, username ?? null, password ?? null);
   };
 
@@ -262,8 +262,8 @@ function patchXHR(): void {
     this: TrackedXHR,
     body?: Document | XMLHttpRequestBodyInit | null
   ): void {
-    const url = this.__tsmcUrl;
-    const method = this.__tsmcMethod ?? "GET";
+    const url = this.__savemycontextUrl;
+    const method = this.__savemycontextMethod ?? "GET";
     const requestBodyPromise = serializeBody(body);
 
     if (url && shouldCapture(url)) {
@@ -592,7 +592,7 @@ window.addEventListener("message", (event: MessageEvent<{ source?: string; paylo
           payload: {
             requestId: payload.requestId,
             ok: false,
-            error: "TSMC proxy prompt can only run on a supported provider page."
+            error: "SaveMyContext proxy prompt can only run on a supported provider page."
           }
         },
         window.location.origin

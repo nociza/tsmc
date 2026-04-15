@@ -16,6 +16,7 @@ from app.services.auth import hash_api_token_secret
 
 security = HTTPBearer(auto_error=False)
 LOCAL_CLIENT_HOSTS = {"127.0.0.1", "::1", "localhost"}
+TOKEN_PREFIX = "savemycontext_"
 
 
 @dataclass(frozen=True)
@@ -52,7 +53,7 @@ async def authenticate_bearer_token(
 ) -> AuthContext | None:
     if credentials and credentials.scheme.lower() == "bearer":
         token_value = credentials.credentials.strip()
-        if not token_value.startswith("tsmc_"):
+        if not token_value.startswith(TOKEN_PREFIX):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token format.")
 
         _, _, token_id, secret = token_value.split("_", 3) if token_value.count("_") >= 3 else ("", "", "", "")
@@ -91,7 +92,7 @@ async def require_bearer_token_context(
 ) -> AuthContext:
     context = await authenticate_bearer_token(request, credentials, db)
     if context is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="A TSMC app token is required.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="A SaveMyContext app token is required.")
     return context
 
 
@@ -114,7 +115,7 @@ async def resolve_auth_context(
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="A TSMC app token is required for non-local access.",
+        detail="A SaveMyContext app token is required for non-local access.",
     )
 
 

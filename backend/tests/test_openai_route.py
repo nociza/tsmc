@@ -32,7 +32,7 @@ class FakeBrowserProxyService:
 
 @pytest.mark.asyncio
 async def test_openai_compatible_models_route_is_disabled_by_default(tmp_path, monkeypatch) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-openai-models-route-disabled.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-openai-models-route-disabled.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
@@ -59,13 +59,13 @@ async def test_openai_compatible_models_route_is_disabled_by_default(tmp_path, m
 
 @pytest.mark.asyncio
 async def test_openai_compatible_models_route_lists_all_supported_models(tmp_path, monkeypatch) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-openai-models-route.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-openai-models-route.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
-    monkeypatch.setenv("TSMC_EXPERIMENTAL_BROWSER_AUTOMATION", "true")
+    monkeypatch.setenv("SAVEMYCONTEXT_EXPERIMENTAL_BROWSER_AUTOMATION", "true")
     get_settings.cache_clear()
     app = FastAPI()
     app.include_router(openai_router, prefix="/v1")
@@ -108,13 +108,13 @@ async def test_openai_compatible_route_returns_chat_completion_shape(
     expected_provider: str,
     monkeypatch,
 ) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-openai-route.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-openai-route.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
-    monkeypatch.setenv("TSMC_EXPERIMENTAL_BROWSER_AUTOMATION", "true")
+    monkeypatch.setenv("SAVEMYCONTEXT_EXPERIMENTAL_BROWSER_AUTOMATION", "true")
     get_settings.cache_clear()
     app = FastAPI()
     app.include_router(openai_router, prefix="/v1")
@@ -143,8 +143,8 @@ async def test_openai_compatible_route_returns_chat_completion_shape(
     assert payload["object"] == "chat.completion"
     assert payload["choices"][0]["message"]["role"] == "assistant"
     assert payload["choices"][0]["message"]["content"] == "Proxy reply from the fake browser service."
-    assert payload["tsmc"]["provider"] == expected_provider
-    assert payload["tsmc"]["store"] is False
+    assert payload["savemycontext"]["provider"] == expected_provider
+    assert payload["savemycontext"]["store"] is False
 
     await engine.dispose()
     get_settings.cache_clear()

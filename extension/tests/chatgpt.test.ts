@@ -7,7 +7,7 @@ describe("ChatGPTScraper", () => {
   it("extracts messages from conversation mapping payloads", () => {
     const scraper = new ChatGPTScraper();
     const event: CapturedNetworkEvent = {
-      source: "tsmc-network-observer",
+      source: "savemycontext-network-observer",
       providerHint: "chatgpt",
       pageUrl: "https://chatgpt.com/c/abc123",
       requestId: "req-1",

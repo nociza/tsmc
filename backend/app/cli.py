@@ -38,7 +38,8 @@ from app.models.base import Base
 from app.services.auth import create_api_token, ensure_admin_user, revoke_api_token
 
 
-PACKAGE_NAME = "tsmc-server"
+PACKAGE_NAME = "savemycontext"
+CLI_CONFIG_PATH_ENV = "SAVEMYCONTEXT_CLI_CONFIG_PATH"
 
 
 def package_version() -> str:
@@ -57,7 +58,7 @@ def resolve_cli_paths(config_path: Path | None = None) -> CLIPaths:
     return CLIPaths(
         config_dir=resolved_config_path.parent,
         config_path=resolved_config_path,
-        env_path=resolved_config_path.parent / "tsmc.env",
+        env_path=resolved_config_path.parent / "savemycontext.env",
         data_dir=defaults.data_dir,
         markdown_dir=defaults.markdown_dir,
         database_path=defaults.database_path,
@@ -97,7 +98,7 @@ def print_json(payload: object) -> None:
 
 
 async def open_cli_session(config: CLIConfig, paths: CLIPaths):
-    os.environ["TSMC_CLI_CONFIG_PATH"] = str(paths.config_path)
+    os.environ[CLI_CONFIG_PATH_ENV] = str(paths.config_path)
     ensure_cli_directories(config, paths)
     ensure_env_file(paths.env_path)
     apply_runtime_environment(config, paths.env_path)
@@ -110,7 +111,7 @@ async def open_cli_session(config: CLIConfig, paths: CLIPaths):
 
 def command_run(args: argparse.Namespace) -> int:
     paths, config = load_effective_config(args)
-    os.environ["TSMC_CLI_CONFIG_PATH"] = str(paths.config_path)
+    os.environ[CLI_CONFIG_PATH_ENV] = str(paths.config_path)
     ensure_cli_directories(config, paths)
     ensure_env_file(paths.env_path)
     apply_runtime_environment(config, paths.env_path)
@@ -152,7 +153,7 @@ def command_service_install(args: argparse.Namespace) -> int:
     if args.start:
         service_control("start", effective_config.service_name)
 
-    print("TSMC service installed.")
+    print("SaveMyContext service installed.")
     print_kv("Service", f"{effective_config.service_name}.service")
     print_kv("URL", f"http://{effective_config.host}:{effective_config.port}")
     print_kv("Config", paths.config_path)
@@ -234,10 +235,10 @@ def command_service_uninstall(args: argparse.Namespace) -> int:
             shutil.rmtree(paths.config_dir)
         if config.data_dir.exists():
             shutil.rmtree(config.data_dir)
-        print("Removed TSMC service, config, and data.")
+        print("Removed SaveMyContext service, config, and data.")
         return 0
 
-    print("Removed TSMC service. Config and data were kept.")
+    print("Removed SaveMyContext service. Config and data were kept.")
     print_kv("Config", paths.config_dir)
     print_kv("Data", config.data_dir)
     return 0
@@ -499,11 +500,11 @@ def command_token_revoke(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="tsmc", description="TSMC backend service manager")
-    parser.add_argument("--config", type=Path, help="Path to the TSMC config.toml file.")
+    parser = argparse.ArgumentParser(prog="savemycontext", description="SaveMyContext backend service manager")
+    parser.add_argument("--config", type=Path, help="Path to the SaveMyContext config.toml file.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    run_parser = subparsers.add_parser("run", help="Run the TSMC backend in the foreground.")
+    run_parser = subparsers.add_parser("run", help="Run the SaveMyContext backend in the foreground.")
     run_parser.add_argument("--host")
     run_parser.add_argument("--port", type=int)
     run_parser.add_argument("--data-dir", type=Path)
@@ -521,10 +522,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.set_defaults(browser_headless=None)
     run_parser.set_defaults(func=command_run)
 
-    service_parser = subparsers.add_parser("service", help="Manage the TSMC background service.")
+    service_parser = subparsers.add_parser("service", help="Manage the SaveMyContext background service.")
     service_subparsers = service_parser.add_subparsers(dest="service_command", required=True)
 
-    install_parser = service_subparsers.add_parser("install", help="Install the TSMC systemd user service.")
+    install_parser = service_subparsers.add_parser("install", help="Install the SaveMyContext systemd user service.")
     install_parser.add_argument("--start", action="store_true")
     install_parser.add_argument("--enable", action="store_true")
     install_parser.add_argument("--host")
@@ -547,33 +548,33 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser.set_defaults(func=command_service_install)
 
     for action in ["start", "stop", "restart"]:
-        action_parser = service_subparsers.add_parser(action, help=f"{action.title()} the TSMC service.")
+        action_parser = service_subparsers.add_parser(action, help=f"{action.title()} the SaveMyContext service.")
         action_parser.set_defaults(func=command_service_control, action=action)
 
-    status_parser = service_subparsers.add_parser("status", help="Show TSMC service status.")
+    status_parser = service_subparsers.add_parser("status", help="Show SaveMyContext service status.")
     status_parser.set_defaults(func=command_service_status)
 
-    logs_parser = service_subparsers.add_parser("logs", help="Show TSMC service logs.")
+    logs_parser = service_subparsers.add_parser("logs", help="Show SaveMyContext service logs.")
     logs_parser.add_argument("-f", "--follow", action="store_true")
     logs_parser.add_argument("-n", "--lines", type=int, default=100)
     logs_parser.add_argument("--since")
     logs_parser.set_defaults(func=command_service_logs)
 
-    uninstall_parser = service_subparsers.add_parser("uninstall", help="Uninstall the TSMC service.")
+    uninstall_parser = service_subparsers.add_parser("uninstall", help="Uninstall the SaveMyContext service.")
     uninstall_parser.add_argument("--purge-data", action="store_true")
     uninstall_parser.set_defaults(func=command_service_uninstall)
 
     doctor_parser = subparsers.add_parser("doctor", help="Run basic health checks.")
     doctor_parser.set_defaults(func=command_doctor)
 
-    init_admin_parser = subparsers.add_parser("init-admin", help="Create the first TSMC admin user.")
+    init_admin_parser = subparsers.add_parser("init-admin", help="Create the first SaveMyContext admin user.")
     init_admin_parser.add_argument("--username", default="admin")
     init_admin_parser.add_argument("--password")
     init_admin_parser.add_argument("--force", action="store_true")
     init_admin_parser.add_argument("--json", action="store_true")
     init_admin_parser.set_defaults(func=command_init_admin)
 
-    token_parser = subparsers.add_parser("token", help="Manage TSMC API tokens.")
+    token_parser = subparsers.add_parser("token", help="Manage SaveMyContext API tokens.")
     token_subparsers = token_parser.add_subparsers(dest="token_command", required=True)
 
     token_create_parser = token_subparsers.add_parser("create", help="Create an API token.")
@@ -601,14 +602,14 @@ def build_parser() -> argparse.ArgumentParser:
     browser_login_parser.add_argument("--json", action="store_true")
     browser_login_parser.set_defaults(func=command_browser_login)
 
-    config_parser = subparsers.add_parser("config", help="Inspect TSMC configuration.")
+    config_parser = subparsers.add_parser("config", help="Inspect SaveMyContext configuration.")
     config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
     config_show_parser = config_subparsers.add_parser("show", help="Show effective config.")
     config_show_parser.set_defaults(func=command_config_show)
     config_path_parser = config_subparsers.add_parser("path", help="Show important config and data paths.")
     config_path_parser.set_defaults(func=command_config_path)
 
-    version_parser = subparsers.add_parser("version", help="Show the installed TSMC version.")
+    version_parser = subparsers.add_parser("version", help="Show the installed SaveMyContext version.")
     version_parser.set_defaults(func=lambda _args: print(package_version()) or 0)
 
     return parser

@@ -28,7 +28,7 @@ async def capabilities(db: AsyncSession = Depends(get_db_session)) -> Capability
     )
     auth_mode = "app_token" if active_tokens else "bootstrap_local"
     return CapabilityResponse(
-        product="tsmc-server",
+        product="savemycontext",
         version=get_app_version(),
         api_prefix=settings.api_v1_prefix,
         server_time=utcnow(),

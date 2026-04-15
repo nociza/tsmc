@@ -1,7 +1,7 @@
 [project]
-name = "tsmc-server"
+name = "savemycontext"
 version = "0.2.0"
-description = "Self-hosted FastAPI backend and Linux service CLI for TSMC"
+description = "Self-hosted FastAPI backend and Linux service CLI for SaveMyContext"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -20,7 +20,7 @@ dependencies = [
 
 [project.scripts]
 dev = "app.dev:main"
-tsmc = "app.cli:main"
+savemycontext = "app.cli:main"
 
 [dependency-groups]
 dev = [

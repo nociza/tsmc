@@ -1,8 +1,8 @@
-# TSMC Product Platform Design
+# SaveMyContext Product Platform Design
 
 ## Summary
 
-This document proposes how TSMC evolves from a local developer tool into a secure self-hosted product with:
+This document proposes how SaveMyContext evolves from a local developer tool into a secure self-hosted product with:
 
 - a background backend service
 - secure remote sync from the Chrome extension
@@ -167,7 +167,7 @@ Example shape:
 
 ```json
 {
-  "product": "tsmc-server",
+  "product": "savemycontext",
   "version": "0.2.0",
   "extension": {
     "min_version": "0.2.0",
@@ -188,7 +188,7 @@ Example shape:
 2. Extension calls `/api/v1/meta/capabilities`.
 3. Extension verifies:
    - valid JSON
-   - product matches TSMC
+   - product matches SaveMyContext
    - version compatibility
    - HTTPS if remote
 4. If auth is required:
@@ -233,7 +233,7 @@ Add:
 Recommended UX:
 
 ```bash
-tsmc init-admin
+savemycontext init-admin
 ```
 
 This should:
@@ -252,7 +252,7 @@ The Markdown output should not just be transcript dumps. It should become a real
 
 ```text
 Vault/
-  TSMC/
+  SaveMyContext/
     Journal/
     Factual/
     Ideas/
@@ -286,12 +286,12 @@ Example front matter:
 
 ```yaml
 ---
-id: tsmc-session-123
+id: savemycontext-session-123
 provider: gemini
 external_session_id: u1__abc123
 category: factual
 tags:
-  - tsmc
+  - savemycontext
   - factual
 captured_at: 2026-04-02T20:00:00Z
 updated_at: 2026-04-02T20:00:10Z
@@ -332,13 +332,13 @@ Example:
 
 ## Facts
 
-- SQLite | is used by | TSMC
+- SQLite | is used by | SaveMyContext
 - SQLite | stores | chat sessions
 
 ## Source Sessions
 
-- [[TSMC Session gemini u1__abc123]]
-- [[TSMC Session chatgpt xyz987]]
+- [[SaveMyContext Session gemini u1__abc123]]
+- [[SaveMyContext Session chatgpt xyz987]]
 ```
 
 ### Graph index notes
@@ -515,22 +515,22 @@ The user should not have to think in terms of separate frontend and backend daem
 
 ### New commands
 
-- `tsmc init-admin`
-- `tsmc user create`
-- `tsmc user reset-password`
-- `tsmc token create --name chrome-extension`
-- `tsmc token revoke <id>`
-- `tsmc vault init`
-- `tsmc vault link --path /path/to/ObsidianVault`
-- `tsmc dashboard status`
+- `savemycontext init-admin`
+- `savemycontext user create`
+- `savemycontext user reset-password`
+- `savemycontext token create --name chrome-extension`
+- `savemycontext token revoke <id>`
+- `savemycontext vault init`
+- `savemycontext vault link --path /path/to/ObsidianVault`
+- `savemycontext dashboard status`
 
-### `tsmc vault init`
+### `savemycontext vault init`
 
-Creates a managed vault structure if the user wants TSMC to own the vault.
+Creates a managed vault structure if the user wants SaveMyContext to own the vault.
 
-### `tsmc vault link`
+### `savemycontext vault link`
 
-Links TSMC output into an existing Obsidian vault path if the user already has one.
+Links SaveMyContext output into an existing Obsidian vault path if the user already has one.
 
 This is the more important path for the target user.
 
@@ -555,13 +555,13 @@ Recommended:
 CLI direction:
 
 ```bash
-tsmc service install --start
-tsmc init-admin
-tsmc token create --name chrome-extension
-tsmc gateway enable --domain notes.example.com
+savemycontext service install --start
+savemycontext init-admin
+savemycontext token create --name chrome-extension
+savemycontext gateway enable --domain notes.example.com
 ```
 
-`tsmc gateway enable` is a phase-2 command, not necessarily a first implementation target.
+`savemycontext gateway enable` is a phase-2 command, not necessarily a first implementation target.
 
 ## Product Security Requirements
 

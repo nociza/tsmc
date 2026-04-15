@@ -26,15 +26,15 @@ class CLIPaths:
 
 
 def default_cli_paths() -> CLIPaths:
-    config_dir = xdg_config_home() / "tsmc"
-    data_dir = xdg_data_home() / "tsmc"
+    config_dir = xdg_config_home() / "savemycontext"
+    data_dir = xdg_data_home() / "savemycontext"
     return CLIPaths(
         config_dir=config_dir,
         config_path=config_dir / "config.toml",
-        env_path=config_dir / "tsmc.env",
+        env_path=config_dir / "savemycontext.env",
         data_dir=data_dir,
         markdown_dir=data_dir / "markdown",
-        database_path=data_dir / "tsmc.db",
+        database_path=data_dir / "savemycontext.db",
         systemd_user_dir=xdg_config_home() / "systemd" / "user",
-        unit_path=xdg_config_home() / "systemd" / "user" / "tsmc.service",
+        unit_path=xdg_config_home() / "systemd" / "user" / "savemycontext.service",
     )

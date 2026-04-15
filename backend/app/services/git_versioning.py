@@ -39,7 +39,7 @@ class GitVersioningService:
         try:
             return await asyncio.to_thread(self._ensure_repo_sync)
         except Exception:  # pragma: no cover
-            logger.exception("Failed to initialize the TSMC vault git repository.")
+            logger.exception("Failed to initialize the SaveMyContext vault git repository.")
             return False
 
     async def commit_all(self, *, message: str) -> bool:
@@ -48,7 +48,7 @@ class GitVersioningService:
         try:
             return await asyncio.to_thread(self._commit_all_sync, message)
         except Exception:  # pragma: no cover
-            logger.exception("Failed to commit TSMC vault changes.")
+            logger.exception("Failed to commit SaveMyContext vault changes.")
             return False
 
     def _commit_all_sync(self, message: str) -> bool:

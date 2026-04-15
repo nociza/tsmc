@@ -97,7 +97,7 @@ async function syncActionBadge(status: SyncStatus): Promise<void> {
     await chrome.action.setBadgeBackgroundColor({ color: "#BD5D38" });
     await chrome.action.setBadgeText({ text: "!" });
     await chrome.action.setTitle({
-      title: `TSMC: Provider drift suspected for ${status.providerDriftAlert.provider}. Open the extension for details.`
+      title: `SaveMyContext: Provider drift suspected for ${status.providerDriftAlert.provider}. Open the extension for details.`
     });
     return;
   }
@@ -106,7 +106,7 @@ async function syncActionBadge(status: SyncStatus): Promise<void> {
     await chrome.action.setBadgeBackgroundColor({ color: "#0B8C88" });
     await chrome.action.setBadgeText({ text: "…" });
     await chrome.action.setTitle({
-      title: `TSMC: History sync running for ${status.historySyncProvider ?? "provider"}.`
+      title: `SaveMyContext: History sync running for ${status.historySyncProvider ?? "provider"}.`
     });
     return;
   }
@@ -115,13 +115,13 @@ async function syncActionBadge(status: SyncStatus): Promise<void> {
     await chrome.action.setBadgeBackgroundColor({ color: "#16324B" });
     await chrome.action.setBadgeText({ text: "AI" });
     await chrome.action.setTitle({
-      title: `TSMC: AI processing running through ${status.processingProvider ?? "provider"}.`
+      title: `SaveMyContext: AI processing running through ${status.processingProvider ?? "provider"}.`
     });
     return;
   }
 
   await chrome.action.setBadgeText({ text: "" });
-  await chrome.action.setTitle({ title: "TSMC" });
+  await chrome.action.setTitle({ title: "SaveMyContext" });
 }
 
 async function setExtensionStatus(update: Partial<SyncStatus>): Promise<SyncStatus> {
@@ -325,7 +325,7 @@ async function openQuickSearchInActiveTab(): Promise<{ ok: boolean; error?: stri
   if (!tabSupportsInteractivePage(activeTab)) {
     return {
       ok: false,
-      error: "TSMC quick search only works on regular http or https pages."
+      error: "SaveMyContext quick search only works on regular http or https pages."
     };
   }
 
@@ -360,7 +360,7 @@ async function openQuickSearchInActiveTab(): Promise<{ ok: boolean; error?: stri
 async function sendMessageToActivePage<TResponse>(message: RuntimeMessage): Promise<TResponse> {
   const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (!tabSupportsInteractivePage(activeTab)) {
-    throw new Error("TSMC page actions only work on regular http or https pages.");
+    throw new Error("SaveMyContext page actions only work on regular http or https pages.");
   }
 
   try {
@@ -642,7 +642,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
     void enqueueTask(() => handleCapture(message.payload, _sender.tab?.id))
       .then(() => sendResponse({ ok: true }))
       .catch((error) => {
-        console.error("TSMC capture failed", error);
+        console.error("SaveMyContext capture failed", error);
         sendResponse({
           ok: false,
           error: error instanceof Error ? error.message : String(error)
@@ -660,7 +660,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
     void enqueueTask(() => handleHistorySyncStatus(message.payload))
       .then(sendResponse)
       .catch((error) => {
-        console.error("TSMC history sync status update failed", error);
+        console.error("SaveMyContext history sync status update failed", error);
         sendResponse({
           ok: false,
           error: error instanceof Error ? error.message : String(error)
@@ -678,7 +678,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
     void enqueueTask(() => handleSaveSettings(message.payload))
       .then(sendResponse)
       .catch((error) => {
-        console.error("TSMC settings save failed", error);
+        console.error("SaveMyContext settings save failed", error);
         sendResponse({
           ok: false,
           error: error instanceof Error ? error.message : String(error)
@@ -696,7 +696,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
     void enqueueTask(() => handleSaveKnowledgePath(message.payload.markdownRoot))
       .then(sendResponse)
       .catch((error) => {
-        console.error("TSMC knowledge path save failed", error);
+        console.error("SaveMyContext knowledge path save failed", error);
         sendResponse({
           ok: false,
           error: error instanceof Error ? error.message : String(error)
@@ -709,7 +709,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
     void enqueueTask(() => handleSaveSourceCapture(message.payload))
       .then(sendResponse)
       .catch((error) => {
-        console.error("TSMC source capture failed", error);
+        console.error("SaveMyContext source capture failed", error);
         sendResponse({
           ok: false,
           error: error instanceof Error ? error.message : String(error)
@@ -722,7 +722,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
     void enqueueTask(() => handleSaveCurrentPageSource(message.payload?.saveMode ?? "ai"))
       .then(sendResponse)
       .catch((error) => {
-        console.error("TSMC page capture failed", error);
+        console.error("SaveMyContext page capture failed", error);
         sendResponse({
           ok: false,
           error: error instanceof Error ? error.message : String(error)
@@ -746,7 +746,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
       .then(sendResponse)
       .catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
-        console.error("TSMC processing start failed", error);
+        console.error("SaveMyContext processing start failed", error);
         void setExtensionStatus({
           processingInProgress: false,
           processingLastError: message,
@@ -1006,7 +1006,7 @@ function findMatchingProvider(event: CapturedNetworkEvent) {
         return provider;
       }
     } catch (error) {
-      console.warn(`TSMC provider matcher failed for ${provider.provider}`, error);
+      console.warn(`SaveMyContext provider matcher failed for ${provider.provider}`, error);
     }
   }
 
@@ -1380,7 +1380,7 @@ async function handleCapture(event: CapturedNetworkEvent, tabId?: number): Promi
       lastError: `Backend responded ${response.status}: ${details}`
     });
     markHistorySyncFailure(`Backend responded ${response.status}: ${details}`);
-    throw new Error(`TSMC sync failed: ${response.status}`);
+    throw new Error(`SaveMyContext sync failed: ${response.status}`);
   }
 
   await saveSessionSyncState(sessionKey, {

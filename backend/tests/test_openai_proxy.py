@@ -31,7 +31,7 @@ class FakeBrowserProxyService:
 
 @pytest.fixture(autouse=True)
 def force_non_browser_processing(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("TSMC_LLM_BACKEND", "openai")
+    monkeypatch.setenv("SAVEMYCONTEXT_LLM_BACKEND", "openai")
     get_settings.cache_clear()
     try:
         yield
@@ -102,7 +102,7 @@ async def test_openai_proxy_store_uses_provider_specific_proxy_session_ids(
             )
         )
 
-        stored_session = await session.scalar(select(ChatSession).where(ChatSession.id == response.tsmc.stored_session_id))
+        stored_session = await session.scalar(select(ChatSession).where(ChatSession.id == response.savemycontext.stored_session_id))
 
         assert stored_session is not None
         assert stored_session.provider == provider
@@ -113,7 +113,7 @@ async def test_openai_proxy_store_uses_provider_specific_proxy_session_ids(
 
 @pytest.mark.asyncio
 async def test_openai_proxy_store_merges_existing_proxy_transcript(tmp_path) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-openai-proxy.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-openai-proxy.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
@@ -159,7 +159,7 @@ async def test_openai_proxy_store_merges_existing_proxy_transcript(tmp_path) -> 
             ChatCompletionRequest(
                 model="browser-gemini",
                 store=True,
-                tsmc_provider_session_url="https://gemini.google.com/app/c_proxy-session",
+                savemycontext_provider_session_url="https://gemini.google.com/app/c_proxy-session",
                 messages=[
                     ChatCompletionMessage(role="user", content="Add Obsidian backlinks."),
                 ],
@@ -169,11 +169,11 @@ async def test_openai_proxy_store_merges_existing_proxy_transcript(tmp_path) -> 
         stored_session = await session.scalar(
             select(ChatSession)
             .options(selectinload(ChatSession.messages))
-            .where(ChatSession.id == second_response.tsmc.stored_session_id)
+            .where(ChatSession.id == second_response.savemycontext.stored_session_id)
         )
 
-        assert first_response.tsmc.stored_session_id is not None
-        assert second_response.tsmc.stored_session_id == first_response.tsmc.stored_session_id
+        assert first_response.savemycontext.stored_session_id is not None
+        assert second_response.savemycontext.stored_session_id == first_response.savemycontext.stored_session_id
         assert stored_session is not None
         assert stored_session.external_session_id.startswith("proxy:gemini:")
         assert "Respond directly and quickly." in str(fake_browser.calls[0]["prompt_text"])
@@ -188,10 +188,9 @@ async def test_openai_proxy_store_merges_existing_proxy_transcript(tmp_path) -> 
 
     await engine.dispose()
 
-
 @pytest.mark.asyncio
 async def test_openai_proxy_without_store_does_not_persist_session(tmp_path) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-openai-proxy-ephemeral.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-openai-proxy-ephemeral.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
@@ -225,7 +224,7 @@ async def test_openai_proxy_without_store_does_not_persist_session(tmp_path) -> 
         )
 
         stored_sessions = (await session.execute(select(ChatSession))).scalars().all()
-        assert response.tsmc.stored_session_id is None
+        assert response.savemycontext.stored_session_id is None
         assert not stored_sessions
         assert "Respond directly and quickly." in str(fake_browser.calls[0]["prompt_text"])
         assert "Conversation so far:" in str(fake_browser.calls[0]["prompt_text"])
@@ -235,7 +234,7 @@ async def test_openai_proxy_without_store_does_not_persist_session(tmp_path) -> 
 
 @pytest.mark.asyncio
 async def test_openai_proxy_requires_final_user_message(tmp_path) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-openai-proxy-validation.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-openai-proxy-validation.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:

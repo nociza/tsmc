@@ -1,15 +1,15 @@
 import { chromium } from "@playwright/test";
 
-const debugUrl = process.env.TSMC_CDP_URL || "http://127.0.0.1:9222";
-const targetUrl = process.env.TSMC_DEBUG_URL || "https://gemini.google.com/app";
-const logBatchTraffic = process.env.TSMC_LOG_BATCH === "1";
-const observeDurationMs = Number.parseInt(process.env.TSMC_OBSERVE_MS || "15000", 10);
-const skipReload = process.env.TSMC_SKIP_RELOAD === "1";
+const debugUrl = process.env.SAVEMYCONTEXT_CDP_URL || "http://127.0.0.1:9222";
+const targetUrl = process.env.SAVEMYCONTEXT_DEBUG_URL || "https://gemini.google.com/app";
+const logBatchTraffic = process.env.SAVEMYCONTEXT_LOG_BATCH === "1";
+const observeDurationMs = Number.parseInt(process.env.SAVEMYCONTEXT_OBSERVE_MS || "15000", 10);
+const skipReload = process.env.SAVEMYCONTEXT_SKIP_RELOAD === "1";
 
 function attachPageLogging(page) {
   page.on("console", (message) => {
     const text = message.text();
-    if (/TSMC|Failed to construct 'URL'|Invalid URL|ERR_CONNECTION_REFUSED|Failed to fetch/i.test(text)) {
+    if (/SaveMyContext|Failed to construct 'URL'|Invalid URL|ERR_CONNECTION_REFUSED|Failed to fetch/i.test(text)) {
       console.log(`[console] ${page.url() || "about:blank"} :: ${message.type()} :: ${text}`);
     }
   });
@@ -184,17 +184,17 @@ async function main() {
   await optionsPage.goto(`chrome-extension://${extensionId}/options.html`, { waitUntil: "domcontentloaded" });
   console.log(`[options-page] ${optionsPage.url()}`);
   const settings = await optionsPage.evaluate(async () => {
-    const stored = await chrome.storage.sync.get("tsmc.settings");
-    return stored["tsmc.settings"] ?? null;
+    const stored = await chrome.storage.sync.get("savemycontext.settings");
+    return stored["savemycontext.settings"] ?? null;
   });
   const status = await optionsPage.evaluate(async () => {
-    const stored = await chrome.storage.local.get("tsmc.status");
-    return stored["tsmc.status"] ?? null;
+    const stored = await chrome.storage.local.get("savemycontext.status");
+    return stored["savemycontext.status"] ?? null;
   });
   const syncStateSummary = await optionsPage.evaluate(async () => {
-    const stored = await chrome.storage.local.get(["tsmc.sync-state", "tsmc.history-sync"]);
-    const syncStates = stored["tsmc.sync-state"] ?? {};
-    const historyStates = stored["tsmc.history-sync"] ?? {};
+    const stored = await chrome.storage.local.get(["savemycontext.sync-state", "savemycontext.history-sync"]);
+    const syncStates = stored["savemycontext.sync-state"] ?? {};
+    const historyStates = stored["savemycontext.history-sync"] ?? {};
     const geminiKeys = Object.keys(syncStates).filter((key) => key.startsWith("gemini:"));
     return {
       totalSessionKeys: Object.keys(syncStates).length,
@@ -220,8 +220,8 @@ async function main() {
 
   console.log("[extension-page] reading final status");
   const finalStatus = await popupPage.evaluate(async () => {
-    const stored = await chrome.storage.local.get("tsmc.status");
-    return stored["tsmc.status"] ?? null;
+    const stored = await chrome.storage.local.get("savemycontext.status");
+    return stored["savemycontext.status"] ?? null;
   });
   console.log(`[final-status] ${JSON.stringify(finalStatus)}`);
   console.log(`[popup-history-sync] ${await popupPage.locator("#history-sync").textContent()}`);

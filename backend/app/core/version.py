@@ -3,7 +3,7 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 
 
-PACKAGE_NAME = "tsmc-server"
+PACKAGE_NAME = "savemycontext"
 
 
 def get_app_version() -> str:

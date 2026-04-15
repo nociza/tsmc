@@ -16,14 +16,14 @@ from app.services.processing_worker import ExtensionBrowserProcessingService
 
 @pytest.mark.asyncio
 async def test_processing_worker_complete_applies_pipeline_result_batch_and_writes_markdown(tmp_path, monkeypatch) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-processing-worker.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-processing-worker.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
-    monkeypatch.setenv("TSMC_LLM_BACKEND", "browser_proxy")
-    monkeypatch.setenv("TSMC_EXPERIMENTAL_BROWSER_AUTOMATION", "true")
+    monkeypatch.setenv("SAVEMYCONTEXT_LLM_BACKEND", "browser_proxy")
+    monkeypatch.setenv("SAVEMYCONTEXT_EXPERIMENTAL_BROWSER_AUTOMATION", "true")
     get_settings.cache_clear()
 
     try:
@@ -99,14 +99,14 @@ async def test_processing_worker_complete_applies_pipeline_result_batch_and_writ
 
 @pytest.mark.asyncio
 async def test_processing_worker_complete_rejects_invalid_json_with_clear_error(tmp_path, monkeypatch) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-processing-worker-invalid.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-processing-worker-invalid.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
-    monkeypatch.setenv("TSMC_LLM_BACKEND", "browser_proxy")
-    monkeypatch.setenv("TSMC_EXPERIMENTAL_BROWSER_AUTOMATION", "true")
+    monkeypatch.setenv("SAVEMYCONTEXT_LLM_BACKEND", "browser_proxy")
+    monkeypatch.setenv("SAVEMYCONTEXT_EXPERIMENTAL_BROWSER_AUTOMATION", "true")
     get_settings.cache_clear()
 
     try:
@@ -146,14 +146,14 @@ async def test_processing_worker_complete_rejects_invalid_json_with_clear_error(
 
 @pytest.mark.asyncio
 async def test_processing_worker_complete_accepts_task_key_reply_and_maps_to_expected_session(tmp_path, monkeypatch) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-processing-worker-task-key.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-processing-worker-task-key.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
-    monkeypatch.setenv("TSMC_LLM_BACKEND", "browser_proxy")
-    monkeypatch.setenv("TSMC_EXPERIMENTAL_BROWSER_AUTOMATION", "true")
+    monkeypatch.setenv("SAVEMYCONTEXT_LLM_BACKEND", "browser_proxy")
+    monkeypatch.setenv("SAVEMYCONTEXT_EXPERIMENTAL_BROWSER_AUTOMATION", "true")
     get_settings.cache_clear()
 
     try:
@@ -195,14 +195,14 @@ async def test_processing_worker_complete_accepts_task_key_reply_and_maps_to_exp
 
 @pytest.mark.asyncio
 async def test_processing_worker_complete_accepts_single_result_with_wrong_session_id_for_single_batch(tmp_path, monkeypatch) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-processing-worker-single-fallback.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-processing-worker-single-fallback.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
-    monkeypatch.setenv("TSMC_LLM_BACKEND", "browser_proxy")
-    monkeypatch.setenv("TSMC_EXPERIMENTAL_BROWSER_AUTOMATION", "true")
+    monkeypatch.setenv("SAVEMYCONTEXT_LLM_BACKEND", "browser_proxy")
+    monkeypatch.setenv("SAVEMYCONTEXT_EXPERIMENTAL_BROWSER_AUTOMATION", "true")
     get_settings.cache_clear()
 
     try:

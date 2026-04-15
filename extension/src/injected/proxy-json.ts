@@ -328,7 +328,7 @@ export function buildProcessingRepairPrompt(
         ]
       : [];
   return [
-    "Your previous reply could not be accepted by TSMC because it was not valid JSON.",
+    "Your previous reply could not be accepted by SaveMyContext because it was not valid JSON.",
     "Repair it and return exactly one valid JSON object.",
     "Do not include markdown fences, explanations, or any text before or after the JSON.",
     "Preserve the same meaning and schema as the previous reply unless a minimal correction is required.",

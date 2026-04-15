@@ -15,7 +15,7 @@ from app.services.todo import TodoListService
 
 @pytest.mark.asyncio
 async def test_search_and_graph_services_return_agent_friendly_results(tmp_path) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-search.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-search.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
@@ -37,14 +37,14 @@ async def test_search_and_graph_services_return_agent_friendly_results(tmp_path)
                     session_id=chat_session.id,
                     external_message_id="msg-1",
                     role=MessageRole.USER,
-                    content="How should TSMC store notes in SQLite?",
+                    content="How should SaveMyContext store notes in SQLite?",
                     sequence_index=1,
                 ),
                 FactTriplet(
                     session_id=chat_session.id,
                     subject="SQLite",
                     predicate="stores",
-                    object="TSMC notes",
+                    object="SaveMyContext notes",
                     confidence=0.9,
                 ),
             ]
@@ -66,13 +66,13 @@ async def test_search_and_graph_services_return_agent_friendly_results(tmp_path)
 
 @pytest.mark.asyncio
 async def test_search_includes_shared_todo_list(tmp_path, monkeypatch) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-search-todo.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-search-todo.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
-    monkeypatch.setenv("TSMC_MARKDOWN_DIR", str(tmp_path / "markdown"))
+    monkeypatch.setenv("SAVEMYCONTEXT_MARKDOWN_DIR", str(tmp_path / "markdown"))
     get_settings.cache_clear()
     try:
         todo_service = TodoListService()

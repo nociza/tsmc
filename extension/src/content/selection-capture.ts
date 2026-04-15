@@ -19,8 +19,8 @@ type SelectionCaptureController = {
   handleRuntimeMessage(message: RuntimeMessage): Promise<SourceCaptureResponse | null>;
 };
 
-const SETTINGS_CACHE_KEY = "tsmc.settings.cache";
-const SETTINGS_SYNC_KEY = "tsmc.settings";
+const SETTINGS_CACHE_KEY = "savemycontext.settings.cache";
+const SETTINGS_SYNC_KEY = "savemycontext.settings";
 const STYLE = `
 :host {
   all: initial;
@@ -285,7 +285,7 @@ export function createSelectionCaptureController(sendMessage: RuntimeRequester):
       return;
     }
     host = document.createElement("div");
-    host.id = "tsmc-selection-capture-root";
+    host.id = "savemycontext-selection-capture-root";
     host.hidden = true;
     shadow = host.attachShadow({ mode: "open" });
 
@@ -297,7 +297,7 @@ export function createSelectionCaptureController(sendMessage: RuntimeRequester):
 
     const eyebrow = document.createElement("p");
     eyebrow.className = "eyebrow";
-    eyebrow.textContent = "TSMC Selection";
+    eyebrow.textContent = "SaveMyContext Selection";
 
     selectionPreview = document.createElement("p");
     selectionPreview.className = "selection";
@@ -421,7 +421,7 @@ export function createSelectionCaptureController(sendMessage: RuntimeRequester):
         showStatus(response.error ?? "Could not save the selection.", true);
         return;
       }
-      showStatus(`Saved ${response.title ?? "selection"} to TSMC.`);
+      showStatus(`Saved ${response.title ?? "selection"} to SaveMyContext.`);
       window.setTimeout(() => {
         hide();
       }, 1000);

@@ -140,7 +140,7 @@ class BrowserProxyService:
             return await self._playwright.chromium.launch_persistent_context(**launch_kwargs)
         except Exception as exc:  # pragma: no cover - surfaced by runtime environment
             raise BrowserProxyServiceError(
-                "Unable to launch the managed browser. Run 'tsmc browser install' and 'tsmc browser login --provider ...' first."
+                "Unable to launch the managed browser. Run 'savemycontext browser install' and 'savemycontext browser login --provider ...' first."
             ) from exc
 
     def _profile_dir(self, provider: ProviderName) -> Path:

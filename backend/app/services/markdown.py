@@ -196,7 +196,7 @@ class MarkdownExporter:
         title = session.title or f"{session.provider.value} {session.external_session_id}"
         lines = [
             "---",
-            f"id: {yaml_scalar(f'tsmc-source-{session.id}')}",
+            f"id: {yaml_scalar(f'savemycontext-source-{session.id}')}",
             f"type: {yaml_scalar('session_source')}",
             f"provider: {yaml_scalar(session.provider.value)}",
             f"external_session_id: {yaml_scalar(session.external_session_id)}",
@@ -275,7 +275,7 @@ class MarkdownExporter:
         title = self._capture_display_title(source_capture)
         lines = [
             "---",
-            f"id: {yaml_scalar(f'tsmc-capture-source-{source_capture.id}')}",
+            f"id: {yaml_scalar(f'savemycontext-capture-source-{source_capture.id}')}",
             f"type: {yaml_scalar('source_capture_source')}",
             f"capture_id: {yaml_scalar(source_capture.id)}",
             f"capture_note: {yaml_scalar(self._source_capture_note_path(source_capture).relative_to(self.vault_root).as_posix())}",
@@ -339,7 +339,7 @@ class MarkdownExporter:
             }
             lines = [
                 "---",
-                f"id: {yaml_scalar(f'tsmc-entity-{slugify(entity)}')}",
+                f"id: {yaml_scalar(f'savemycontext-entity-{slugify(entity)}')}",
                 f"type: {yaml_scalar('entity')}",
                 f"entity: {yaml_scalar(entity)}",
                 "---",
@@ -476,7 +476,7 @@ class MarkdownExporter:
             f"captured_at: {yaml_scalar(session.last_captured_at)}",
             f"updated_at: {yaml_scalar(session.updated_at)}",
             "tags:",
-            "  - tsmc",
+            "  - savemycontext",
         ]
         if session.category:
             lines.append(f"  - {session.category.value}")
@@ -626,7 +626,7 @@ class MarkdownExporter:
     ) -> str:
         provider_counts = self._provider_counts(sessions)
         lines = [
-            "# TSMC Home",
+            "# SaveMyContext Home",
             "",
             "## Start Here",
             "",
@@ -679,7 +679,7 @@ class MarkdownExporter:
         triplet_count: int,
     ) -> str:
         lines = [
-            "# TSMC Vault",
+            "# SaveMyContext Vault",
             "",
             "This vault mirrors synced AI conversations into a local, searchable knowledge base.",
             "",
@@ -724,7 +724,7 @@ class MarkdownExporter:
         lines = [
             "# AGENTS",
             "",
-            "Use this file as the first stop when a coding or reasoning agent is pointed at the TSMC vault.",
+            "Use this file as the first stop when a coding or reasoning agent is pointed at the SaveMyContext vault.",
             "",
             "## Ground Truth",
             "",

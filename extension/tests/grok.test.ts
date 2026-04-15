@@ -8,7 +8,7 @@ describe("GrokScraper", () => {
     const scraper = new GrokScraper();
 
     const event: CapturedNetworkEvent = {
-      source: "tsmc-network-observer",
+      source: "savemycontext-network-observer",
       providerHint: "grok",
       pageUrl: "https://grok.com/c/grok-e2e-session",
       requestId: "req-grok-history-1",

@@ -47,7 +47,7 @@ PROVIDER_ADAPTERS: dict[ProviderName, ProviderUIAdapter] = {
     ProviderName.CHATGPT: ProviderUIAdapter(
         provider=ProviderName.CHATGPT,
         canonical_model="browser-chatgpt",
-        aliases=("chatgpt", "chatgpt-browser", "tsmc-browser-chatgpt"),
+        aliases=("chatgpt", "chatgpt-browser", "savemycontext-browser-chatgpt"),
         start_url="https://chatgpt.com/",
         input_selectors=(
             "#prompt-textarea",
@@ -70,7 +70,7 @@ PROVIDER_ADAPTERS: dict[ProviderName, ProviderUIAdapter] = {
     ProviderName.GEMINI: ProviderUIAdapter(
         provider=ProviderName.GEMINI,
         canonical_model="browser-gemini",
-        aliases=("gemini", "gemini-browser", "tsmc-browser-gemini"),
+        aliases=("gemini", "gemini-browser", "savemycontext-browser-gemini"),
         start_url="https://gemini.google.com/app",
         input_selectors=(
             "rich-textarea textarea",
@@ -94,7 +94,7 @@ PROVIDER_ADAPTERS: dict[ProviderName, ProviderUIAdapter] = {
     ProviderName.GROK: ProviderUIAdapter(
         provider=ProviderName.GROK,
         canonical_model="browser-grok",
-        aliases=("grok", "grok-browser", "tsmc-browser-grok"),
+        aliases=("grok", "grok-browser", "savemycontext-browser-grok"),
         start_url="https://grok.com/",
         input_selectors=(
             "textarea",
@@ -130,7 +130,7 @@ def openai_model_descriptors(created_at: int) -> list[dict[str, Any]]:
             "id": adapter.canonical_model,
             "object": "model",
             "created": created_at,
-            "owned_by": "tsmc",
+            "owned_by": "savemycontext",
         }
         for adapter in PROVIDER_ADAPTERS.values()
     ]

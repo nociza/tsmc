@@ -59,12 +59,12 @@ class OpenAIProxyService:
         adapter = resolve_provider_adapter(request.model)
         browser_prompt = self._build_browser_prompt(
             request.messages,
-            continuing=bool(request.tsmc_provider_session_url),
+            continuing=bool(request.savemycontext_provider_session_url),
         )
         completion = await self.browser_proxy.complete(
             model=request.model,
             prompt_text=browser_prompt,
-            provider_session_url=request.tsmc_provider_session_url,
+            provider_session_url=request.savemycontext_provider_session_url,
         )
 
         stored_session: ChatSession | None = None
@@ -88,7 +88,7 @@ class OpenAIProxyService:
                 completion_tokens=completion_tokens,
                 total_tokens=prompt_tokens + completion_tokens,
             ),
-            tsmc=ProxyResponseMetadata(
+            savemycontext=ProxyResponseMetadata(
                 provider=adapter.provider.value,
                 provider_session_url=completion.provider_session_url,
                 source_url=completion.source_url,

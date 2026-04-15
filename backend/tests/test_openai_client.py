@@ -49,11 +49,11 @@ async def test_openai_client_uses_openai_compatible_settings_and_headers(monkeyp
             captured["json"] = json
             return FakeResponse()
 
-    monkeypatch.setenv("TSMC_OPENAI_COMPATIBLE_API_KEY", "openrouter-secret")
-    monkeypatch.setenv("TSMC_OPENAI_COMPATIBLE_BASE_URL", "https://openrouter.ai/api/v1")
-    monkeypatch.setenv("TSMC_OPENAI_COMPATIBLE_MODEL", "openai/gpt-4.1-mini")
-    monkeypatch.setenv("TSMC_OPENAI_COMPATIBLE_SITE_URL", "https://notes.example.com")
-    monkeypatch.setenv("TSMC_OPENAI_COMPATIBLE_APP_NAME", "TSMC Test")
+    monkeypatch.setenv("SAVEMYCONTEXT_OPENAI_COMPATIBLE_API_KEY", "openrouter-secret")
+    monkeypatch.setenv("SAVEMYCONTEXT_OPENAI_COMPATIBLE_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("SAVEMYCONTEXT_OPENAI_COMPATIBLE_MODEL", "openai/gpt-4.1-mini")
+    monkeypatch.setenv("SAVEMYCONTEXT_OPENAI_COMPATIBLE_SITE_URL", "https://notes.example.com")
+    monkeypatch.setenv("SAVEMYCONTEXT_OPENAI_COMPATIBLE_APP_NAME", "SaveMyContext Test")
     monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
     get_settings.cache_clear()
 
@@ -68,7 +68,7 @@ async def test_openai_client_uses_openai_compatible_settings_and_headers(monkeyp
         assert result.value == "ok"
         assert captured["url"] == "https://openrouter.ai/api/v1/chat/completions"
         assert captured["headers"]["Authorization"] == "Bearer openrouter-secret"
-        assert captured["headers"]["X-Title"] == "TSMC Test"
+        assert captured["headers"]["X-Title"] == "SaveMyContext Test"
         assert captured["headers"]["HTTP-Referer"] == "https://notes.example.com"
         assert captured["json"]["model"] == "openai/gpt-4.1-mini"
         assert captured["json"]["response_format"] == {"type": "json_object"}
@@ -131,9 +131,9 @@ async def test_openai_client_retries_without_response_format_when_provider_rejec
                 raise httpx.HTTPStatusError("unsupported", request=request, response=response)
             return FakeResponse({"choices": [{"message": {"content": '{"value":"ok"}'}}]})
 
-    monkeypatch.setenv("TSMC_OPENAI_COMPATIBLE_API_KEY", "openrouter-secret")
-    monkeypatch.setenv("TSMC_OPENAI_COMPATIBLE_BASE_URL", "https://openrouter.ai/api/v1")
-    monkeypatch.setenv("TSMC_OPENAI_COMPATIBLE_MODEL", "openai/gpt-4.1-mini")
+    monkeypatch.setenv("SAVEMYCONTEXT_OPENAI_COMPATIBLE_API_KEY", "openrouter-secret")
+    monkeypatch.setenv("SAVEMYCONTEXT_OPENAI_COMPATIBLE_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("SAVEMYCONTEXT_OPENAI_COMPATIBLE_MODEL", "openai/gpt-4.1-mini")
     monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
     get_settings.cache_clear()
 

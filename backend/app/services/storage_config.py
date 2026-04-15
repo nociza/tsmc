@@ -34,7 +34,7 @@ class StorageConfigService:
     async def update_markdown_root(self, raw_path: str) -> StorageSettingsResponse:
         markdown_root = self._validate_markdown_root(raw_path)
         persistence_kind, persisted_to = self._persist_markdown_root(markdown_root)
-        os.environ["TSMC_MARKDOWN_DIR"] = str(markdown_root)
+        os.environ["SAVEMYCONTEXT_MARKDOWN_DIR"] = str(markdown_root)
         get_settings.cache_clear()
 
         exporter = MarkdownExporter(self.db)
@@ -46,7 +46,7 @@ class StorageConfigService:
         todo_path = TodoListService().ensure_exists()
         git_service = GitVersioningService(repo_root=get_settings().resolved_vault_root)
         git_initialized = await git_service.ensure_repo()
-        await git_service.commit_all(message=f"Relocate TSMC vault to {get_settings().resolved_vault_root}")
+        await git_service.commit_all(message=f"Relocate SaveMyContext vault to {get_settings().resolved_vault_root}")
 
         settings = get_settings()
         return StorageSettingsResponse(
@@ -79,7 +79,7 @@ class StorageConfigService:
 
         try:
             candidate.mkdir(parents=True, exist_ok=True)
-            probe = candidate / ".tsmc-write-test"
+            probe = candidate / ".savemycontext-write-test"
             probe.write_text("ok", encoding="utf-8")
             probe.unlink(missing_ok=True)
         except OSError as error:
@@ -91,14 +91,14 @@ class StorageConfigService:
         return candidate.resolve()
 
     def _persist_markdown_root(self, markdown_root: Path) -> tuple[str, str | None]:
-        config_path_value = os.environ.get("TSMC_CLI_CONFIG_PATH", "").strip()
+        config_path_value = os.environ.get("SAVEMYCONTEXT_CLI_CONFIG_PATH", "").strip()
         if config_path_value:
             config_path = Path(config_path_value).expanduser().resolve()
             defaults = default_cli_paths()
             paths = CLIPaths(
                 config_dir=config_path.parent,
                 config_path=config_path,
-                env_path=config_path.parent / "tsmc.env",
+                env_path=config_path.parent / "savemycontext.env",
                 data_dir=defaults.data_dir,
                 markdown_dir=defaults.markdown_dir,
                 database_path=defaults.database_path,
@@ -111,14 +111,15 @@ class StorageConfigService:
             return "cli_config", str(config_path)
 
         env_path = BACKEND_DIR / ".env"
-        self._upsert_env_var(env_path, "TSMC_MARKDOWN_DIR", str(markdown_root))
+        self._upsert_env_var(env_path, "SAVEMYCONTEXT_MARKDOWN_DIR", str(markdown_root))
         return "backend_env", str(env_path)
 
     def _persistence_kind(self) -> str:
-        return "cli_config" if os.environ.get("TSMC_CLI_CONFIG_PATH", "").strip() else "backend_env"
+        config_path_value = os.environ.get("SAVEMYCONTEXT_CLI_CONFIG_PATH", "").strip()
+        return "cli_config" if config_path_value else "backend_env"
 
     def _persistence_target(self) -> str | None:
-        config_path_value = os.environ.get("TSMC_CLI_CONFIG_PATH", "").strip()
+        config_path_value = os.environ.get("SAVEMYCONTEXT_CLI_CONFIG_PATH", "").strip()
         if config_path_value:
             return str(Path(config_path_value).expanduser().resolve())
         return str(BACKEND_DIR / ".env")

@@ -107,7 +107,7 @@ function formatBackendStatus(status: SyncStatus): string {
   }
 
   if (status.backendValidatedAt && status.backendVersion) {
-    return `${status.backendProduct ?? "tsmc-server"} ${status.backendVersion} (${status.backendAuthMode ?? "unknown"})`;
+    return `${status.backendProduct ?? "savemycontext"} ${status.backendVersion} (${status.backendAuthMode ?? "unknown"})`;
   }
 
   return "Checking…";
@@ -548,12 +548,12 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     return;
   }
 
-  if (changes["tsmc.status"]?.newValue && currentSettings) {
-    currentStatus = changes["tsmc.status"].newValue as SyncStatus;
+  if (changes["savemycontext.status"]?.newValue && currentSettings) {
+    currentStatus = changes["savemycontext.status"].newValue as SyncStatus;
     renderHealth(currentSettings, currentStatus);
   }
 
-  if (changes["tsmc.settings"] || changes["tsmc.settings.cache"] || changes["tsmc.settings.secrets"]) {
+  if (changes["savemycontext.settings"] || changes["savemycontext.settings.cache"] || changes["savemycontext.settings.secrets"]) {
     void load();
   }
 });

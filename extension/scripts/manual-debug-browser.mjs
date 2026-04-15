@@ -8,15 +8,15 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
 const extensionRoot = resolve(currentDir, "..");
 const extensionDist = resolve(extensionRoot, "dist");
 const userDataDir = resolve(extensionRoot, ".playwright-user-data");
-const backendUrl = (process.env.TSMC_DEBUG_BACKEND_URL || "http://127.0.0.1:18888").replace(/\/$/, "");
-const targetUrl = process.env.TSMC_DEBUG_URL || "https://gemini.google.com/app";
+const backendUrl = (process.env.SAVEMYCONTEXT_DEBUG_BACKEND_URL || "http://127.0.0.1:18888").replace(/\/$/, "");
+const targetUrl = process.env.SAVEMYCONTEXT_DEBUG_URL || "https://gemini.google.com/app";
 
 function attachPageDebug(page) {
   const label = () => page.url() || "about:blank";
 
   page.on("console", (message) => {
     const text = message.text();
-    if (/TSMC|Failed to construct 'URL'|Invalid URL|ERR_CONNECTION_REFUSED|Failed to fetch/i.test(text)) {
+    if (/SaveMyContext|Failed to construct 'URL'|Invalid URL|ERR_CONNECTION_REFUSED|Failed to fetch/i.test(text)) {
       console.log(`[page console] ${label()} :: ${message.type()} :: ${text}`);
     }
   });
@@ -53,8 +53,8 @@ async function configureExtension(context, extensionId) {
 async function logExtensionStatus(serviceWorker) {
   try {
     const status = await serviceWorker.evaluate(async () => {
-      const stored = await chrome.storage.local.get("tsmc.status");
-      return stored["tsmc.status"] ?? null;
+      const stored = await chrome.storage.local.get("savemycontext.status");
+      return stored["savemycontext.status"] ?? null;
     });
     console.log(`[extension status] ${JSON.stringify(status)}`);
   } catch (error) {
@@ -96,8 +96,8 @@ async function main() {
   setInterval(async () => {
     try {
       const status = await serviceWorker.evaluate(async () => {
-        const stored = await chrome.storage.local.get("tsmc.status");
-        return stored["tsmc.status"] ?? null;
+        const stored = await chrome.storage.local.get("savemycontext.status");
+        return stored["savemycontext.status"] ?? null;
       });
       const serialized = JSON.stringify(status);
       if (serialized !== lastSerializedStatus) {

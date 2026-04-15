@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>TSMC Options</title>
+    <title>SaveMyContext Options</title>
     <script type="module" src="/src/options/main.ts"></script>
   </head>
   <body>
     <main class="shell">
       <section class="hero">
         <p class="eyebrow">Local Sync Control</p>
-        <h1>Total Sync: My Context</h1>
+        <h1>SaveMyContext</h1>
         <p class="lede">
           Route captured AI chat deltas into your local backend and choose which providers the
           extension should observe.
@@ -29,7 +29,7 @@
 
           <label class="field">
             <span>Backend App Token</span>
-            <input id="backend-token" name="backend-token" type="password" placeholder="tsmc_pat_..." />
+            <input id="backend-token" name="backend-token" type="password" placeholder="savemycontext_pat_..." />
           </label>
 
           <p class="status">
@@ -50,7 +50,7 @@
             <div class="field-actions">
               <button id="save-knowledge-path" class="button-secondary" type="button">Apply Path</button>
               <p id="knowledge-path-status" class="status">
-                This path lives on the backend machine. TSMC writes the vault into `TSMC/` under this folder.
+                This path lives on the backend machine. SaveMyContext writes the vault into `SaveMyContext/` under this folder.
               </p>
             </div>
           </div>
@@ -68,7 +68,7 @@
             <span>
               <strong>Selection Capture Pop-Up</strong>
               <small>
-                When enabled, selecting text on normal web pages shows a small TSMC action pop-up with raw save and AI save actions.
+                When enabled, selecting text on normal web pages shows a small SaveMyContext action pop-up with raw save and AI save actions.
               </small>
             </span>
           </label>
@@ -78,7 +78,7 @@
             <span>
               <strong>Require Trigger Word To Index</strong>
               <small>
-                When enabled, TSMC only indexes sessions whose opening request matches one of your trigger words.
+                When enabled, SaveMyContext only indexes sessions whose opening request matches one of your trigger words.
                 Blacklist words always win and skip indexing.
               </small>
             </span>
@@ -95,7 +95,7 @@
           </label>
 
           <p class="status">
-            TSMC checks the opening user request, focusing on the first one or two sentences. The default trigger word is
+            SaveMyContext checks the opening user request, focusing on the first one or two sentences. The default trigger word is
             <strong> lorem</strong>.
           </p>
 

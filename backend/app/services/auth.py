@@ -13,6 +13,7 @@ from app.models.base import utcnow
 
 
 password_hasher = PasswordHash.recommended()
+PLAIN_TEXT_TOKEN_PREFIX = "savemycontext_pat_"
 
 
 @dataclass(frozen=True)
@@ -34,7 +35,7 @@ def hash_api_token_secret(secret: str) -> str:
 
 
 def build_plain_text_token(token_id: str, secret: str) -> str:
-    return f"tsmc_pat_{token_id}_{secret}"
+    return f"{PLAIN_TEXT_TOKEN_PREFIX}{token_id}_{secret}"
 
 
 async def ensure_admin_user(

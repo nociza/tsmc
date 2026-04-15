@@ -41,7 +41,7 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: int | None = Field(default=None, ge=1)
     metadata: dict[str, Any] | None = None
     user: str | None = None
-    tsmc_provider_session_url: str | None = None
+    savemycontext_provider_session_url: str | None = None
 
 
 class ChatCompletionChoiceMessage(BaseModel):
@@ -78,14 +78,14 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: list[ChatCompletionChoice]
     usage: ChatCompletionUsage
-    tsmc: ProxyResponseMetadata
+    savemycontext: ProxyResponseMetadata
 
 
 class ModelDescription(BaseModel):
     id: str
     object: Literal["model"] = "model"
     created: int
-    owned_by: str = "tsmc"
+    owned_by: str = "savemycontext"
 
 
 class ModelListResponse(BaseModel):

@@ -73,7 +73,7 @@ describe("indexing rules", () => {
           {
             id: "u1",
             role: "user",
-            content: "Please keep this one out of TSMC for now."
+            content: "Please keep this one out of SaveMyContext for now."
           }
         ]
       }

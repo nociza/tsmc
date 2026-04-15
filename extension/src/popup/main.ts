@@ -83,7 +83,7 @@ function formatBackendStatus(status: SyncStatus): string {
   }
 
   if (status.backendValidatedAt && status.backendVersion) {
-    return `${status.backendProduct ?? "tsmc-server"} ${status.backendVersion} (${status.backendAuthMode ?? "unknown"})`;
+    return `${status.backendProduct ?? "savemycontext"} ${status.backendVersion} (${status.backendAuthMode ?? "unknown"})`;
   }
 
   return "Checking…";
@@ -165,7 +165,7 @@ function processingButtonState(status: SyncStatus): {
   return {
     disabled: false,
     label: "Run AI Processing",
-    title: "Use your current signed-in browser session to process queued TSMC jobs."
+    title: "Use your current signed-in browser session to process queued SaveMyContext jobs."
   };
 }
 
@@ -277,7 +277,7 @@ saveCurrentPageButton?.addEventListener("click", async () => {
     return;
   }
   if (captureStatus) {
-    captureStatus.textContent = `Saved ${response.title ?? "page"} to TSMC.`;
+    captureStatus.textContent = `Saved ${response.title ?? "page"} to SaveMyContext.`;
   }
 });
 
@@ -298,13 +298,13 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     return;
   }
 
-  if (changes["tsmc.status"]?.newValue && currentSettings) {
-    currentStatus = changes["tsmc.status"].newValue as SyncStatus;
+  if (changes["savemycontext.status"]?.newValue && currentSettings) {
+    currentStatus = changes["savemycontext.status"].newValue as SyncStatus;
     render(currentSettings, currentStatus);
     return;
   }
 
-  if (changes["tsmc.settings"] || changes["tsmc.settings.cache"]) {
+  if (changes["savemycontext.settings"] || changes["savemycontext.settings.cache"]) {
     void load();
   }
 });

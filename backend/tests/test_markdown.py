@@ -61,7 +61,7 @@ def test_markdown_renderer_includes_todo_update_link() -> None:
     assert "## To-Do Update" in markdown
     assert "Buy milk" in markdown
     assert "Dashboards/To-Do List" in markdown
-    assert "[[TSMC/" not in markdown
+    assert "[[SaveMyContext/" not in markdown
 
 
 def test_markdown_renderer_formats_idea_summary_for_humans() -> None:
@@ -128,7 +128,7 @@ def test_source_markdown_renderer_includes_raw_payloads_and_sync_captures() -> N
 
 @pytest.mark.asyncio
 async def test_markdown_export_handles_mixed_naive_and_aware_session_timestamps(tmp_path) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-markdown-timezones.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-markdown-timezones.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
@@ -198,7 +198,7 @@ async def test_markdown_export_handles_mixed_naive_and_aware_session_timestamps(
         manifest_json = manifest.read_text(encoding="utf-8")
         assert "Aware Session" in entity_markdown
         assert "Naive Session" in entity_markdown
-        assert "# TSMC Home" in home_markdown
+        assert "# SaveMyContext Home" in home_markdown
         assert "README" in home_markdown
         assert "# AGENTS" in agents_markdown
         assert "\"entrypoints\"" in manifest_json

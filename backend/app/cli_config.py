@@ -12,7 +12,7 @@ from app.cli_paths import CLIPaths, default_cli_paths
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 18888
 DEFAULT_LLM_BACKEND = "auto"
-DEFAULT_SERVICE_NAME = "tsmc"
+DEFAULT_SERVICE_NAME = "savemycontext"
 DEFAULT_BROWSER_TIMEOUT_SECONDS = 120.0
 
 
@@ -35,7 +35,7 @@ class CLIConfig:
 
     @property
     def database_path(self) -> Path:
-        return self.data_dir / "tsmc.db"
+        return self.data_dir / "savemycontext.db"
 
     @property
     def database_url(self) -> str:
@@ -224,15 +224,15 @@ def ensure_env_file(env_path: Path | None = None, *, force: bool = False) -> Pat
     candidate.write_text(
         textwrap.dedent(
             """\
-            TSMC_EXPERIMENTAL_BROWSER_AUTOMATION=false
-            TSMC_OPENAI_API_KEY=
-            TSMC_OPENAI_BASE_URL=https://openrouter.ai/api/v1
-            TSMC_OPENAI_MODEL=openai/gpt-4.1-mini
-            TSMC_OPENAI_APP_NAME=TSMC
-            TSMC_OPENAI_SITE_URL=
-            TSMC_GOOGLE_API_KEY=
-            TSMC_GIT_VERSIONING_ENABLED=true
-            TSMC_CORS_ORIGIN_REGEX=chrome-extension://[a-p]{32}
+            SAVEMYCONTEXT_EXPERIMENTAL_BROWSER_AUTOMATION=false
+            SAVEMYCONTEXT_OPENAI_API_KEY=
+            SAVEMYCONTEXT_OPENAI_BASE_URL=https://openrouter.ai/api/v1
+            SAVEMYCONTEXT_OPENAI_MODEL=openai/gpt-4.1-mini
+            SAVEMYCONTEXT_OPENAI_APP_NAME=SaveMyContext
+            SAVEMYCONTEXT_OPENAI_SITE_URL=
+            SAVEMYCONTEXT_GOOGLE_API_KEY=
+            SAVEMYCONTEXT_GIT_VERSIONING_ENABLED=true
+            SAVEMYCONTEXT_CORS_ORIGIN_REGEX=chrome-extension://[a-p]{32}
             """
         ),
         encoding="utf-8",
@@ -260,17 +260,17 @@ def apply_runtime_environment(config: CLIConfig, env_path: Path) -> None:
     for key, value in load_env_file(env_path).items():
         os.environ.setdefault(key, value)
 
-    os.environ.setdefault("TSMC_DATABASE_URL", config.database_url)
-    os.environ.setdefault("TSMC_MARKDOWN_DIR", str(config.markdown_dir))
-    os.environ.setdefault("TSMC_LLM_BACKEND", config.llm_backend)
-    os.environ.setdefault("TSMC_BROWSER_LLM_MODEL", config.browser_llm_model)
-    os.environ.setdefault("TSMC_BROWSER_LLM_STATE_PATH", str(config.browser_llm_state_path))
+    os.environ.setdefault("SAVEMYCONTEXT_DATABASE_URL", config.database_url)
+    os.environ.setdefault("SAVEMYCONTEXT_MARKDOWN_DIR", str(config.markdown_dir))
+    os.environ.setdefault("SAVEMYCONTEXT_LLM_BACKEND", config.llm_backend)
+    os.environ.setdefault("SAVEMYCONTEXT_BROWSER_LLM_MODEL", config.browser_llm_model)
+    os.environ.setdefault("SAVEMYCONTEXT_BROWSER_LLM_STATE_PATH", str(config.browser_llm_state_path))
     if config.public_url:
-        os.environ.setdefault("TSMC_PUBLIC_URL", config.public_url)
-    os.environ.setdefault("TSMC_BROWSER_PROFILE_DIR", str(config.browser_profile_dir))
-    os.environ.setdefault("TSMC_BROWSER_HEADLESS", "true" if config.browser_headless else "false")
+        os.environ.setdefault("SAVEMYCONTEXT_PUBLIC_URL", config.public_url)
+    os.environ.setdefault("SAVEMYCONTEXT_BROWSER_PROFILE_DIR", str(config.browser_profile_dir))
+    os.environ.setdefault("SAVEMYCONTEXT_BROWSER_HEADLESS", "true" if config.browser_headless else "false")
     if config.browser_channel:
-        os.environ.setdefault("TSMC_BROWSER_CHANNEL", config.browser_channel)
+        os.environ.setdefault("SAVEMYCONTEXT_BROWSER_CHANNEL", config.browser_channel)
     if config.browser_executable_path:
-        os.environ.setdefault("TSMC_BROWSER_EXECUTABLE_PATH", config.browser_executable_path)
-    os.environ.setdefault("TSMC_BROWSER_TIMEOUT_SECONDS", str(config.browser_timeout_seconds))
+        os.environ.setdefault("SAVEMYCONTEXT_BROWSER_EXECUTABLE_PATH", config.browser_executable_path)
+    os.environ.setdefault("SAVEMYCONTEXT_BROWSER_TIMEOUT_SECONDS", str(config.browser_timeout_seconds))

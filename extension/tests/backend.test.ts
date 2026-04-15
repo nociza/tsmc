@@ -43,7 +43,7 @@ describe("backend validation helpers", () => {
       vi.fn(async () => ({
         ok: true,
         json: async () => ({
-          product: "tsmc-server",
+          product: "savemycontext",
           version: "0.2.0",
           api_prefix: "/api/v1",
           server_time: "2026-04-02T00:00:00Z",
@@ -68,8 +68,8 @@ describe("backend validation helpers", () => {
             openai_compatible_api: false
           },
           storage: {
-            markdown_root: "/srv/tsmc/markdown",
-            vault_root: "/srv/tsmc/markdown/TSMC"
+            markdown_root: "/srv/savemycontext/markdown",
+            vault_root: "/srv/savemycontext/markdown/SaveMyContext"
           }
         })
       }))
@@ -116,7 +116,7 @@ describe("backend validation helpers", () => {
     const { fetchDashboardSummary } = await import("../src/background/backend");
     const summary = await fetchDashboardSummary({
       backendUrl: "https://notes.example.com/",
-      backendToken: "tsmc_pat_test",
+      backendToken: "savemycontext_pat_test",
       autoSyncHistory: true,
       indexingMode: "all",
       triggerWords: ["lorem"],
@@ -131,7 +131,7 @@ describe("backend validation helpers", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("https://notes.example.com/api/v1/dashboard/summary", {
       headers: {
-        Authorization: "Bearer tsmc_pat_test"
+        Authorization: "Bearer savemycontext_pat_test"
       }
     });
     expect(summary.total_sessions).toBe(3);
@@ -159,7 +159,7 @@ describe("backend validation helpers", () => {
     const response = await fetchKnowledgeSearch(
       {
         backendUrl: "https://notes.example.com/",
-        backendToken: "tsmc_pat_test",
+        backendToken: "savemycontext_pat_test",
         autoSyncHistory: true,
         indexingMode: "all",
         triggerWords: ["lorem"],
@@ -177,7 +177,7 @@ describe("backend validation helpers", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("https://notes.example.com/api/v1/search?q=rust+ownership&limit=5", {
       headers: {
-        Authorization: "Bearer tsmc_pat_test"
+        Authorization: "Bearer savemycontext_pat_test"
       }
     });
     expect(response.count).toBe(1);
@@ -189,10 +189,10 @@ describe("backend validation helpers", () => {
       ok: true,
       json: async () => ({
         markdown_root: "/srv/knowledge",
-        vault_root: "/srv/knowledge/TSMC",
-        todo_list_path: "/srv/knowledge/TSMC/Dashboards/To-Do List.md",
+        vault_root: "/srv/knowledge/SaveMyContext",
+        todo_list_path: "/srv/knowledge/SaveMyContext/Dashboards/To-Do List.md",
         persistence_kind: "cli_config",
-        persisted_to: "/home/test/.config/tsmc/config.toml",
+        persisted_to: "/home/test/.config/savemycontext/config.toml",
         regenerated_session_count: 12,
         git_initialized: true
       })
@@ -203,7 +203,7 @@ describe("backend validation helpers", () => {
     const response = await updateKnowledgeStoragePath(
       {
         backendUrl: "https://notes.example.com/",
-        backendToken: "tsmc_pat_test",
+        backendToken: "savemycontext_pat_test",
         autoSyncHistory: true,
         indexingMode: "all",
         triggerWords: ["lorem"],
@@ -222,13 +222,13 @@ describe("backend validation helpers", () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: "Bearer tsmc_pat_test"
+        Authorization: "Bearer savemycontext_pat_test"
       },
       body: JSON.stringify({
         markdown_root: "/srv/knowledge"
       })
     });
-    expect(response.vault_root).toBe("/srv/knowledge/TSMC");
+    expect(response.vault_root).toBe("/srv/knowledge/SaveMyContext");
     expect(response.regenerated_session_count).toBe(12);
   });
 
@@ -242,8 +242,8 @@ describe("backend validation helpers", () => {
         save_mode: "ai",
         processed: true,
         category: "factual",
-        markdown_path: "/srv/knowledge/TSMC/Captures/selection--rust-ownership-note--capture.md",
-        raw_source_path: "/srv/knowledge/TSMC/Sources/selection--rust-ownership-note--capture--source.md"
+        markdown_path: "/srv/knowledge/SaveMyContext/Captures/selection--rust-ownership-note--capture.md",
+        raw_source_path: "/srv/knowledge/SaveMyContext/Sources/selection--rust-ownership-note--capture--source.md"
       })
     }));
     vi.stubGlobal("fetch", fetchMock);
@@ -252,7 +252,7 @@ describe("backend validation helpers", () => {
     const response = await saveSourceCaptureToBackend(
       {
         backendUrl: "https://notes.example.com/",
-        backendToken: "tsmc_pat_test",
+        backendToken: "savemycontext_pat_test",
         autoSyncHistory: true,
         indexingMode: "all",
         triggerWords: ["lorem"],
@@ -283,7 +283,7 @@ describe("backend validation helpers", () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: "Bearer tsmc_pat_test"
+        Authorization: "Bearer savemycontext_pat_test"
       },
       body: JSON.stringify({
         capture_kind: "selection",

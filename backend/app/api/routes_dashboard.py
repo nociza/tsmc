@@ -102,7 +102,7 @@ async def system_status(
         or 0
     )
     return SystemStatus(
-        product="tsmc-server",
+        product="savemycontext",
         version=get_app_version(),
         server_time=utcnow(),
         markdown_root=str(settings.resolved_markdown_dir),

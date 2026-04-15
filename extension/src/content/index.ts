@@ -9,10 +9,10 @@ import type {
 import { createQuickSearchPalette } from "./quick-search";
 import { createSelectionCaptureController } from "./selection-capture";
 
-const CONTROL_SOURCE = "tsmc-history-control";
-const CONTROL_READY_SOURCE = "tsmc-history-control-ready";
-const PROXY_RESULT_SOURCE = "tsmc-proxy-result";
-const MAIN_WORLD_READY_ATTRIBUTE = "data-tsmc-main-world-ready";
+const CONTROL_SOURCE = "savemycontext-history-control";
+const CONTROL_READY_SOURCE = "savemycontext-history-control-ready";
+const PROXY_RESULT_SOURCE = "savemycontext-proxy-result";
+const MAIN_WORLD_READY_ATTRIBUTE = "data-savemycontext-main-world-ready";
 
 let injectedReady = false;
 let pendingControlPayload: MainWorldControlPayload | null = null;
@@ -112,14 +112,14 @@ window.addEventListener(
       return;
     }
 
-    if (event.data.source === "tsmc-network-observer") {
+    if (event.data.source === "savemycontext-network-observer") {
       enqueueRuntimeMessage({
         type: "NETWORK_CAPTURE",
         payload: event.data.payload as CapturedNetworkEvent
       });
     }
 
-    if (event.data.source === "tsmc-history-sync") {
+    if (event.data.source === "savemycontext-history-sync") {
       enqueueRuntimeMessage({
         type: "HISTORY_SYNC_STATUS",
         payload: event.data.payload as HistorySyncUpdate
@@ -270,7 +270,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
         } satisfies RunProviderPromptResponse);
       })
       .catch((error) => {
-        console.error("TSMC provider prompt run failed", error);
+        console.error("SaveMyContext provider prompt run failed", error);
         sendResponse({
           ok: false,
           error: error instanceof Error ? error.message : String(error)

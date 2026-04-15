@@ -71,7 +71,7 @@ class BrowserProxyClient(LLMClient):
     ) -> str:
         schema_json = json.dumps(schema.model_json_schema(), ensure_ascii=True, separators=(",", ":"), sort_keys=True)
         return (
-            "You are TSMC's internal processing worker.\n"
+            "You are SaveMyContext's internal processing worker.\n"
             "This browser chat is reserved for fast private classification and summarization jobs.\n"
             "Use fast mode. Do not use extended reasoning, hidden chain-of-thought, or thinking mode.\n"
             "Treat every message as a new independent task.\n"

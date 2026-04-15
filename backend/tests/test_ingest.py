@@ -21,7 +21,7 @@ from app.services.todo import TodoListService
 
 @pytest.mark.asyncio
 async def test_full_snapshot_updates_existing_messages(tmp_path) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-test.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-test.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
@@ -83,7 +83,7 @@ async def test_full_snapshot_updates_existing_messages(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_ingest_accepts_long_titles(tmp_path) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-long-title.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-long-title.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
@@ -119,13 +119,13 @@ async def test_ingest_accepts_long_titles(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_ingest_writes_markdown_when_related_sessions_have_mixed_datetime_timezones(tmp_path, monkeypatch) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-ingest-timezones.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-ingest-timezones.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
-    monkeypatch.setenv("TSMC_LLM_BACKEND", "openai")
+    monkeypatch.setenv("SAVEMYCONTEXT_LLM_BACKEND", "openai")
     get_settings.cache_clear()
     try:
         async with session_factory() as session:
@@ -189,13 +189,13 @@ async def test_ingest_writes_markdown_when_related_sessions_have_mixed_datetime_
 
 @pytest.mark.asyncio
 async def test_ingest_writes_fact_triplets_into_session_markdown(tmp_path, monkeypatch) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-ingest-factual-markdown.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-ingest-factual-markdown.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
-    monkeypatch.setenv("TSMC_LLM_BACKEND", "heuristic")
+    monkeypatch.setenv("SAVEMYCONTEXT_LLM_BACKEND", "heuristic")
     get_settings.cache_clear()
     try:
         async with session_factory() as session:
@@ -236,13 +236,13 @@ async def test_ingest_writes_fact_triplets_into_session_markdown(tmp_path, monke
 
 @pytest.mark.asyncio
 async def test_ingest_writes_source_document_with_raw_capture_and_message_payloads(tmp_path, monkeypatch) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-ingest-source-markdown.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-ingest-source-markdown.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
-    monkeypatch.setenv("TSMC_LLM_BACKEND", "heuristic")
+    monkeypatch.setenv("SAVEMYCONTEXT_LLM_BACKEND", "heuristic")
     get_settings.cache_clear()
     try:
         async with session_factory() as session:
@@ -288,13 +288,13 @@ async def test_ingest_writes_source_document_with_raw_capture_and_message_payloa
 
 @pytest.mark.asyncio
 async def test_ingest_auto_processes_immediately_without_browser_automation(tmp_path, monkeypatch) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-browser-llm.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-browser-llm.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
-    monkeypatch.setenv("TSMC_LLM_BACKEND", "auto")
+    monkeypatch.setenv("SAVEMYCONTEXT_LLM_BACKEND", "auto")
     get_settings.cache_clear()
 
     try:
@@ -355,16 +355,16 @@ async def test_ingest_auto_processes_immediately_without_browser_automation(tmp_
 
 @pytest.mark.asyncio
 async def test_ingest_browser_proxy_batches_when_experimental_browser_automation_is_enabled(tmp_path, monkeypatch) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-browser-llm-experimental.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-browser-llm-experimental.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
-    monkeypatch.setenv("TSMC_LLM_BACKEND", "browser_proxy")
-    monkeypatch.setenv("TSMC_EXPERIMENTAL_BROWSER_AUTOMATION", "true")
-    monkeypatch.setenv("TSMC_BROWSER_LLM_MODEL", "browser-gemini")
-    monkeypatch.setenv("TSMC_BROWSER_LLM_STATE_PATH", str(tmp_path / "browser-llm-state.json"))
+    monkeypatch.setenv("SAVEMYCONTEXT_LLM_BACKEND", "browser_proxy")
+    monkeypatch.setenv("SAVEMYCONTEXT_EXPERIMENTAL_BROWSER_AUTOMATION", "true")
+    monkeypatch.setenv("SAVEMYCONTEXT_BROWSER_LLM_MODEL", "browser-gemini")
+    monkeypatch.setenv("SAVEMYCONTEXT_BROWSER_LLM_STATE_PATH", str(tmp_path / "browser-llm-state.json"))
     get_settings.cache_clear()
 
     try:
@@ -433,14 +433,14 @@ async def test_ingest_browser_proxy_batches_when_experimental_browser_automation
 
 @pytest.mark.asyncio
 async def test_ingest_updates_shared_todo_list_and_versions_vault(tmp_path, monkeypatch) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-todo-ingest.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-todo-ingest.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
-    monkeypatch.setenv("TSMC_LLM_BACKEND", "heuristic")
-    monkeypatch.setenv("TSMC_MARKDOWN_DIR", str(tmp_path / "markdown"))
+    monkeypatch.setenv("SAVEMYCONTEXT_LLM_BACKEND", "heuristic")
+    monkeypatch.setenv("SAVEMYCONTEXT_MARKDOWN_DIR", str(tmp_path / "markdown"))
     get_settings.cache_clear()
 
     try:

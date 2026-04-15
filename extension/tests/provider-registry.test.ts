@@ -6,7 +6,7 @@ import type { CapturedNetworkEvent } from "../src/shared/types";
 describe("providerRegistry", () => {
   it("matches Gemini events with relative website URLs without throwing", () => {
     const event: CapturedNetworkEvent = {
-      source: "tsmc-network-observer",
+      source: "savemycontext-network-observer",
       providerHint: "gemini",
       pageUrl: "https://gemini.google.com/app/abc123",
       requestId: "req-gemini-1",

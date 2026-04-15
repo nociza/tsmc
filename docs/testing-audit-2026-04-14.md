@@ -30,7 +30,7 @@ This file tracks issues found during the live processing and vault-quality audit
   Resolution: `todo` is now allowed only for explicit shared-list edit requests, with a classification guard that remaps false-positive `todo` results back through the heuristic classifier.
 
 - [fixed] Vault wiki links are rooted from the parent markdown directory instead of the Obsidian vault root.
-  Evidence: generated links looked like `[[TSMC/Factual/...]]` even though `TSMC/` is already the vault root directory.
+  Evidence: generated links looked like `[[SaveMyContext/Factual/...]]` even though `SaveMyContext/` is already the vault root directory.
   Impact: links are incorrect inside Obsidian and make the knowledge graph/navigation less usable.
   Resolution: wiki links are now generated relative to the vault root, so links resolve correctly inside Obsidian.
 

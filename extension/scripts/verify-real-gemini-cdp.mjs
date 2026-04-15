@@ -1,8 +1,8 @@
 import { chromium } from "@playwright/test";
 
-const debugUrl = process.env.TSMC_CDP_URL || "http://127.0.0.1:9223";
-const preferredSessionId = process.env.TSMC_REIMPORT_SESSION?.trim() || "";
-const timeoutMs = Number.parseInt(process.env.TSMC_VERIFY_TIMEOUT_MS || "30000", 10);
+const debugUrl = process.env.SAVEMYCONTEXT_CDP_URL || "http://127.0.0.1:9223";
+const preferredSessionId = process.env.SAVEMYCONTEXT_REIMPORT_SESSION?.trim() || "";
+const timeoutMs = Number.parseInt(process.env.SAVEMYCONTEXT_VERIFY_TIMEOUT_MS || "30000", 10);
 
 function inferExtensionId(context) {
   const serviceWorker = context.serviceWorkers()[0];
@@ -169,18 +169,18 @@ async function main() {
   console.log(`[gemini-page] ${geminiPage.url()}`);
   await geminiPage.evaluate(() => {
     const windowRecord = window;
-    windowRecord.__tsmcHistorySyncEvents = [];
-    windowRecord.__tsmcBatchTraffic = [];
-    if (windowRecord.__tsmcHistorySyncListenerInstalled) {
+    windowRecord.__savemycontextHistorySyncEvents = [];
+    windowRecord.__savemycontextBatchTraffic = [];
+    if (windowRecord.__savemycontextHistorySyncListenerInstalled) {
       return;
     }
 
     window.addEventListener("message", (event) => {
-      if (event.source !== window || event.data?.source !== "tsmc-history-sync") {
+      if (event.source !== window || event.data?.source !== "savemycontext-history-sync") {
         return;
       }
 
-      windowRecord.__tsmcHistorySyncEvents.push(event.data.payload ?? null);
+      windowRecord.__savemycontextHistorySyncEvents.push(event.data.payload ?? null);
     });
     const nativeFetch = window.fetch.bind(window);
     window.fetch = async (...args) => {
@@ -204,7 +204,7 @@ async function main() {
                 ? init.body.toString()
                 : "";
           const text = await response.clone().text();
-          windowRecord.__tsmcBatchTraffic.push({
+          windowRecord.__savemycontextBatchTraffic.push({
             url,
             requestBody,
             status: response.status,
@@ -217,17 +217,17 @@ async function main() {
 
       return response;
     };
-    windowRecord.__tsmcHistorySyncListenerInstalled = true;
+    windowRecord.__savemycontextHistorySyncListenerInstalled = true;
   });
   const liveConversationIds = await fetchLiveGeminiConversationIds(geminiPage);
   console.log(`[live-conversations] ${liveConversationIds.slice(0, 10).join(",")}`);
 
   const initialState = await optionsPage.evaluate(
     ({ preferredSessionId: sessionId, liveConversationIds: currentConversationIds }) => {
-      return chrome.storage.local.get(["tsmc.sync-state", "tsmc.history-sync", "tsmc.status"]).then((stored) => {
-        const syncStates = stored["tsmc.sync-state"] ?? {};
-        const status = stored["tsmc.status"] ?? {};
-        const historyStates = stored["tsmc.history-sync"] ?? {};
+      return chrome.storage.local.get(["savemycontext.sync-state", "savemycontext.history-sync", "savemycontext.status"]).then((stored) => {
+        const syncStates = stored["savemycontext.sync-state"] ?? {};
+        const status = stored["savemycontext.status"] ?? {};
+        const historyStates = stored["savemycontext.history-sync"] ?? {};
         const geminiSessionIds = Object.keys(syncStates)
           .filter((sessionKey) => sessionKey.startsWith("gemini:"))
           .map((sessionKey) => sessionKey.slice("gemini:".length))
@@ -261,9 +261,9 @@ async function main() {
 
   await optionsPage.evaluate(
     ({ chosenSessionId }) => {
-      return chrome.storage.local.get(["tsmc.sync-state", "tsmc.history-sync"]).then(async (stored) => {
-        const syncStates = stored["tsmc.sync-state"] ?? {};
-        const historyStates = stored["tsmc.history-sync"] ?? {};
+      return chrome.storage.local.get(["savemycontext.sync-state", "savemycontext.history-sync"]).then(async (stored) => {
+        const syncStates = stored["savemycontext.sync-state"] ?? {};
+        const historyStates = stored["savemycontext.history-sync"] ?? {};
         delete syncStates[`gemini:${chosenSessionId}`];
         historyStates.gemini = {
           ...(historyStates.gemini ?? {}),
@@ -271,8 +271,8 @@ async function main() {
           lastCompletedAt: "2000-01-01T00:00:00.000Z"
         };
         await chrome.storage.local.set({
-          "tsmc.sync-state": syncStates,
-          "tsmc.history-sync": historyStates
+          "savemycontext.sync-state": syncStates,
+          "savemycontext.history-sync": historyStates
         });
       });
     },
@@ -283,7 +283,7 @@ async function main() {
   await geminiPage.evaluate((nextSyncedSessionIds) => {
     window.postMessage(
       {
-        source: "tsmc-history-control",
+        source: "savemycontext-history-control",
         payload: {
           type: "START_HISTORY_SYNC",
           syncedSessionIds: nextSyncedSessionIds
@@ -297,7 +297,7 @@ async function main() {
   let finalStatus = null;
   while (Date.now() < deadline) {
     finalStatus = await optionsPage.evaluate(() =>
-      chrome.storage.local.get("tsmc.status").then((stored) => stored["tsmc.status"] ?? null)
+      chrome.storage.local.get("savemycontext.status").then((stored) => stored["savemycontext.status"] ?? null)
     );
 
     const lastStartedAt = finalStatus?.historySyncLastStartedAt ?? null;
@@ -328,8 +328,8 @@ async function main() {
   console.log(`[final-status] ${JSON.stringify(finalStatus)}`);
   console.log(`[history-text] ${await optionsPage.locator("#history-sync").textContent()}`);
   console.log(`[last-session] ${await optionsPage.locator("#last-session").textContent()}`);
-  const emittedEvents = await geminiPage.evaluate(() => window.__tsmcHistorySyncEvents ?? []);
-  const batchTraffic = await geminiPage.evaluate(() => window.__tsmcBatchTraffic ?? []);
+  const emittedEvents = await geminiPage.evaluate(() => window.__savemycontextHistorySyncEvents ?? []);
+  const batchTraffic = await geminiPage.evaluate(() => window.__savemycontextBatchTraffic ?? []);
   console.log(`[emitted-events] ${JSON.stringify(emittedEvents)}`);
   console.log(`[batch-traffic] ${JSON.stringify(batchTraffic)}`);
   console.log(`[observed-responses] ${JSON.stringify(observedResponses)}`);

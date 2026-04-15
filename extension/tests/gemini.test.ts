@@ -8,7 +8,7 @@ describe("GeminiScraper", () => {
     const scraper = new GeminiScraper();
 
     const event: CapturedNetworkEvent = {
-      source: "tsmc-network-observer",
+      source: "savemycontext-network-observer",
       providerHint: "gemini",
       pageUrl: "https://gemini.google.com/app/gemini-e2e-session",
       requestId: "req-gemini-history-1",
@@ -65,7 +65,7 @@ describe("GeminiScraper", () => {
     const scraper = new GeminiScraper();
 
     const event = {
-      source: "tsmc-network-observer",
+      source: "savemycontext-network-observer",
       providerHint: "gemini",
       pageUrl: "https://gemini.google.com/app/runtime-shape-test",
       requestId: "req-gemini-runtime-shape",
@@ -113,7 +113,7 @@ describe("GeminiScraper", () => {
     const scraper = new GeminiScraper();
 
     const event = {
-      source: "tsmc-network-observer",
+      source: "savemycontext-network-observer",
       providerHint: "gemini",
       pageUrl: "https://gemini.google.com/u/1/app/account-scoped-session",
       requestId: "req-gemini-account-scope",

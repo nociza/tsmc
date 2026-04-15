@@ -182,7 +182,7 @@ function render(settings: ExtensionSettings, status: SyncStatus): void {
     if (status.backendValidationError) {
       backendValidation.textContent = status.backendValidationError;
     } else if (status.backendValidatedAt && status.backendVersion) {
-      backendValidation.textContent = `${status.backendProduct ?? "tsmc-server"} ${status.backendVersion} (${status.backendAuthMode ?? "unknown"})`;
+      backendValidation.textContent = `${status.backendProduct ?? "savemycontext"} ${status.backendVersion} (${status.backendAuthMode ?? "unknown"})`;
     } else {
       backendValidation.textContent = "Not validated yet";
     }
@@ -194,7 +194,7 @@ function render(settings: ExtensionSettings, status: SyncStatus): void {
       knowledgePathStatus.textContent = `Current root: ${status.backendMarkdownRoot}. Vault: ${status.backendVaultRoot}.`;
     } else {
       knowledgePathStatus.textContent =
-        "This path lives on the backend machine. TSMC writes the vault into TSMC/ under this folder.";
+        "This path lives on the backend machine. SaveMyContext writes the vault into SaveMyContext/ under this folder.";
     }
   }
 }
@@ -343,13 +343,13 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     return;
   }
 
-  if (changes["tsmc.status"]?.newValue && currentSettings) {
-    currentStatus = changes["tsmc.status"].newValue as SyncStatus;
+  if (changes["savemycontext.status"]?.newValue && currentSettings) {
+    currentStatus = changes["savemycontext.status"].newValue as SyncStatus;
     render(currentSettings, currentStatus);
     return;
   }
 
-  if (changes["tsmc.settings"] || changes["tsmc.settings.cache"] || changes["tsmc.settings.secrets"]) {
+  if (changes["savemycontext.settings"] || changes["savemycontext.settings.cache"] || changes["savemycontext.settings.secrets"]) {
     void load();
   }
 });

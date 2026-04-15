@@ -17,7 +17,7 @@ async def wait_for_input(page: Page, adapter: ProviderUIAdapter, *, timeout_seco
             return
         await page.wait_for_timeout(250)
     raise BrowserProxyServiceError(
-        f"Could not find the {adapter.provider.value} prompt input. Log in first with 'tsmc browser login --provider {adapter.provider.value}'."
+        f"Could not find the {adapter.provider.value} prompt input. Log in first with 'savemycontext browser login --provider {adapter.provider.value}'."
     )
 
 

@@ -11,7 +11,7 @@ export interface CapturedBody {
 }
 
 export interface CapturedNetworkEvent {
-  source: "tsmc-network-observer";
+  source: "savemycontext-network-observer";
   providerHint?: ProviderName;
   captureMode?: CaptureMode;
   historySyncRunId?: string;

@@ -1,6 +1,6 @@
-# TSMC
+# SaveMyContext
 
-TSMC captures your ChatGPT, Gemini, and Grok conversations, syncs them to a backend, classifies them into `journal`, `factual`, `ideas`, or `todo`, and writes an Obsidian-friendly Markdown vault plus a lightweight knowledge graph.
+SaveMyContext captures your ChatGPT, Gemini, and Grok conversations, syncs them to a backend, classifies them into `journal`, `factual`, `ideas`, or `todo`, and writes an Obsidian-friendly Markdown vault plus a lightweight knowledge graph.
 
 ## What You Get
 
@@ -16,8 +16,8 @@ TSMC captures your ChatGPT, Gemini, and Grok conversations, syncs them to a back
 Recommended Linux install:
 
 ```bash
-uv tool install tsmc-server
-tsmc service install --start
+uv tool install savemycontext
+savemycontext service install --start
 ```
 
 If you want to run it from this repo instead:
@@ -52,8 +52,8 @@ Open the extension settings and enter:
 Remote backends require an app token. Create one with:
 
 ```bash
-tsmc init-admin --username admin
-tsmc token create --name chrome-extension --scope ingest --scope read
+savemycontext init-admin --username admin
+savemycontext token create --name chrome-extension --scope ingest --scope read
 ```
 
 Paste that token into the extension settings. The extension validates the backend before saving it.
@@ -71,7 +71,7 @@ The trigger/blacklist check focuses on the opening one or two user sentences so 
 
 Visit ChatGPT, Gemini, or Grok while signed in.
 
-If `Auto Sync History` is enabled, TSMC will:
+If `Auto Sync History` is enabled, SaveMyContext will:
 
 - fetch historical conversations from the provider website
 - sync them to the backend
@@ -84,33 +84,33 @@ If you change trigger-word or blacklist settings, the next provider visit will r
 Recommended processing setup:
 
 ```bash
-TSMC_OPENAI_API_KEY=your_openrouter_key
-TSMC_OPENAI_BASE_URL=https://openrouter.ai/api/v1
-TSMC_OPENAI_MODEL=openai/gpt-4.1-mini
+SAVEMYCONTEXT_OPENAI_API_KEY=your_openrouter_key
+SAVEMYCONTEXT_OPENAI_BASE_URL=https://openrouter.ai/api/v1
+SAVEMYCONTEXT_OPENAI_MODEL=openai/gpt-4.1-mini
 ```
 
-Put those in your backend env file, for example `~/.config/tsmc/tsmc.env` when using `tsmc service install`, or export them before starting the server. Browser automation is experimental and disabled by default.
+Put those in your backend env file, for example `~/.config/savemycontext/savemycontext.env` when using `savemycontext service install`, or export them before starting the server. Browser automation is experimental and disabled by default.
 
-Git versioning is enabled by default for the vault. TSMC initializes a local git repo inside the Obsidian vault and commits session-note, graph, dashboard, and shared to-do list changes automatically.
+Git versioning is enabled by default for the vault. SaveMyContext initializes a local git repo inside the Obsidian vault and commits session-note, graph, dashboard, and shared to-do list changes automatically.
 
 ## Where Data Goes
 
 Service install defaults:
 
-- database: `~/.local/share/tsmc/tsmc.db`
-- Markdown vault: `~/.local/share/tsmc/markdown/TSMC`
-- browser profiles: `~/.local/share/tsmc/browser-profile/`
+- database: `~/.local/share/savemycontext/savemycontext.db`
+- Markdown vault: `~/.local/share/savemycontext/markdown/SaveMyContext`
+- browser profiles: `~/.local/share/savemycontext/browser-profile/`
 
 Repo-local dev defaults:
 
-- database: `backend/data/tsmc.db`
-- Markdown vault: `backend/data/markdown/TSMC`
+- database: `backend/data/savemycontext.db`
+- Markdown vault: `backend/data/markdown/SaveMyContext`
 - browser profiles: `backend/data/browser-profile/`
 
 Vault layout:
 
 ```text
-TSMC/
+SaveMyContext/
   Journal/
   Factual/
   Ideas/
@@ -126,11 +126,11 @@ TSMC/
 ## Useful Commands
 
 ```bash
-tsmc service status
-tsmc service logs -f
-tsmc config path
-tsmc token list
-tsmc token revoke <token-id>
+savemycontext service status
+savemycontext service logs -f
+savemycontext config path
+savemycontext token list
+savemycontext token revoke <token-id>
 ```
 
 ## Development
@@ -164,7 +164,7 @@ pnpm test:e2e
 
 ## Docs
 
-- [Architecture](/Volumes/Brookline/Projects/Personal/tsmc/docs/architecture.md)
-- [Agentic System Design](/Volumes/Brookline/Projects/Personal/tsmc/docs/agentic-system-design.md)
-- [CLI Service Design](/Volumes/Brookline/Projects/Personal/tsmc/docs/cli-service-design.md)
-- [Product Platform Design](/Volumes/Brookline/Projects/Personal/tsmc/docs/product-platform-design.md)
+- [Architecture](docs/architecture.md)
+- [Agentic System Design](docs/agentic-system-design.md)
+- [CLI Service Design](docs/cli-service-design.md)
+- [Product Platform Design](docs/product-platform-design.md)

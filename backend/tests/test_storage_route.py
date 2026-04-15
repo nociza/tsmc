@@ -23,7 +23,7 @@ from app.services.ingest import IngestService
 
 @pytest.mark.asyncio
 async def test_storage_route_rebuilds_vault_in_new_root(tmp_path, monkeypatch) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-storage-route.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-storage-route.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
@@ -36,19 +36,19 @@ async def test_storage_route_rebuilds_vault_in_new_root(tmp_path, monkeypatch) -
     cli_paths = CLIPaths(
         config_dir=config_dir,
         config_path=config_dir / "config.toml",
-        env_path=config_dir / "tsmc.env",
+        env_path=config_dir / "savemycontext.env",
         data_dir=data_dir,
         markdown_dir=old_markdown_root,
-        database_path=data_dir / "tsmc.db",
+        database_path=data_dir / "savemycontext.db",
         systemd_user_dir=tmp_path / "systemd-user",
-        unit_path=tmp_path / "systemd-user" / "tsmc.service",
+        unit_path=tmp_path / "systemd-user" / "savemycontext.service",
     )
     config = merge_cli_config(default_cli_config(cli_paths), data_dir=data_dir, markdown_dir=old_markdown_root)
     save_cli_config(config, cli_paths.config_path)
 
-    monkeypatch.setenv("TSMC_CLI_CONFIG_PATH", str(cli_paths.config_path))
-    monkeypatch.setenv("TSMC_MARKDOWN_DIR", str(old_markdown_root))
-    monkeypatch.setenv("TSMC_LLM_BACKEND", "heuristic")
+    monkeypatch.setenv("SAVEMYCONTEXT_CLI_CONFIG_PATH", str(cli_paths.config_path))
+    monkeypatch.setenv("SAVEMYCONTEXT_MARKDOWN_DIR", str(old_markdown_root))
+    monkeypatch.setenv("SAVEMYCONTEXT_LLM_BACKEND", "heuristic")
     get_settings.cache_clear()
 
     try:
@@ -100,11 +100,11 @@ async def test_storage_route_rebuilds_vault_in_new_root(tmp_path, monkeypatch) -
         assert response.status_code == 200
         payload = response.json()
         assert payload["markdown_root"] == str(new_markdown_root.resolve())
-        assert payload["vault_root"].endswith("/TSMC")
+        assert payload["vault_root"].endswith("/SaveMyContext")
         assert payload["regenerated_session_count"] == 1
         assert payload["persistence_kind"] == "cli_config"
 
-        vault_root = new_markdown_root / "TSMC"
+        vault_root = new_markdown_root / "SaveMyContext"
         assert (vault_root / "README.md").exists()
         assert (vault_root / "AGENTS.md").exists()
         assert (vault_root / "manifest.json").exists()

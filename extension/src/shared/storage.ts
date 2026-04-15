@@ -7,13 +7,13 @@ import type {
   SyncStatus
 } from "./types";
 
-const SETTINGS_KEY = "tsmc.settings";
-const SECRET_SETTINGS_KEY = "tsmc.settings.secrets";
-const SETTINGS_CACHE_KEY = "tsmc.settings.cache";
-const SYNC_STATE_KEY = "tsmc.sync-state";
-const STATUS_KEY = "tsmc.status";
-const HISTORY_SYNC_KEY = "tsmc.history-sync";
-const PROCESSING_WORKER_KEY = "tsmc.processing-worker";
+const SETTINGS_KEY = "savemycontext.settings";
+const SECRET_SETTINGS_KEY = "savemycontext.settings.secrets";
+const SETTINGS_CACHE_KEY = "savemycontext.settings.cache";
+const SYNC_STATE_KEY = "savemycontext.sync-state";
+const STATUS_KEY = "savemycontext.status";
+const HISTORY_SYNC_KEY = "savemycontext.history-sync";
+const PROCESSING_WORKER_KEY = "savemycontext.processing-worker";
 
 export const defaultSettings: ExtensionSettings = {
   backendUrl: "http://127.0.0.1:18888",

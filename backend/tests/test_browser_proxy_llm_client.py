@@ -33,7 +33,7 @@ def make_completion(response_text: str, provider_session_url: str) -> BrowserCom
         model="browser-gemini",
         provider_session_url=provider_session_url,
         source_url="https://gemini.google.com/app",
-        title="TSMC Processing",
+        title="SaveMyContext Processing",
         prompt_text="ignored",
         response_text=response_text,
         raw_capture={"source": "test"},

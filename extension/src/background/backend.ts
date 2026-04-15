@@ -91,8 +91,8 @@ export async function validateBackendConfiguration(settings: ExtensionSettings):
   }
 
   const capabilities = (await capabilityResponse.json()) as BackendCapabilities;
-  if (capabilities.product !== "tsmc-server") {
-    throw new Error("The configured backend is not a TSMC server.");
+  if (capabilities.product !== "savemycontext") {
+    throw new Error("The configured backend is not a SaveMyContext server.");
   }
 
   const extensionVersion = chrome.runtime.getManifest().version;
@@ -103,7 +103,7 @@ export async function validateBackendConfiguration(settings: ExtensionSettings):
   }
 
   if (!isLocal && capabilities.auth.mode !== "app_token") {
-    throw new Error("Remote TSMC backends must be provisioned with an app token first.");
+    throw new Error("Remote SaveMyContext backends must be provisioned with an app token first.");
   }
 
   if (!isLocal && !settings.backendToken) {

@@ -40,7 +40,7 @@ describe("storage", () => {
   it("does not write to chrome.storage.sync when reading settings", async () => {
     const sync = createStorageArea();
     const local = createStorageArea({
-      "tsmc.settings.secrets": {
+      "savemycontext.settings.secrets": {
         backendToken: "secret-token"
       }
     });
@@ -64,7 +64,7 @@ describe("storage", () => {
 
   it("prefers the local settings cache for live reads when sync is stale", async () => {
     const sync = createStorageArea({
-      "tsmc.settings": {
+      "savemycontext.settings": {
         backendUrl: "http://127.0.0.1:18888",
         enabledProviders: {
           chatgpt: true,
@@ -79,7 +79,7 @@ describe("storage", () => {
       }
     });
     const local = createStorageArea({
-      "tsmc.settings.cache": {
+      "savemycontext.settings.cache": {
         backendUrl: "http://127.0.0.1:9999",
         enabledProviders: {
           chatgpt: true,
@@ -92,7 +92,7 @@ describe("storage", () => {
         blacklistWords: ["ignore"],
         selectionCaptureEnabled: true
       },
-      "tsmc.settings.secrets": {
+      "savemycontext.settings.secrets": {
         backendToken: "secret-token"
       }
     });
@@ -116,7 +116,7 @@ describe("storage", () => {
 
   it("persists merged defaults once during initialization when settings are incomplete", async () => {
     const sync = createStorageArea({
-      "tsmc.settings": {
+      "savemycontext.settings": {
         backendUrl: "http://127.0.0.1:9000"
       }
     });
@@ -133,7 +133,7 @@ describe("storage", () => {
 
     expect(sync.set).toHaveBeenCalledTimes(1);
     expect(sync.set).toHaveBeenCalledWith({
-      "tsmc.settings": {
+      "savemycontext.settings": {
         backendUrl: "http://127.0.0.1:9000",
         enabledProviders: {
           chatgpt: true,
@@ -148,7 +148,7 @@ describe("storage", () => {
       }
     });
     expect(local.set).toHaveBeenCalledWith({
-      "tsmc.settings.cache": {
+      "savemycontext.settings.cache": {
         backendUrl: "http://127.0.0.1:9000",
         enabledProviders: {
           chatgpt: true,

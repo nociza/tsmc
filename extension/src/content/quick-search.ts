@@ -9,7 +9,7 @@ type QuickSearchPalette = {
 
 type EditableTarget = HTMLInputElement | HTMLTextAreaElement | HTMLElement;
 
-const HOST_ID = "tsmc-quick-search-host";
+const HOST_ID = "savemycontext-quick-search-host";
 const DEBOUNCE_MS = 220;
 
 const STYLE_TEXT = `
@@ -378,7 +378,7 @@ export function createQuickSearchPalette(sendMessage: SearchRequester): QuickSea
     if (!query.trim()) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = "Type a search query to pull facts, sessions, and graph entities from TSMC.";
+      empty.textContent = "Type a search query to pull facts, sessions, and graph entities from SaveMyContext.";
       root.append(empty);
       return;
     }
@@ -392,7 +392,7 @@ export function createQuickSearchPalette(sendMessage: SearchRequester): QuickSea
     if (isLoading) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = "Searching your TSMC knowledge base…";
+      empty.textContent = "Searching your SaveMyContext knowledge base…";
       root.append(empty);
       return;
     }
@@ -436,7 +436,7 @@ export function createQuickSearchPalette(sendMessage: SearchRequester): QuickSea
 
       const source = document.createElement("div");
       source.className = "source";
-      source.textContent = result.markdown_path ?? "Stored in the local TSMC knowledge base";
+      source.textContent = result.markdown_path ?? "Stored in the local SaveMyContext knowledge base";
 
       const insert = document.createElement("button");
       insert.className = "insert";
@@ -530,7 +530,7 @@ export function createQuickSearchPalette(sendMessage: SearchRequester): QuickSea
       isLoading = false;
       if (!response.ok) {
         results = [];
-        errorMessage = response.error ?? "TSMC search failed.";
+        errorMessage = response.error ?? "SaveMyContext search failed.";
         render();
         return;
       }
@@ -664,7 +664,7 @@ export function createQuickSearchPalette(sendMessage: SearchRequester): QuickSea
     const heading = document.createElement("div");
     const eyebrow = document.createElement("p");
     eyebrow.className = "eyebrow";
-    eyebrow.textContent = "TSMC Quick Search";
+    eyebrow.textContent = "SaveMyContext Quick Search";
     const title = document.createElement("h2");
     title.className = "title";
     title.textContent = "Search and inject";
@@ -686,7 +686,7 @@ export function createQuickSearchPalette(sendMessage: SearchRequester): QuickSea
     const search = document.createElement("div");
     search.className = "search";
     queryInput = document.createElement("input");
-    queryInput.id = "tsmc-quick-search-query";
+    queryInput.id = "savemycontext-quick-search-query";
     queryInput.type = "search";
     queryInput.placeholder = "Search facts, entities, sessions, or to-do items";
     queryInput.autocomplete = "off";
@@ -721,7 +721,7 @@ export function createQuickSearchPalette(sendMessage: SearchRequester): QuickSea
 
     resultsRoot = document.createElement("div");
     resultsRoot.className = "results";
-    resultsRoot.id = "tsmc-quick-search-results";
+    resultsRoot.id = "savemycontext-quick-search-results";
 
     panel.append(header, search, meta, resultsRoot);
     overlay.append(panel);

@@ -24,7 +24,7 @@ const snapshot: NormalizedSessionSnapshot = {
 };
 
 const rawCapture: CapturedNetworkEvent = {
-  source: "tsmc-network-observer",
+  source: "savemycontext-network-observer",
   providerHint: "chatgpt",
   pageUrl: snapshot.sourceUrl,
   requestId: "req-1",

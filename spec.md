@@ -1,4 +1,4 @@
-## Project Specification: TSMC (Total Sync: My Context)
+## Project Specification: SaveMyContext (SaveMyContext)
 
 **Objective:** Build a unified "second brain" that automatically intercepts, stores, categorizes, and processes user chat sessions from major web-based AI platforms (ChatGPT, Gemini, Grok) into actionable notes, knowledge graphs, and shareable content.
 

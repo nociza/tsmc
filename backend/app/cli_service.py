@@ -14,7 +14,7 @@ from app.cli_config import CLIConfig
 from app.cli_paths import CLIPaths
 
 
-MANAGED_UNIT_HEADER = "# Managed by TSMC. Manual edits may be overwritten.\n"
+MANAGED_UNIT_HEADER = "# Managed by SaveMyContext. Manual edits may be overwritten.\n"
 
 
 @dataclass(frozen=True)
@@ -27,8 +27,8 @@ class ServiceStatus:
     health_error: str | None
 
 
-def tsmc_executable_path() -> Path:
-    executable = shutil.which("tsmc")
+def savemycontext_executable_path() -> Path:
+    executable = shutil.which("savemycontext")
     if executable:
         return Path(executable).resolve()
     return Path(sys.argv[0]).resolve()
@@ -38,12 +38,12 @@ def render_systemd_unit(config: CLIConfig, paths: CLIPaths) -> str:
     return textwrap.dedent(
         f"""\
         {MANAGED_UNIT_HEADER}[Unit]
-        Description=TSMC backend
+        Description=SaveMyContext backend
         After=network.target
 
         [Service]
         Type=simple
-        ExecStart={tsmc_executable_path()} run --config {paths.config_path}
+        ExecStart={savemycontext_executable_path()} run --config {paths.config_path}
         EnvironmentFile={paths.env_path}
         WorkingDirectory={config.data_dir}
         Restart=on-failure
@@ -81,7 +81,7 @@ def write_systemd_unit(config: CLIConfig, paths: CLIPaths, *, force: bool = Fals
         existing = paths.unit_path.read_text(encoding="utf-8")
         if MANAGED_UNIT_HEADER not in existing and not force:
             raise RuntimeError(
-                f"Refusing to overwrite unmanaged unit file at {paths.unit_path}. Re-run with --force if you want TSMC to replace it."
+                f"Refusing to overwrite unmanaged unit file at {paths.unit_path}. Re-run with --force if you want SaveMyContext to replace it."
             )
 
     paths.unit_path.parent.mkdir(parents=True, exist_ok=True)
@@ -115,7 +115,7 @@ def maybe_warn_about_linger() -> str | None:
 
     username = Path.home().owner()
     return (
-        "TSMC will start when your user session starts.\n"
+        "SaveMyContext will start when your user session starts.\n"
         f"To keep it running at boot without login, enable lingering:\n  sudo loginctl enable-linger {username}"
     )
 

@@ -86,7 +86,7 @@ function buildGeminiTurnPayload(blocks: unknown[], nextPageToken?: string): unkn
 }
 
 function configuredBackendBaseUrl(): string | null {
-  const value = globalThis.process.env.TSMC_E2E_BACKEND_URL?.trim();
+  const value = globalThis.process.env.SAVEMYCONTEXT_E2E_BACKEND_URL?.trim();
   return value ? value.replace(/\/$/, "") : null;
 }
 
@@ -206,8 +206,8 @@ async function stopBackend(process: ReturnType<typeof spawn> | undefined): Promi
 }
 
 test("auto-syncs ChatGPT history on provider visit", async ({ request }, testInfo) => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
-  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "savemycontext-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "savemycontext-backend-e2e-"));
   const sessionId = `e2e-chatgpt-${Date.now()}`;
   const backendLogs: string[] = [];
   let backendProcess: ReturnType<typeof spawn> | undefined;
@@ -225,9 +225,9 @@ test("auto-syncs ChatGPT history on provider visit", async ({ request }, testInf
           env: {
             ...globalThis.process.env,
             PYTHONUNBUFFERED: "1",
-            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
-            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
-            TSMC_LLM_BACKEND: "heuristic"
+            SAVEMYCONTEXT_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "savemycontext.db")}`,
+            SAVEMYCONTEXT_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            SAVEMYCONTEXT_LLM_BACKEND: "heuristic"
           },
           stdio: ["ignore", "pipe", "pipe"]
         }
@@ -341,9 +341,9 @@ test("auto-syncs ChatGPT history on provider visit", async ({ request }, testInf
         .poll(
           async () =>
             serviceWorker.evaluate(async () => {
-              const stored = await chrome.storage.local.get("tsmc.status");
+              const stored = await chrome.storage.local.get("savemycontext.status");
               return (
-                (stored["tsmc.status"] as { historySyncLastResult?: string } | undefined)?.historySyncLastResult ??
+                (stored["savemycontext.status"] as { historySyncLastResult?: string } | undefined)?.historySyncLastResult ??
                 null
               );
             }),
@@ -410,8 +410,8 @@ test("auto-syncs ChatGPT history on provider visit", async ({ request }, testInf
 });
 
 test("skips indexing when trigger-word mode is enabled and the opening request does not match", async ({ request }, testInfo) => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
-  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "savemycontext-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "savemycontext-backend-e2e-"));
   const sessionId = `e2e-chatgpt-trigger-skip-${Date.now()}`;
   const backendLogs: string[] = [];
   let backendProcess: ReturnType<typeof spawn> | undefined;
@@ -429,9 +429,9 @@ test("skips indexing when trigger-word mode is enabled and the opening request d
           env: {
             ...globalThis.process.env,
             PYTHONUNBUFFERED: "1",
-            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
-            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
-            TSMC_LLM_BACKEND: "heuristic"
+            SAVEMYCONTEXT_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "savemycontext.db")}`,
+            SAVEMYCONTEXT_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            SAVEMYCONTEXT_LLM_BACKEND: "heuristic"
           },
           stdio: ["ignore", "pipe", "pipe"]
         }
@@ -522,7 +522,7 @@ test("skips indexing when trigger-word mode is enabled and the opening request d
                   id: "msg-user",
                   author: { role: "user" },
                   create_time: 1711842000,
-                  content: { parts: ["Please keep this planning thread out of TSMC for now."] }
+                  content: { parts: ["Please keep this planning thread out of SaveMyContext for now."] }
                 }
               },
               assistantNode: {
@@ -548,8 +548,8 @@ test("skips indexing when trigger-word mode is enabled and the opening request d
         .poll(
           async () =>
             serviceWorker.evaluate(async () => {
-              const stored = await chrome.storage.local.get("tsmc.status");
-              return (stored["tsmc.status"] ??
+              const stored = await chrome.storage.local.get("savemycontext.status");
+              return (stored["savemycontext.status"] ??
                 {}) as {
                 lastIndexingDecision?: string;
                 lastIndexingReason?: string | null;
@@ -582,8 +582,8 @@ test("skips indexing when trigger-word mode is enabled and the opening request d
 });
 
 test("runs queued AI processing from the popup through the signed-in provider tab", async ({ request }, testInfo) => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
-  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "savemycontext-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "savemycontext-backend-e2e-"));
   const pendingSessionId = "processing-source-session";
   const secondPendingSessionId = "processing-source-session-2";
   const backendLogs: string[] = [];
@@ -603,11 +603,11 @@ test("runs queued AI processing from the popup through the signed-in provider ta
           env: {
             ...globalThis.process.env,
             PYTHONUNBUFFERED: "1",
-            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
-            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
-            TSMC_LLM_BACKEND: "browser_proxy",
-            TSMC_EXPERIMENTAL_BROWSER_AUTOMATION: "true",
-            TSMC_BROWSER_LLM_MODEL: "browser-chatgpt"
+            SAVEMYCONTEXT_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "savemycontext.db")}`,
+            SAVEMYCONTEXT_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            SAVEMYCONTEXT_LLM_BACKEND: "browser_proxy",
+            SAVEMYCONTEXT_EXPERIMENTAL_BROWSER_AUTOMATION: "true",
+            SAVEMYCONTEXT_BROWSER_LLM_MODEL: "browser-chatgpt"
           },
           stdio: ["ignore", "pipe", "pipe"]
         }
@@ -744,7 +744,7 @@ test("runs queued AI processing from the popup through the signed-in provider ta
           contentType: "application/json",
           body: JSON.stringify({
             conversation_id: "worker-chat-session",
-            title: "TSMC Processing Worker",
+            title: "SaveMyContext Processing Worker",
             messages: [
               {
                 id: "worker-user-1",
@@ -881,8 +881,8 @@ test("runs queued AI processing from the popup through the signed-in provider ta
         .poll(
           async () =>
             serviceWorker.evaluate(async () => {
-              const stored = await chrome.storage.local.get("tsmc.status");
-              return (stored["tsmc.status"] ??
+              const stored = await chrome.storage.local.get("savemycontext.status");
+              return (stored["savemycontext.status"] ??
                 {}) as {
                 processingInProgress?: boolean;
                 processingPendingCount?: number;
@@ -913,10 +913,10 @@ test("runs queued AI processing from the popup through the signed-in provider ta
       await expect(popup.locator("#last-error")).toHaveText("None");
 
       await serviceWorker.evaluate(async () => {
-        const stored = await chrome.storage.local.get("tsmc.status");
+        const stored = await chrome.storage.local.get("savemycontext.status");
         await chrome.storage.local.set({
-          "tsmc.status": {
-            ...(stored["tsmc.status"] ?? {}),
+          "savemycontext.status": {
+            ...(stored["savemycontext.status"] ?? {}),
             processingLastError: "stale processing error"
           }
         });
@@ -936,8 +936,8 @@ test("runs queued AI processing from the popup through the signed-in provider ta
 });
 
 test("salvages a partial batched AI processing reply and continues with the remaining queued task", async ({ request }, testInfo) => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
-  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "savemycontext-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "savemycontext-backend-e2e-"));
   const firstPendingSessionId = "processing-partial-session-1";
   const secondPendingSessionId = "processing-partial-session-2";
   const backendLogs: string[] = [];
@@ -957,11 +957,11 @@ test("salvages a partial batched AI processing reply and continues with the rema
           env: {
             ...globalThis.process.env,
             PYTHONUNBUFFERED: "1",
-            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
-            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
-            TSMC_LLM_BACKEND: "browser_proxy",
-            TSMC_EXPERIMENTAL_BROWSER_AUTOMATION: "true",
-            TSMC_BROWSER_LLM_MODEL: "browser-chatgpt"
+            SAVEMYCONTEXT_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "savemycontext.db")}`,
+            SAVEMYCONTEXT_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            SAVEMYCONTEXT_LLM_BACKEND: "browser_proxy",
+            SAVEMYCONTEXT_EXPERIMENTAL_BROWSER_AUTOMATION: "true",
+            SAVEMYCONTEXT_BROWSER_LLM_MODEL: "browser-chatgpt"
           },
           stdio: ["ignore", "pipe", "pipe"]
         }
@@ -1135,7 +1135,7 @@ test("salvages a partial batched AI processing reply and continues with the rema
           contentType: "application/json",
           body: JSON.stringify({
             conversation_id: "worker-chat-session",
-            title: "TSMC Processing Worker",
+            title: "SaveMyContext Processing Worker",
             messages: [
               {
                 id: `worker-user-${observedPrompts.length}`,
@@ -1195,8 +1195,8 @@ test("salvages a partial batched AI processing reply and continues with the rema
         .poll(
           async () =>
             serviceWorker.evaluate(async () => {
-              const stored = await chrome.storage.local.get("tsmc.status");
-              return (stored["tsmc.status"] ??
+              const stored = await chrome.storage.local.get("savemycontext.status");
+              return (stored["savemycontext.status"] ??
                 {}) as {
                 processingInProgress?: boolean;
                 processingPendingCount?: number;
@@ -1227,8 +1227,8 @@ test("salvages a partial batched AI processing reply and continues with the rema
 });
 
 test("repairs malformed processing JSON by retrying in the provider tab", async ({ request }, testInfo) => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
-  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "savemycontext-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "savemycontext-backend-e2e-"));
   const pendingSessionId = "processing-repair-session";
   const backendLogs: string[] = [];
   const observedPrompts: string[] = [];
@@ -1247,11 +1247,11 @@ test("repairs malformed processing JSON by retrying in the provider tab", async 
           env: {
             ...globalThis.process.env,
             PYTHONUNBUFFERED: "1",
-            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
-            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
-            TSMC_LLM_BACKEND: "browser_proxy",
-            TSMC_EXPERIMENTAL_BROWSER_AUTOMATION: "true",
-            TSMC_BROWSER_LLM_MODEL: "browser-chatgpt"
+            SAVEMYCONTEXT_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "savemycontext.db")}`,
+            SAVEMYCONTEXT_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            SAVEMYCONTEXT_LLM_BACKEND: "browser_proxy",
+            SAVEMYCONTEXT_EXPERIMENTAL_BROWSER_AUTOMATION: "true",
+            SAVEMYCONTEXT_BROWSER_LLM_MODEL: "browser-chatgpt"
           },
           stdio: ["ignore", "pipe", "pipe"]
         }
@@ -1385,7 +1385,7 @@ test("repairs malformed processing JSON by retrying in the provider tab", async 
           contentType: "application/json",
           body: JSON.stringify({
             conversation_id: "worker-chat-session",
-            title: "TSMC Processing Worker",
+            title: "SaveMyContext Processing Worker",
             messages: [
               {
                 id: `worker-user-${observedPrompts.length}`,
@@ -1468,8 +1468,8 @@ test("repairs malformed processing JSON by retrying in the provider tab", async 
 });
 
 test("waits for provider generation to finish before attempting JSON repair", async ({ request }, testInfo) => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
-  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "savemycontext-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "savemycontext-backend-e2e-"));
   const pendingSessionId = "processing-wait-session";
   const backendLogs: string[] = [];
   const observedPrompts: string[] = [];
@@ -1488,11 +1488,11 @@ test("waits for provider generation to finish before attempting JSON repair", as
           env: {
             ...globalThis.process.env,
             PYTHONUNBUFFERED: "1",
-            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
-            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
-            TSMC_LLM_BACKEND: "browser_proxy",
-            TSMC_EXPERIMENTAL_BROWSER_AUTOMATION: "true",
-            TSMC_BROWSER_LLM_MODEL: "browser-chatgpt"
+            SAVEMYCONTEXT_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "savemycontext.db")}`,
+            SAVEMYCONTEXT_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            SAVEMYCONTEXT_LLM_BACKEND: "browser_proxy",
+            SAVEMYCONTEXT_EXPERIMENTAL_BROWSER_AUTOMATION: "true",
+            SAVEMYCONTEXT_BROWSER_LLM_MODEL: "browser-chatgpt"
           },
           stdio: ["ignore", "pipe", "pipe"]
         }
@@ -1635,7 +1635,7 @@ test("waits for provider generation to finish before attempting JSON repair", as
           contentType: "application/json",
           body: JSON.stringify({
             conversation_id: "worker-chat-session",
-            title: "TSMC Processing Worker",
+            title: "SaveMyContext Processing Worker",
             final_content: finalContent,
             messages: [
               {
@@ -1698,8 +1698,8 @@ test("waits for provider generation to finish before attempting JSON repair", as
 });
 
 test("auto-syncs Gemini history on provider visit", async ({ request }, testInfo) => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
-  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "savemycontext-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "savemycontext-backend-e2e-"));
   const sessionId = "gemini-e2e-123456789";
   const secondSessionId = "gemini-e2e-987654321";
   const thirdSessionId = "gemini-e2e-333333333";
@@ -1724,9 +1724,9 @@ test("auto-syncs Gemini history on provider visit", async ({ request }, testInfo
           env: {
             ...globalThis.process.env,
             PYTHONUNBUFFERED: "1",
-            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
-            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
-            TSMC_LLM_BACKEND: "heuristic"
+            SAVEMYCONTEXT_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "savemycontext.db")}`,
+            SAVEMYCONTEXT_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            SAVEMYCONTEXT_LLM_BACKEND: "heuristic"
           },
           stdio: ["ignore", "pipe", "pipe"]
         }
@@ -1768,7 +1768,7 @@ test("auto-syncs Gemini history on provider visit", async ({ request }, testInfo
 
       await serviceWorker.evaluate((skippedId) => {
         return chrome.storage.local.set({
-          "tsmc.sync-state": {
+          "savemycontext.sync-state": {
             [`gemini:u0__${skippedId}`]: {
               seenMessageIds: ["existing-message"],
               lastSyncedAt: "2026-04-01T11:50:00.000Z"
@@ -1988,8 +1988,8 @@ test("auto-syncs Gemini history on provider visit", async ({ request }, testInfo
         .poll(
           async () =>
             serviceWorker.evaluate(async () => {
-              const stored = await chrome.storage.local.get("tsmc.status");
-              return JSON.stringify((stored["tsmc.status"] ??
+              const stored = await chrome.storage.local.get("savemycontext.status");
+              return JSON.stringify((stored["savemycontext.status"] ??
                 {}) as {
                 historySyncLastResult?: string;
                 historySyncLastError?: string | null;
@@ -2006,8 +2006,8 @@ test("auto-syncs Gemini history on provider visit", async ({ request }, testInfo
         .toContain('"historySyncLastResult":"success"');
 
       const completedStatus = (await serviceWorker.evaluate(async () => {
-        const stored = await chrome.storage.local.get("tsmc.status");
-        return (stored["tsmc.status"] ??
+        const stored = await chrome.storage.local.get("savemycontext.status");
+        return (stored["savemycontext.status"] ??
           {}) as {
           historySyncProcessedCount?: number;
           historySyncTotalCount?: number;
@@ -2075,8 +2075,8 @@ test("auto-syncs Gemini history on provider visit", async ({ request }, testInfo
       expect(accountOneSession?.title).toBe("Gemini E2E Account 1");
 
       const refreshBaseline = (await serviceWorker.evaluate(async () => {
-        const stored = await chrome.storage.local.get("tsmc.status");
-        return (stored["tsmc.status"] ??
+        const stored = await chrome.storage.local.get("savemycontext.status");
+        return (stored["savemycontext.status"] ??
           {}) as {
           historySyncLastStartedAt?: string;
           historySyncLastCompletedAt?: string;
@@ -2093,8 +2093,8 @@ test("auto-syncs Gemini history on provider visit", async ({ request }, testInfo
         .poll(
           async () =>
             serviceWorker.evaluate(async (baseline) => {
-              const stored = await chrome.storage.local.get("tsmc.status");
-              const status = (stored["tsmc.status"] ??
+              const stored = await chrome.storage.local.get("savemycontext.status");
+              const status = (stored["savemycontext.status"] ??
                 {}) as {
                 historySyncInProgress?: boolean;
                 historySyncLastStartedAt?: string;
@@ -2163,8 +2163,8 @@ test("auto-syncs Gemini history on provider visit", async ({ request }, testInfo
 });
 
 test("surfaces provider drift alerts when Gemini history shapes change", async ({}, testInfo) => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
-  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "savemycontext-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "savemycontext-backend-e2e-"));
   const backendLogs: string[] = [];
   let backendProcess: ReturnType<typeof spawn> | undefined;
   let backendBaseUrl = configuredBackendBaseUrl();
@@ -2181,9 +2181,9 @@ test("surfaces provider drift alerts when Gemini history shapes change", async (
           env: {
             ...globalThis.process.env,
             PYTHONUNBUFFERED: "1",
-            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
-            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
-            TSMC_LLM_BACKEND: "heuristic"
+            SAVEMYCONTEXT_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "savemycontext.db")}`,
+            SAVEMYCONTEXT_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            SAVEMYCONTEXT_LLM_BACKEND: "heuristic"
           },
           stdio: ["ignore", "pipe", "pipe"]
         }
@@ -2266,8 +2266,8 @@ test("surfaces provider drift alerts when Gemini history shapes change", async (
         .poll(
           async () =>
             serviceWorker.evaluate(async () => {
-              const stored = await chrome.storage.local.get("tsmc.status");
-              return (stored["tsmc.status"] ??
+              const stored = await chrome.storage.local.get("savemycontext.status");
+              return (stored["savemycontext.status"] ??
                 {}) as {
                 historySyncLastResult?: string;
                 providerDriftAlert?: { provider?: string; message?: string } | null;
@@ -2308,8 +2308,8 @@ test("surfaces provider drift alerts when Gemini history shapes change", async (
 });
 
 test("auto-syncs Grok history on provider visit", async ({ request }, testInfo) => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
-  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "savemycontext-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "savemycontext-backend-e2e-"));
   const sessionId = "grok-e2e-123456789";
   const secondSessionId = "grok-e2e-987654321";
   const thirdSessionId = "grok-e2e-333333333";
@@ -2332,9 +2332,9 @@ test("auto-syncs Grok history on provider visit", async ({ request }, testInfo) 
           env: {
             ...globalThis.process.env,
             PYTHONUNBUFFERED: "1",
-            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
-            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
-            TSMC_LLM_BACKEND: "heuristic"
+            SAVEMYCONTEXT_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "savemycontext.db")}`,
+            SAVEMYCONTEXT_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            SAVEMYCONTEXT_LLM_BACKEND: "heuristic"
           },
           stdio: ["ignore", "pipe", "pipe"]
         }
@@ -2376,7 +2376,7 @@ test("auto-syncs Grok history on provider visit", async ({ request }, testInfo) 
 
       await serviceWorker.evaluate((skippedId) => {
         return chrome.storage.local.set({
-          "tsmc.sync-state": {
+          "savemycontext.sync-state": {
             [`grok:${skippedId}`]: {
               seenMessageIds: ["existing-message"],
               lastSyncedAt: "2026-04-01T11:50:00.000Z"
@@ -2553,8 +2553,8 @@ test("auto-syncs Grok history on provider visit", async ({ request }, testInfo) 
         .poll(
           async () =>
             serviceWorker.evaluate(async () => {
-              const stored = await chrome.storage.local.get("tsmc.status");
-              return JSON.stringify((stored["tsmc.status"] ??
+              const stored = await chrome.storage.local.get("savemycontext.status");
+              return JSON.stringify((stored["savemycontext.status"] ??
                 {}) as {
                 historySyncLastResult?: string;
                 historySyncLastError?: string | null;
@@ -2571,8 +2571,8 @@ test("auto-syncs Grok history on provider visit", async ({ request }, testInfo) 
         .toContain('"historySyncLastResult":"success"');
 
       const completedStatus = (await serviceWorker.evaluate(async () => {
-        const stored = await chrome.storage.local.get("tsmc.status");
-        return (stored["tsmc.status"] ??
+        const stored = await chrome.storage.local.get("savemycontext.status");
+        return (stored["savemycontext.status"] ??
           {}) as {
           historySyncProcessedCount?: number;
           historySyncTotalCount?: number;
@@ -2636,8 +2636,8 @@ test("auto-syncs Grok history on provider visit", async ({ request }, testInfo) 
       expect(thirdSession?.title).toBe("Grok E2E Sync 3");
 
       const refreshBaseline = (await serviceWorker.evaluate(async () => {
-        const stored = await chrome.storage.local.get("tsmc.status");
-        return (stored["tsmc.status"] ??
+        const stored = await chrome.storage.local.get("savemycontext.status");
+        return (stored["savemycontext.status"] ??
           {}) as {
           historySyncLastStartedAt?: string;
           historySyncLastCompletedAt?: string;
@@ -2654,8 +2654,8 @@ test("auto-syncs Grok history on provider visit", async ({ request }, testInfo) 
         .poll(
           async () =>
             serviceWorker.evaluate(async (baseline) => {
-              const stored = await chrome.storage.local.get("tsmc.status");
-              const status = (stored["tsmc.status"] ??
+              const stored = await chrome.storage.local.get("savemycontext.status");
+              const status = (stored["savemycontext.status"] ??
                 {}) as {
                 historySyncInProgress?: boolean;
                 historySyncLastStartedAt?: string;
@@ -2711,8 +2711,8 @@ test("auto-syncs Grok history on provider visit", async ({ request }, testInfo) 
 });
 
 test("falls back to Grok response-node and load-responses when direct responses are empty", async ({ request }, testInfo) => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
-  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "savemycontext-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "savemycontext-backend-e2e-"));
   const sessionId = "grok-e2e-fallback-123456789";
   const backendLogs: string[] = [];
   const observedRoutes: string[] = [];
@@ -2731,9 +2731,9 @@ test("falls back to Grok response-node and load-responses when direct responses 
           env: {
             ...globalThis.process.env,
             PYTHONUNBUFFERED: "1",
-            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
-            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
-            TSMC_LLM_BACKEND: "heuristic"
+            SAVEMYCONTEXT_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "savemycontext.db")}`,
+            SAVEMYCONTEXT_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            SAVEMYCONTEXT_LLM_BACKEND: "heuristic"
           },
           stdio: ["ignore", "pipe", "pipe"]
         }
@@ -2871,9 +2871,9 @@ test("falls back to Grok response-node and load-responses when direct responses 
         .poll(
           async () =>
             serviceWorker.evaluate(async () => {
-              const stored = await chrome.storage.local.get("tsmc.status");
+              const stored = await chrome.storage.local.get("savemycontext.status");
               return (
-                (stored["tsmc.status"] as { historySyncLastResult?: string } | undefined)?.historySyncLastResult ??
+                (stored["savemycontext.status"] as { historySyncLastResult?: string } | undefined)?.historySyncLastResult ??
                 null
               );
             }),
@@ -2932,8 +2932,8 @@ test("falls back to Grok response-node and load-responses when direct responses 
 });
 
 test("surfaces provider drift alerts when Grok history shapes change", async ({}, testInfo) => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
-  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "savemycontext-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "savemycontext-backend-e2e-"));
   const backendLogs: string[] = [];
   let backendProcess: ReturnType<typeof spawn> | undefined;
   let backendBaseUrl = configuredBackendBaseUrl();
@@ -2950,9 +2950,9 @@ test("surfaces provider drift alerts when Grok history shapes change", async ({}
           env: {
             ...globalThis.process.env,
             PYTHONUNBUFFERED: "1",
-            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
-            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
-            TSMC_LLM_BACKEND: "heuristic"
+            SAVEMYCONTEXT_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "savemycontext.db")}`,
+            SAVEMYCONTEXT_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            SAVEMYCONTEXT_LLM_BACKEND: "heuristic"
           },
           stdio: ["ignore", "pipe", "pipe"]
         }
@@ -3026,8 +3026,8 @@ test("surfaces provider drift alerts when Grok history shapes change", async ({}
         .poll(
           async () =>
             serviceWorker.evaluate(async () => {
-              const stored = await chrome.storage.local.get("tsmc.status");
-              return (stored["tsmc.status"] ??
+              const stored = await chrome.storage.local.get("savemycontext.status");
+              return (stored["savemycontext.status"] ??
                 {}) as {
                 historySyncLastResult?: string;
                 providerDriftAlert?: { provider?: string; message?: string } | null;
@@ -3068,8 +3068,8 @@ test("surfaces provider drift alerts when Grok history shapes change", async ({}
 });
 
 test("renders the dashboard with backend corpus, graph, and storage statistics", async ({ request }, testInfo) => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-dashboard-"));
-  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-dashboard-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "savemycontext-extension-dashboard-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "savemycontext-backend-dashboard-"));
   const backendLogs: string[] = [];
   let backendProcess: ReturnType<typeof spawn> | undefined;
   let backendBaseUrl = configuredBackendBaseUrl();
@@ -3086,9 +3086,9 @@ test("renders the dashboard with backend corpus, graph, and storage statistics",
           env: {
             ...globalThis.process.env,
             PYTHONUNBUFFERED: "1",
-            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
-            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
-            TSMC_LLM_BACKEND: "heuristic"
+            SAVEMYCONTEXT_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "savemycontext.db")}`,
+            SAVEMYCONTEXT_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            SAVEMYCONTEXT_LLM_BACKEND: "heuristic"
           },
           stdio: ["ignore", "pipe", "pipe"]
         }
@@ -3245,8 +3245,8 @@ test("renders the dashboard with backend corpus, graph, and storage statistics",
 });
 
 test("searches the knowledge base and injects a fact into the focused page field", async ({ request }, testInfo) => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-search-"));
-  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-search-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "savemycontext-extension-search-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "savemycontext-backend-search-"));
   const backendLogs: string[] = [];
   let backendProcess: ReturnType<typeof spawn> | undefined;
   let backendBaseUrl = configuredBackendBaseUrl();
@@ -3263,9 +3263,9 @@ test("searches the knowledge base and injects a fact into the focused page field
           env: {
             ...globalThis.process.env,
             PYTHONUNBUFFERED: "1",
-            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
-            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
-            TSMC_LLM_BACKEND: "heuristic"
+            SAVEMYCONTEXT_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "savemycontext.db")}`,
+            SAVEMYCONTEXT_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            SAVEMYCONTEXT_LLM_BACKEND: "heuristic"
           },
           stdio: ["ignore", "pipe", "pipe"]
         }
@@ -3367,8 +3367,8 @@ test("searches the knowledge base and injects a fact into the focused page field
       });
       expect(openSearchResponse.ok).toBe(true);
 
-      await page.locator("#tsmc-quick-search-query").fill("ownership");
-      await expect(page.locator("#tsmc-quick-search-results")).toContainText("Rust | uses | ownership");
+      await page.locator("#savemycontext-quick-search-query").fill("ownership");
+      await expect(page.locator("#savemycontext-quick-search-results")).toContainText("Rust | uses | ownership");
 
       const factCard = page.locator("article.result").filter({ hasText: "Rust | uses | ownership" }).first();
       await factCard.getByRole("button", { name: "Insert" }).click();
@@ -3385,8 +3385,8 @@ test("searches the knowledge base and injects a fact into the focused page field
 });
 
 test("shows the selection capture pop-up and saves the selected text into the backend", async ({ request }, testInfo) => {
-  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-selection-capture-"));
-  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-selection-capture-"));
+  const userDataDir = await mkdtemp(join(tmpdir(), "savemycontext-extension-selection-capture-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "savemycontext-backend-selection-capture-"));
   const backendLogs: string[] = [];
   let backendProcess: ReturnType<typeof spawn> | undefined;
   let backendBaseUrl = configuredBackendBaseUrl();
@@ -3403,9 +3403,9 @@ test("shows the selection capture pop-up and saves the selected text into the ba
           env: {
             ...globalThis.process.env,
             PYTHONUNBUFFERED: "1",
-            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
-            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
-            TSMC_LLM_BACKEND: "heuristic"
+            SAVEMYCONTEXT_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "savemycontext.db")}`,
+            SAVEMYCONTEXT_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            SAVEMYCONTEXT_LLM_BACKEND: "heuristic"
           },
           stdio: ["ignore", "pipe", "pipe"]
         }

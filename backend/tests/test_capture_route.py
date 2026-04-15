@@ -16,13 +16,13 @@ from app.services.source_capture import SourceCaptureEnrichment, SourceCapturePr
 
 @pytest.mark.asyncio
 async def test_capture_route_saves_raw_selection_and_exposes_it_to_search(tmp_path, monkeypatch) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-capture-route.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-capture-route.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
-    monkeypatch.setenv("TSMC_MARKDOWN_DIR", str(tmp_path / "markdown"))
+    monkeypatch.setenv("SAVEMYCONTEXT_MARKDOWN_DIR", str(tmp_path / "markdown"))
     get_settings.cache_clear()
     try:
         app = FastAPI()
@@ -70,13 +70,13 @@ async def test_capture_route_saves_raw_selection_and_exposes_it_to_search(tmp_pa
 
 @pytest.mark.asyncio
 async def test_capture_route_saves_ai_enriched_page_capture(tmp_path, monkeypatch) -> None:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-capture-ai-route.db'}")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-capture-ai-route.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
-    monkeypatch.setenv("TSMC_MARKDOWN_DIR", str(tmp_path / "markdown"))
+    monkeypatch.setenv("SAVEMYCONTEXT_MARKDOWN_DIR", str(tmp_path / "markdown"))
     get_settings.cache_clear()
 
     async def fake_enrich(self, payload):  # type: ignore[no-untyped-def]
@@ -117,7 +117,7 @@ async def test_capture_route_saves_ai_enriched_page_capture(tmp_path, monkeypatc
         payload = response.json()
         assert payload["processed"] is True
         assert payload["category"] == "factual"
-        markdown_path = tmp_path / "markdown" / "TSMC" / "Captures"
+        markdown_path = tmp_path / "markdown" / "SaveMyContext" / "Captures"
         assert any(markdown_path.glob("page--reference-architecture-note-*.md"))
         note_path = next(markdown_path.glob("page--reference-architecture-note-*.md"))
         note_markdown = note_path.read_text(encoding="utf-8")

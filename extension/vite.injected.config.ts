@@ -12,7 +12,7 @@ export default defineConfig({
     sourcemap: true,
     lib: {
       entry: resolve(rootDir, "src/injected/index.ts"),
-      name: "tsmcInjected",
+      name: "savemycontextInjected",
       formats: ["iife"],
       fileName: () => "assets/injected.js"
     },

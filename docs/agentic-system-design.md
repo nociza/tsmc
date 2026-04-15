@@ -1,8 +1,8 @@
-# TSMC Agentic System Design
+# SaveMyContext Agentic System Design
 
 ## Goal
 
-TSMC should be easy for another tool or agent to operate without scraping logs, guessing paths, or reverse-engineering backend behavior.
+SaveMyContext should be easy for another tool or agent to operate without scraping logs, guessing paths, or reverse-engineering backend behavior.
 
 The implemented design uses:
 
@@ -19,25 +19,25 @@ The implemented design uses:
 1. Install the service CLI:
 
 ```bash
-uv tool install tsmc-server
+uv tool install savemycontext
 ```
 
 2. Start the backend locally:
 
 ```bash
-tsmc run
+savemycontext run
 ```
 
 3. Create the first admin:
 
 ```bash
-tsmc init-admin --username admin
+savemycontext init-admin --username admin
 ```
 
 4. Create an app token for the extension or another agent:
 
 ```bash
-tsmc token create --name chrome-extension --scope ingest --scope read --json
+savemycontext token create --name chrome-extension --scope ingest --scope read --json
 ```
 
 The `--json` form is intentional. It gives another agent a stable parse target.
@@ -122,11 +122,11 @@ GET /api/v1/dashboard/summary
 
 ## Vault Layout
 
-TSMC writes a managed vault tree under the configured Markdown root:
+SaveMyContext writes a managed vault tree under the configured Markdown root:
 
 ```text
 <markdown_root>/
-  TSMC/
+  SaveMyContext/
     Journal/
     Factual/
     Ideas/
