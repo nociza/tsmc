@@ -43,6 +43,8 @@ def test_cli_config_round_trip(tmp_path: Path) -> None:
     assert parsed.data_dir == (tmp_path / "srv" / "tsmc").resolve()
     assert parsed.markdown_dir == (tmp_path / "srv" / "tsmc" / "markdown").resolve()
     assert parsed.public_url == "https://example.test/tsmc"
+    assert parsed.browser_llm_model == "browser-gemini"
+    assert parsed.browser_llm_state_path == (tmp_path / "srv" / "tsmc" / "browser-llm-state.json").resolve()
     assert parsed.browser_profile_dir == (tmp_path / "srv" / "tsmc" / "browser-profile").resolve()
     assert parsed.browser_headless is True
     assert parsed.browser_channel == "chromium"
@@ -52,10 +54,12 @@ def test_render_systemd_unit_uses_tsmc_run_command(tmp_path: Path) -> None:
     paths = make_paths(tmp_path)
     config = CLIConfig(
         host="127.0.0.1",
-        port=8000,
+        port=18888,
         data_dir=(tmp_path / "srv" / "tsmc").resolve(),
         markdown_dir=(tmp_path / "srv" / "tsmc" / "markdown").resolve(),
         llm_backend="auto",
+        browser_llm_model="browser-gemini",
+        browser_llm_state_path=(tmp_path / "srv" / "tsmc" / "browser-llm-state.json").resolve(),
         public_url=None,
         service_name="tsmc",
         browser_profile_dir=(tmp_path / "srv" / "tsmc" / "browser-profile").resolve(),

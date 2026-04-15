@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
 from app.models import ChatSession, ProviderName
 from app.models.base import Base
 from app.schemas.openai_proxy import ChatCompletionMessage, ChatCompletionRequest
@@ -26,6 +27,16 @@ class FakeBrowserProxyService:
             }
         )
         return self.responses.pop(0)
+
+
+@pytest.fixture(autouse=True)
+def force_non_browser_processing(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("TSMC_LLM_BACKEND", "openai")
+    get_settings.cache_clear()
+    try:
+        yield
+    finally:
+        get_settings.cache_clear()
 
 
 @pytest.mark.asyncio
@@ -165,13 +176,15 @@ async def test_openai_proxy_store_merges_existing_proxy_transcript(tmp_path) -> 
         assert second_response.tsmc.stored_session_id == first_response.tsmc.stored_session_id
         assert stored_session is not None
         assert stored_session.external_session_id.startswith("proxy:gemini:")
+        assert "Respond directly and quickly." in str(fake_browser.calls[0]["prompt_text"])
         assert [message.content for message in stored_session.messages] == [
             "Plan a journal workflow.",
             "Capture the day, summarize it, and keep action items.",
             "Add Obsidian backlinks.",
             "Add wikilinks to entities and a dashboard index.",
         ]
-        assert fake_browser.calls[1]["prompt_text"] == "Add Obsidian backlinks."
+        assert str(fake_browser.calls[1]["prompt_text"]).startswith("Respond directly and quickly.")
+        assert "Add Obsidian backlinks." in str(fake_browser.calls[1]["prompt_text"])
 
     await engine.dispose()
 
@@ -214,6 +227,7 @@ async def test_openai_proxy_without_store_does_not_persist_session(tmp_path) -> 
         stored_sessions = (await session.execute(select(ChatSession))).scalars().all()
         assert response.tsmc.stored_session_id is None
         assert not stored_sessions
+        assert "Respond directly and quickly." in str(fake_browser.calls[0]["prompt_text"])
         assert "Conversation so far:" in str(fake_browser.calls[0]["prompt_text"])
 
     await engine.dispose()

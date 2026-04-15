@@ -10,7 +10,7 @@ from app.cli_paths import CLIPaths, default_cli_paths
 
 
 DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 8000
+DEFAULT_PORT = 18888
 DEFAULT_LLM_BACKEND = "auto"
 DEFAULT_SERVICE_NAME = "tsmc"
 DEFAULT_BROWSER_TIMEOUT_SECONDS = 120.0
@@ -23,6 +23,8 @@ class CLIConfig:
     data_dir: Path
     markdown_dir: Path
     llm_backend: str
+    browser_llm_model: str
+    browser_llm_state_path: Path
     public_url: str | None
     service_name: str
     browser_profile_dir: Path
@@ -48,6 +50,8 @@ def default_cli_config(paths: CLIPaths | None = None) -> CLIConfig:
         data_dir=resolved_paths.data_dir,
         markdown_dir=resolved_paths.markdown_dir,
         llm_backend=DEFAULT_LLM_BACKEND,
+        browser_llm_model="browser-gemini",
+        browser_llm_state_path=resolved_paths.data_dir / "browser-llm-state.json",
         public_url=None,
         service_name=DEFAULT_SERVICE_NAME,
         browser_profile_dir=resolved_paths.data_dir / "browser-profile",
@@ -73,6 +77,8 @@ def render_cli_config(config: CLIConfig) -> str:
 
         [processing]
         llm_backend = "{config.llm_backend}"
+        browser_llm_model = "{config.browser_llm_model}"
+        browser_llm_state_path = "{config.browser_llm_state_path}"
 
         [browser]
         profile_dir = "{config.browser_profile_dir}"
@@ -109,6 +115,10 @@ def parse_cli_config(config_path: Path, *, paths: CLIPaths | None = None) -> CLI
         data_dir=data_dir,
         markdown_dir=markdown_dir,
         llm_backend=str(processing.get("llm_backend", default_config.llm_backend)),
+        browser_llm_model=str(processing.get("browser_llm_model", default_config.browser_llm_model)),
+        browser_llm_state_path=Path(
+            processing.get("browser_llm_state_path", default_config.browser_llm_state_path)
+        ).expanduser().resolve(),
         public_url=(str(server.get("public_url")).strip() if server.get("public_url") else None),
         service_name=str(service.get("name", default_config.service_name)),
         browser_profile_dir=Path(browser.get("profile_dir", default_config.browser_profile_dir)).expanduser().resolve(),
@@ -145,6 +155,8 @@ def merge_cli_config(
     data_dir: Path | None = None,
     markdown_dir: Path | None = None,
     llm_backend: str | None = None,
+    browser_llm_model: str | None = None,
+    browser_llm_state_path: Path | None = None,
     public_url: str | None = None,
     service_name: str | None = None,
     browser_profile_dir: Path | None = None,
@@ -166,12 +178,20 @@ def merge_cli_config(
         next_browser_profile_dir = (next_data_dir / "browser-profile").resolve()
     else:
         next_browser_profile_dir = base.browser_profile_dir.expanduser().resolve()
+    if browser_llm_state_path is not None:
+        next_browser_llm_state_path = browser_llm_state_path.expanduser().resolve()
+    elif data_dir is not None and base.browser_llm_state_path == (base.data_dir / "browser-llm-state.json"):
+        next_browser_llm_state_path = (next_data_dir / "browser-llm-state.json").resolve()
+    else:
+        next_browser_llm_state_path = base.browser_llm_state_path.expanduser().resolve()
     return CLIConfig(
         host=host or base.host,
         port=port or base.port,
         data_dir=next_data_dir,
         markdown_dir=next_markdown_dir,
         llm_backend=llm_backend or base.llm_backend,
+        browser_llm_model=browser_llm_model or base.browser_llm_model,
+        browser_llm_state_path=next_browser_llm_state_path,
         public_url=public_url if public_url is not None else base.public_url,
         service_name=service_name or base.service_name,
         browser_profile_dir=next_browser_profile_dir,
@@ -190,6 +210,7 @@ def ensure_cli_directories(config: CLIConfig, paths: CLIPaths | None = None) -> 
     config.data_dir.mkdir(parents=True, exist_ok=True)
     config.markdown_dir.mkdir(parents=True, exist_ok=True)
     config.browser_profile_dir.mkdir(parents=True, exist_ok=True)
+    config.browser_llm_state_path.parent.mkdir(parents=True, exist_ok=True)
     resolved_paths.systemd_user_dir.mkdir(parents=True, exist_ok=True)
 
 
@@ -203,8 +224,14 @@ def ensure_env_file(env_path: Path | None = None, *, force: bool = False) -> Pat
     candidate.write_text(
         textwrap.dedent(
             """\
+            TSMC_EXPERIMENTAL_BROWSER_AUTOMATION=false
             TSMC_OPENAI_API_KEY=
+            TSMC_OPENAI_BASE_URL=https://openrouter.ai/api/v1
+            TSMC_OPENAI_MODEL=openai/gpt-4.1-mini
+            TSMC_OPENAI_APP_NAME=TSMC
+            TSMC_OPENAI_SITE_URL=
             TSMC_GOOGLE_API_KEY=
+            TSMC_GIT_VERSIONING_ENABLED=true
             TSMC_CORS_ORIGIN_REGEX=chrome-extension://[a-p]{32}
             """
         ),
@@ -236,6 +263,8 @@ def apply_runtime_environment(config: CLIConfig, env_path: Path) -> None:
     os.environ.setdefault("TSMC_DATABASE_URL", config.database_url)
     os.environ.setdefault("TSMC_MARKDOWN_DIR", str(config.markdown_dir))
     os.environ.setdefault("TSMC_LLM_BACKEND", config.llm_backend)
+    os.environ.setdefault("TSMC_BROWSER_LLM_MODEL", config.browser_llm_model)
+    os.environ.setdefault("TSMC_BROWSER_LLM_STATE_PATH", str(config.browser_llm_state_path))
     if config.public_url:
         os.environ.setdefault("TSMC_PUBLIC_URL", config.public_url)
     os.environ.setdefault("TSMC_BROWSER_PROFILE_DIR", str(config.browser_profile_dir))

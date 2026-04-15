@@ -1,4 +1,15 @@
-import type { BackendCapabilities, ExtensionSettings } from "../shared/types";
+import type {
+  BackendCapabilities,
+  BackendDashboardSummary,
+  BackendGraphEdge,
+  BackendGraphNode,
+  BackendProcessingStatus,
+  BackendSearchResponse,
+  BackendSystemStatus,
+  ExtensionSettings,
+  ProcessingCompleteResponse,
+  ProcessingTaskResponse
+} from "../shared/types";
 
 function normalizeBackendUrl(rawUrl: string): string {
   return rawUrl.trim().replace(/\/$/, "");
@@ -27,6 +38,28 @@ function authorizationHeader(token?: string): Record<string, string> {
     return {};
   }
   return { Authorization: `Bearer ${token}` };
+}
+
+function apiPrefix(capabilities?: BackendCapabilities): string {
+  return capabilities?.api_prefix ?? "/api/v1";
+}
+
+function backendApiUrl(settings: ExtensionSettings, path: string, capabilities?: BackendCapabilities): string {
+  return `${normalizeBackendUrl(settings.backendUrl)}${apiPrefix(capabilities)}${path}`;
+}
+
+async function fetchBackendJson<TResponse>(
+  settings: ExtensionSettings,
+  path: string,
+  capabilities?: BackendCapabilities
+): Promise<TResponse> {
+  const response = await fetch(backendApiUrl(settings, path, capabilities), {
+    headers: authorizationHeader(settings.backendToken)
+  });
+  if (!response.ok) {
+    throw new Error(`Backend request failed with ${response.status}.`);
+  }
+  return (await response.json()) as TResponse;
 }
 
 export function buildBackendHeaders(settings: ExtensionSettings): Record<string, string> {
@@ -91,4 +124,98 @@ export async function validateBackendConfiguration(settings: ExtensionSettings):
     normalizedUrl,
     capabilities
   };
+}
+
+export async function fetchProcessingStatus(
+  settings: ExtensionSettings,
+  capabilities?: BackendCapabilities
+): Promise<BackendProcessingStatus> {
+  const statusResponse = await fetch(backendApiUrl(settings, "/processing/status", capabilities), {
+    headers: authorizationHeader(settings.backendToken)
+  });
+  if (!statusResponse.ok) {
+    throw new Error(`Processing status check failed with ${statusResponse.status}.`);
+  }
+  return (await statusResponse.json()) as BackendProcessingStatus;
+}
+
+export async function fetchNextProcessingTask(
+  settings: ExtensionSettings,
+  capabilities?: BackendCapabilities
+): Promise<ProcessingTaskResponse> {
+  const response = await fetch(backendApiUrl(settings, "/processing/next", capabilities), {
+    method: "POST",
+    headers: authorizationHeader(settings.backendToken)
+  });
+  if (!response.ok) {
+    throw new Error(`Processing task request failed with ${response.status}.`);
+  }
+  return (await response.json()) as ProcessingTaskResponse;
+}
+
+export async function completeProcessingTask(
+  settings: ExtensionSettings,
+  payload: {
+    sessionIds: string[];
+    responseText: string;
+  },
+  capabilities?: BackendCapabilities
+): Promise<ProcessingCompleteResponse> {
+  const response = await fetch(backendApiUrl(settings, "/processing/complete", capabilities), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authorizationHeader(settings.backendToken)
+    },
+    body: JSON.stringify({
+      session_ids: payload.sessionIds,
+      response_text: payload.responseText
+    })
+  });
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Processing completion failed with ${response.status}: ${details.slice(0, 300)}`);
+  }
+  return (await response.json()) as ProcessingCompleteResponse;
+}
+
+export async function fetchDashboardSummary(
+  settings: ExtensionSettings,
+  capabilities?: BackendCapabilities
+): Promise<BackendDashboardSummary> {
+  return fetchBackendJson<BackendDashboardSummary>(settings, "/dashboard/summary", capabilities);
+}
+
+export async function fetchSystemStatus(
+  settings: ExtensionSettings,
+  capabilities?: BackendCapabilities
+): Promise<BackendSystemStatus> {
+  return fetchBackendJson<BackendSystemStatus>(settings, "/system/status", capabilities);
+}
+
+export async function fetchGraphNodes(
+  settings: ExtensionSettings,
+  capabilities?: BackendCapabilities
+): Promise<BackendGraphNode[]> {
+  return fetchBackendJson<BackendGraphNode[]>(settings, "/graph/nodes", capabilities);
+}
+
+export async function fetchGraphEdges(
+  settings: ExtensionSettings,
+  capabilities?: BackendCapabilities
+): Promise<BackendGraphEdge[]> {
+  return fetchBackendJson<BackendGraphEdge[]>(settings, "/graph/edges", capabilities);
+}
+
+export async function fetchKnowledgeSearch(
+  settings: ExtensionSettings,
+  query: string,
+  limit = 8,
+  capabilities?: BackendCapabilities
+): Promise<BackendSearchResponse> {
+  const search = new URLSearchParams({
+    q: query.trim(),
+    limit: String(limit)
+  });
+  return fetchBackendJson<BackendSearchResponse>(settings, `/search?${search.toString()}`, capabilities);
 }

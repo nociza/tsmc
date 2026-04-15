@@ -13,6 +13,7 @@ class SessionCategory(StrEnum):
     JOURNAL = "journal"
     FACTUAL = "factual"
     IDEAS = "ideas"
+    TODO = "todo"
 
 
 class MessageRole(StrEnum):
@@ -21,4 +22,3 @@ class MessageRole(StrEnum):
     SYSTEM = "system"
     TOOL = "tool"
     UNKNOWN = "unknown"
-

@@ -1,13 +1,13 @@
 # TSMC
 
-TSMC captures your ChatGPT, Gemini, and Grok conversations, syncs them to a backend, classifies them into `journal`, `factual`, or `ideas`, and writes an Obsidian-friendly Markdown vault plus a lightweight knowledge graph.
+TSMC captures your ChatGPT, Gemini, and Grok conversations, syncs them to a backend, classifies them into `journal`, `factual`, `ideas`, or `todo`, and writes an Obsidian-friendly Markdown vault plus a lightweight knowledge graph.
 
 ## What You Get
 
 - Chrome extension for automatic chat capture and history backfill
 - self-hosted backend with SQLite storage
-- Markdown vault with session notes, entity notes, and index notes
-- simple agent-friendly API for ingest, search, graph, system status, and browser-proxied chat completions
+- Markdown vault with session notes, a shared `To-Do List.md`, entity notes, and index notes
+- simple agent-friendly API for ingest, search, graph, and system status
 
 ## Quick Start
 
@@ -46,7 +46,7 @@ Then:
 
 Open the extension settings and enter:
 
-- local backend: `http://127.0.0.1:8000`
+- local backend: `http://127.0.0.1:18888`
 - remote backend: `https://your-domain`
 
 Remote backends require an app token. Create one with:
@@ -58,6 +58,15 @@ tsmc token create --name chrome-extension --scope ingest --scope read
 
 Paste that token into the extension settings. The extension validates the backend before saving it.
 
+Optional indexing gate:
+
+- default mode: index everything
+- trigger-word mode: only index sessions whose opening user request matches one of your trigger words
+- default trigger word: `lorem`
+- blacklist words always override trigger words and skip indexing
+
+The trigger/blacklist check focuses on the opening one or two user sentences so it works well with natural speech dictation.
+
 ### 4. Use it
 
 Visit ChatGPT, Gemini, or Grok while signed in.
@@ -66,66 +75,23 @@ If `Auto Sync History` is enabled, TSMC will:
 
 - fetch historical conversations from the provider website
 - sync them to the backend
-- classify each session
+- queue each session for classification
+- update the shared to-do list when a conversation is clearly editing tasks
 - write Markdown notes and graph files
 
-## OpenAI-Compatible API
+If you change trigger-word or blacklist settings, the next provider visit will run a fresh history pass using the new rules without re-indexing sessions that were already synced successfully.
 
-TSMC can also proxy chat requests through your logged-in browser sessions.
-
-1. Install the managed Chromium runtime:
+Recommended processing setup:
 
 ```bash
-cd backend
-uv sync
-uv run tsmc browser install
+TSMC_OPENAI_API_KEY=your_openrouter_key
+TSMC_OPENAI_BASE_URL=https://openrouter.ai/api/v1
+TSMC_OPENAI_MODEL=openai/gpt-4.1-mini
 ```
 
-2. Log into each provider once with the managed browser profile:
+Put those in your backend env file, for example `~/.config/tsmc/tsmc.env` when using `tsmc service install`, or export them before starting the server. Browser automation is experimental and disabled by default.
 
-```bash
-uv run tsmc browser login --provider chatgpt
-uv run tsmc browser login --provider gemini
-uv run tsmc browser login --provider grok
-```
-
-3. Create a token with `proxy` scope if you are calling the backend remotely:
-
-```bash
-tsmc token create --name agent-client --scope proxy --scope read
-```
-
-4. Point any OpenAI-compatible client at `http://127.0.0.1:8000/v1` and choose one of:
-
-- `browser-chatgpt`
-- `browser-gemini`
-- `browser-grok`
-
-Example:
-
-```python
-from openai import OpenAI
-
-client = OpenAI(
-    base_url="http://127.0.0.1:8000/v1",
-    api_key="tsmc_pat_..."
-)
-
-response = client.chat.completions.create(
-    model="browser-gemini",
-    messages=[{"role": "user", "content": "Summarize my deployment plan."}],
-    extra_body={"store": True}
-)
-
-print(response.choices[0].message.content)
-print(response.tsmc)
-```
-
-Notes:
-
-- `store: true` sends the proxy session through the normal TSMC ingest/classify/markdown pipeline.
-- `store: false` returns the provider response without saving it.
-- To continue the same provider thread, send `tsmc_provider_session_url` back in `extra_body`.
+Git versioning is enabled by default for the vault. TSMC initializes a local git repo inside the Obsidian vault and commits session-note, graph, dashboard, and shared to-do list changes automatically.
 
 ## Where Data Goes
 
@@ -148,11 +114,13 @@ TSMC/
   Journal/
   Factual/
   Ideas/
+  Todo/
   Sessions/
   Graph/
     Entities/
     Indexes/
   Dashboards/
+    To-Do List.md
 ```
 
 ## Useful Commands
@@ -161,8 +129,6 @@ TSMC/
 tsmc service status
 tsmc service logs -f
 tsmc config path
-tsmc browser install
-tsmc browser login --provider gemini
 tsmc token list
 tsmc token revoke <token-id>
 ```
@@ -191,7 +157,9 @@ pnpm test:e2e
 
 - Local backends work without a token.
 - Remote backends must use `https://`.
-- The browser proxy uses a managed persistent Chromium profile per provider.
+- OpenRouter or another OpenAI-compatible key should be configured on the backend for processing.
+- Browser-based AI processing is experimental and disabled by default.
+- Git versioning for the vault and shared to-do list is enabled by default.
 - The extension bundle auto-rebuilds in dev mode, but Chrome still needs the unpacked extension reloaded after changes.
 
 ## Docs

@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TSMC Dashboard</title>
+    <script type="module" src="/src/dashboard/main.ts"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">TSMC Dashboard</p>
+          <h1>Context Operations</h1>
+          <p class="lede">
+            Track sync health, corpus growth, graph coverage, and backend storage from one place.
+          </p>
+        </div>
+        <div class="hero-actions">
+          <button id="refresh-dashboard" type="button">Refresh</button>
+          <button id="open-options" class="secondary" type="button">Open Settings</button>
+        </div>
+      </section>
+
+      <section id="backend-alert" class="panel alert-panel" hidden>
+        <p class="section-label">Backend Issue</p>
+        <p id="backend-alert-message" class="alert-message">Loading…</p>
+      </section>
+
+      <section class="metrics-grid">
+        <article class="metric-card">
+          <p class="section-label">Sessions</p>
+          <p id="metric-sessions" class="metric-value">0</p>
+          <p class="metric-detail">Indexed conversations</p>
+        </article>
+        <article class="metric-card">
+          <p class="section-label">Messages</p>
+          <p id="metric-messages" class="metric-value">0</p>
+          <p class="metric-detail">Normalized messages stored</p>
+        </article>
+        <article class="metric-card">
+          <p class="section-label">Sync Events</p>
+          <p id="metric-sync-events" class="metric-value">0</p>
+          <p class="metric-detail">Captured diffs and snapshots</p>
+        </article>
+        <article class="metric-card">
+          <p class="section-label">Fact Triplets</p>
+          <p id="metric-triplets" class="metric-value">0</p>
+          <p class="metric-detail">Structured knowledge edges</p>
+        </article>
+        <article class="metric-card">
+          <p class="section-label">Entities</p>
+          <p id="metric-entities" class="metric-value">0</p>
+          <p class="metric-detail">Knowledge graph nodes</p>
+        </article>
+        <article class="metric-card">
+          <p class="section-label">Edges</p>
+          <p id="metric-edges" class="metric-value">0</p>
+          <p class="metric-detail">Knowledge graph relationships</p>
+        </article>
+      </section>
+
+      <section class="dashboard-grid">
+        <article class="panel panel-emphasis">
+          <div class="panel-header">
+            <div>
+              <p class="section-label">Capture Health</p>
+              <h2>Extension and backend status</h2>
+            </div>
+            <p id="latest-sync-at" class="panel-meta">Latest corpus sync: No data yet</p>
+          </div>
+          <div class="details-grid">
+            <div>
+              <p class="detail-label">Backend</p>
+              <p id="health-backend-url" class="detail-value">Loading…</p>
+            </div>
+            <div>
+              <p class="detail-label">Backend Status</p>
+              <p id="health-backend-status" class="detail-value">Checking…</p>
+            </div>
+            <div>
+              <p class="detail-label">Last Success</p>
+              <p id="health-last-success" class="detail-value">No sync yet</p>
+            </div>
+            <div>
+              <p class="detail-label">Last Session</p>
+              <p id="health-last-session" class="detail-value">n/a</p>
+            </div>
+            <div>
+              <p class="detail-label">Auto History</p>
+              <p id="health-history-sync" class="detail-value">Loading…</p>
+            </div>
+            <div>
+              <p class="detail-label">AI Processing</p>
+              <p id="health-processing" class="detail-value">Loading…</p>
+            </div>
+            <div>
+              <p class="detail-label">Pending AI Jobs</p>
+              <p id="health-processing-pending" class="detail-value">0</p>
+            </div>
+            <div>
+              <p class="detail-label">Providers</p>
+              <p id="health-providers" class="detail-value">Loading…</p>
+            </div>
+            <div>
+              <p class="detail-label">Active App Tokens</p>
+              <p id="health-active-tokens" class="detail-value">0</p>
+            </div>
+            <div>
+              <p class="detail-label">Graph Coverage</p>
+              <p id="health-graph-coverage" class="detail-value">0 entities, 0 edges</p>
+            </div>
+            <div class="full-width">
+              <p class="detail-label">Last Error</p>
+              <p id="health-last-error" class="detail-value error-value">None</p>
+            </div>
+            <div id="health-provider-drift-card" class="detail-alert full-width" hidden>
+              <p class="detail-label">Provider Drift</p>
+              <p id="health-provider-drift" class="detail-value">None</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-label">Category Mix</p>
+              <h2>What the corpus contains</h2>
+            </div>
+            <p id="category-total-label" class="panel-meta">0 indexed sessions</p>
+          </div>
+          <div class="category-layout">
+            <div id="category-donut" class="category-donut" aria-hidden="true">
+              <div class="category-donut-center">
+                <strong id="category-donut-total">0</strong>
+                <span>sessions</span>
+              </div>
+            </div>
+            <div id="category-list" class="category-list"></div>
+          </div>
+          <div id="derived-metrics" class="derived-grid"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-label">Knowledge Graph</p>
+              <h2>Top connected entities</h2>
+            </div>
+            <p id="graph-summary" class="panel-meta">No graph data yet</p>
+          </div>
+          <div id="top-entities" class="entity-list"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-label">Storage</p>
+              <h2>Vault and service footprint</h2>
+            </div>
+            <p id="system-summary" class="panel-meta">Loading backend storage data…</p>
+          </div>
+          <div class="details-grid">
+            <div>
+              <p class="detail-label">Vault Root</p>
+              <p id="system-vault-root" class="detail-value">Loading…</p>
+            </div>
+            <div>
+              <p class="detail-label">Markdown Root</p>
+              <p id="system-markdown-root" class="detail-value">Loading…</p>
+            </div>
+            <div>
+              <p class="detail-label">To-Do List Path</p>
+              <p id="system-todo-path" class="detail-value">Loading…</p>
+            </div>
+            <div>
+              <p class="detail-label">Auth Mode</p>
+              <p id="system-auth-mode" class="detail-value">Loading…</p>
+            </div>
+            <div>
+              <p class="detail-label">Git Versioning</p>
+              <p id="system-git-status" class="detail-value">Loading…</p>
+            </div>
+            <div>
+              <p class="detail-label">Public URL</p>
+              <p id="system-public-url" class="detail-value">Not configured</p>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

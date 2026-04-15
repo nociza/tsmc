@@ -2,6 +2,7 @@ import type { CapturedBody, CapturedNetworkEvent, HistorySyncUpdate, ProviderNam
 
 import { maybeUpdateGeminiRuntimeContext, runGeminiHistorySync } from "./gemini-history";
 import { runGrokHistorySync } from "./grok-history";
+import { runProxyPrompt, observeProxyCapture } from "./proxy-runner";
 import {
   dedupeIds,
   normalizeHistorySessionIds,
@@ -12,6 +13,7 @@ import {
 const OBSERVER_FLAG = "__TSMC_NETWORK_OBSERVER__";
 const CONTROL_SOURCE = "tsmc-history-control";
 const CONTROL_READY_SOURCE = "tsmc-history-control-ready";
+const PROXY_RESULT_SOURCE = "tsmc-proxy-result";
 const MAIN_WORLD_READY_ATTRIBUTE = "data-tsmc-main-world-ready";
 const INTERESTING_PATH =
   /backend-api|conversation|conversations|BardFrontendService|StreamGenerate|batchexecute|app-chat|grok|chat/i;
@@ -33,6 +35,15 @@ interface HistoryCandidates {
 }
 
 type JsonRecord = Record<string, unknown>;
+type MainWorldControlPayload =
+  | HistorySyncControlPayload
+  | {
+      type: "RUN_PROXY_PROMPT";
+      requestId: string;
+      promptText: string;
+      preferFastMode?: boolean;
+      requireCompleteJson?: boolean;
+    };
 
 const activeHistorySyncs = new Set<ProviderName>();
 
@@ -85,13 +96,15 @@ function shouldCapture(url: string): boolean {
 }
 
 function postCapture(capture: Omit<CapturedNetworkEvent, "source">): void {
+  const payload = {
+    ...capture,
+    source: "tsmc-network-observer"
+  } satisfies CapturedNetworkEvent;
+  observeProxyCapture(payload);
   window.postMessage(
     {
       source: "tsmc-network-observer",
-      payload: {
-        ...capture,
-        source: "tsmc-network-observer"
-      } satisfies CapturedNetworkEvent
+      payload
     },
     window.location.origin
   );
@@ -556,15 +569,71 @@ async function runHistorySync(control?: HistorySyncControlPayload): Promise<void
   }
 }
 
-window.addEventListener("message", (event: MessageEvent<{ source?: string; payload?: HistorySyncControlPayload }>) => {
+window.addEventListener("message", (event: MessageEvent<{ source?: string; payload?: MainWorldControlPayload }>) => {
   if (event.source !== window) {
     return;
   }
-  if (event.data?.source !== CONTROL_SOURCE || event.data.payload?.type !== "START_HISTORY_SYNC") {
+  const payload = event.data?.payload;
+  if (event.data?.source !== CONTROL_SOURCE || !payload) {
     return;
   }
 
-  void runHistorySync(event.data.payload);
+  if (payload.type === "START_HISTORY_SYNC") {
+    void runHistorySync(payload);
+    return;
+  }
+
+  if (payload.type === "RUN_PROXY_PROMPT") {
+    const provider = currentProvider();
+    if (!provider) {
+      window.postMessage(
+        {
+          source: PROXY_RESULT_SOURCE,
+          payload: {
+            requestId: payload.requestId,
+            ok: false,
+            error: "TSMC proxy prompt can only run on a supported provider page."
+          }
+        },
+        window.location.origin
+      );
+      return;
+    }
+
+    void runProxyPrompt(provider, payload.promptText, {
+      preferFastMode: payload.preferFastMode ?? false,
+      requireCompleteJson: payload.requireCompleteJson ?? false
+    })
+      .then((result) => {
+        window.postMessage(
+          {
+            source: PROXY_RESULT_SOURCE,
+            payload: {
+              requestId: payload.requestId,
+              ok: true,
+              provider: result.provider,
+              responseText: result.responseText,
+              pageUrl: result.pageUrl,
+              title: result.title
+            }
+          },
+          window.location.origin
+        );
+      })
+      .catch((error) => {
+        window.postMessage(
+          {
+            source: PROXY_RESULT_SOURCE,
+            payload: {
+              requestId: payload.requestId,
+              ok: false,
+              error: error instanceof Error ? error.message : String(error)
+            }
+          },
+          window.location.origin
+        );
+      });
+  }
 });
 
 const windowFlags = window as unknown as Record<string, unknown>;

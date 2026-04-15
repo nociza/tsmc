@@ -36,6 +36,13 @@ body {
   margin-bottom: 28px;
 }
 
+.hero-actions {
+  margin-top: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .eyebrow,
 .status-label {
   margin: 0 0 8px;
@@ -158,6 +165,11 @@ button {
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+}
+
+.button-secondary {
+  background: rgba(17, 38, 58, 0.1);
+  color: var(--ink);
 }
 
 .status {

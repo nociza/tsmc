@@ -1,11 +1,32 @@
-import type { CapturedNetworkEvent, HistorySyncTriggerPayload, HistorySyncUpdate, RuntimeMessage } from "../shared/types";
+import type {
+  CapturedNetworkEvent,
+  HistorySyncTriggerPayload,
+  HistorySyncUpdate,
+  PingProviderTabResponse,
+  RunProviderPromptResponse,
+  RuntimeMessage
+} from "../shared/types";
+import { createQuickSearchPalette } from "./quick-search";
 
 const CONTROL_SOURCE = "tsmc-history-control";
 const CONTROL_READY_SOURCE = "tsmc-history-control-ready";
+const PROXY_RESULT_SOURCE = "tsmc-proxy-result";
 const MAIN_WORLD_READY_ATTRIBUTE = "data-tsmc-main-world-ready";
 
 let injectedReady = false;
-let pendingHistorySyncPayload: HistorySyncControlPayload | null = null;
+let pendingControlPayload: MainWorldControlPayload | null = null;
+let proxyPromptInProgress = false;
+let runtimeDispatchQueue = Promise.resolve();
+const quickSearchPalette = createQuickSearchPalette(async <TResponse>(message: RuntimeMessage) => {
+  return chrome.runtime.sendMessage(message) as Promise<TResponse>;
+});
+const pendingProxyRequests = new Map<
+  string,
+  {
+    resolve: (value: ProxyPromptResult) => void;
+    reject: (reason?: unknown) => void;
+  }
+>();
 
 type HistorySyncControlPayload = {
   type: "START_HISTORY_SYNC";
@@ -14,6 +35,35 @@ type HistorySyncControlPayload = {
   previousTopSessionIds?: string[];
   refreshSessionIds?: string[];
 };
+type ProxyPromptControlPayload = {
+  type: "RUN_PROXY_PROMPT";
+  requestId: string;
+  promptText: string;
+  preferFastMode?: boolean;
+  requireCompleteJson?: boolean;
+};
+type MainWorldControlPayload = HistorySyncControlPayload | ProxyPromptControlPayload;
+type ProxyPromptResult = {
+  requestId: string;
+  ok: boolean;
+  provider?: "chatgpt" | "gemini" | "grok";
+  responseText?: string;
+  pageUrl?: string;
+  title?: string;
+  error?: string;
+};
+
+function enqueueRuntimeMessage(message: RuntimeMessage): void {
+  const dispatch = async (): Promise<void> => {
+    try {
+      await chrome.runtime.sendMessage(message);
+    } catch {
+      // The background service worker may be restarting; the next message will retry naturally.
+    }
+  };
+
+  runtimeDispatchQueue = runtimeDispatchQueue.then(dispatch, dispatch);
+}
 
 function detectProviderFromUrl(url: string): "chatgpt" | "gemini" | "grok" | null {
   try {
@@ -39,16 +89,16 @@ function isMainWorldReady(): boolean {
 
 window.addEventListener(
   "message",
-  (event: MessageEvent<{ source?: string; payload?: CapturedNetworkEvent | HistorySyncUpdate }>) => {
+  (event: MessageEvent<{ source?: string; payload?: CapturedNetworkEvent | HistorySyncUpdate | ProxyPromptResult }>) => {
     if (event.source !== window) {
       return;
     }
 
     if (event.data?.source === CONTROL_READY_SOURCE) {
       injectedReady = true;
-      if (pendingHistorySyncPayload) {
-        const payload = pendingHistorySyncPayload;
-        pendingHistorySyncPayload = null;
+      if (pendingControlPayload) {
+        const payload = pendingControlPayload;
+        pendingControlPayload = null;
         postControlMessage(payload);
       }
       return;
@@ -59,27 +109,42 @@ window.addEventListener(
     }
 
     if (event.data.source === "tsmc-network-observer") {
-      const message: RuntimeMessage = {
+      enqueueRuntimeMessage({
         type: "NETWORK_CAPTURE",
         payload: event.data.payload as CapturedNetworkEvent
-      };
-      void chrome.runtime.sendMessage(message).catch(() => undefined);
+      });
     }
 
     if (event.data.source === "tsmc-history-sync") {
-      const message: RuntimeMessage = {
+      enqueueRuntimeMessage({
         type: "HISTORY_SYNC_STATUS",
         payload: event.data.payload as HistorySyncUpdate
-      };
-      void chrome.runtime.sendMessage(message).catch(() => undefined);
+      });
+    }
+
+    if (event.data.source === PROXY_RESULT_SOURCE) {
+      const payload = event.data.payload as ProxyPromptResult;
+      if (!payload?.requestId) {
+        return;
+      }
+      const pending = pendingProxyRequests.get(payload.requestId);
+      if (!pending) {
+        return;
+      }
+      pendingProxyRequests.delete(payload.requestId);
+      if (!payload.ok || !payload.responseText || !payload.pageUrl) {
+        pending.reject(new Error(payload.error ?? "The provider page did not return a proxy response."));
+        return;
+      }
+      pending.resolve(payload);
     }
   }
 );
 
-function postControlMessage(payload: HistorySyncControlPayload): void {
+function postControlMessage(payload: MainWorldControlPayload): void {
   injectedReady ||= isMainWorldReady();
   if (!injectedReady) {
-    pendingHistorySyncPayload = payload;
+    pendingControlPayload = payload;
     return;
   }
 
@@ -90,6 +155,25 @@ function postControlMessage(payload: HistorySyncControlPayload): void {
     },
     window.location.origin
   );
+}
+
+async function requestProxyPrompt(
+  promptText: string,
+  preferFastMode = false,
+  requireCompleteJson = false
+): Promise<ProxyPromptResult> {
+  const requestId = `proxy-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const promise = new Promise<ProxyPromptResult>((resolve, reject) => {
+    pendingProxyRequests.set(requestId, { resolve, reject });
+  });
+  postControlMessage({
+    type: "RUN_PROXY_PROMPT",
+    requestId,
+    promptText,
+    preferFastMode,
+    requireCompleteJson
+  });
+  return promise;
 }
 
 function notifyPageVisit(): void {
@@ -135,6 +219,11 @@ function installNavigationObserver(): void {
 }
 
 chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
+  if (message.type === "TOGGLE_QUICK_SEARCH") {
+    quickSearchPalette.toggle();
+    sendResponse({ ok: true });
+    return false;
+  }
   if (message.type === "TRIGGER_HISTORY_SYNC") {
     const payload: HistorySyncTriggerPayload = message.payload;
     postControlMessage({
@@ -147,7 +236,58 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
     sendResponse({ ok: true });
     return false;
   }
+  if (message.type === "RUN_PROVIDER_PROMPT") {
+    if (proxyPromptInProgress) {
+      sendResponse({
+        ok: false,
+        error: "AI processing is already running in this tab."
+      } satisfies RunProviderPromptResponse);
+      return false;
+    }
+    proxyPromptInProgress = true;
+    void requestProxyPrompt(
+      message.payload.promptText,
+      message.payload.preferFastMode ?? false,
+      message.payload.requireCompleteJson ?? false
+    )
+      .then((result) => {
+        sendResponse({
+          ok: true,
+          provider: result.provider,
+          responseText: result.responseText,
+          pageUrl: result.pageUrl,
+          title: result.title
+        } satisfies RunProviderPromptResponse);
+      })
+      .catch((error) => {
+        console.error("TSMC provider prompt run failed", error);
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error)
+        } satisfies RunProviderPromptResponse);
+      })
+      .finally(() => {
+        proxyPromptInProgress = false;
+      });
+    return true;
+  }
+  if (message.type === "PING_PROVIDER_TAB") {
+    sendResponse({
+      ok: true,
+      provider: detectProviderFromUrl(window.location.href) ?? undefined,
+      pageUrl: window.location.href,
+      mainWorldReady: injectedReady || isMainWorldReady()
+    } satisfies PingProviderTabResponse);
+    return false;
+  }
   return false;
+});
+
+window.addEventListener("beforeunload", () => {
+  for (const [requestId, pending] of pendingProxyRequests.entries()) {
+    pendingProxyRequests.delete(requestId);
+    pending.reject(new Error("The provider page was closed before the response completed."));
+  }
 });
 
 injectedReady = isMainWorldReady();

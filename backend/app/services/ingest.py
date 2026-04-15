@@ -9,6 +9,7 @@ from app.models.base import utcnow
 from app.schemas.ingest import IngestDiffRequest
 from app.services.markdown import MarkdownExporter
 from app.services.processing import SessionProcessor
+from app.services.processing_worker import uses_extension_browser_processing
 
 
 class IngestService:
@@ -34,7 +35,11 @@ class IngestService:
             )
 
         await self.db.flush()
-        session = await self.processor.process(session.id)
+        self.processor.base_dir = self.exporter.base_dir
+        if uses_extension_browser_processing():
+            session = await self.processor.mark_pending(session.id)
+        else:
+            session = await self.processor.process(session.id)
         markdown_path = await self.exporter.write_session(session)
         session.markdown_path = str(markdown_path)
         await self.db.commit()
@@ -153,6 +158,7 @@ class IngestService:
             .options(
                 selectinload(ChatSession.messages),
                 selectinload(ChatSession.triplets),
+                selectinload(ChatSession.sync_events),
             )
             .where(ChatSession.id == session_id)
         )

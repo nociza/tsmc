@@ -16,8 +16,10 @@ class CapabilityFeatureSet(BaseModel):
     obsidian_vault: bool = True
     knowledge_graph_files: bool = True
     agent_api: bool = True
-    browser_proxy: bool = True
-    openai_compatible_api: bool = True
+    todo_list: bool = True
+    git_versioning: bool = True
+    browser_proxy: bool = False
+    openai_compatible_api: bool = False
 
 
 class CapabilityStorage(BaseModel):

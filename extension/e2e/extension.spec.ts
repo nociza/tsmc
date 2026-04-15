@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
-import { chromium, expect, test } from "@playwright/test";
+import { chromium, expect, test, type APIRequestContext } from "@playwright/test";
 
 const currentDir = fileURLToPath(new URL(".", import.meta.url));
 const extensionRoot = resolve(currentDir, "..");
@@ -13,6 +13,8 @@ const backendRoot = resolve(projectRoot, "backend");
 const extensionDist = resolve(extensionRoot, "dist");
 const backendPython = resolve(backendRoot, ".venv/bin/python");
 const HEALTHCHECK_TIMEOUT_MS = 15_000;
+const EVENTUAL_TIMEOUT_MS = 30_000;
+const eventually = expect.configure({ timeout: EVENTUAL_TIMEOUT_MS });
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolvePromise) => {
@@ -88,6 +90,47 @@ function configuredBackendBaseUrl(): string | null {
   return value ? value.replace(/\/$/, "") : null;
 }
 
+function parseProcessingPromptTasks(prompt: string): Array<{
+  task_key?: string;
+  source_session_id?: string;
+  transcript?: string;
+}> {
+  const match = prompt.match(/Tasks:\n([\s\S]+)$/);
+  if (!match?.[1]) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(match[1]) as Array<{
+      task_key?: string;
+      source_session_id?: string;
+      transcript?: string;
+    }>;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseExpectedProcessingTaskKeys(prompt: string): string[] {
+  const taskKeys = parseProcessingPromptTasks(prompt)
+    .map((task) => ("task_key" in task ? (task as { task_key?: string }).task_key : undefined))
+    .filter((value): value is string => Boolean(value));
+  if (taskKeys.length) {
+    return taskKeys;
+  }
+
+  const match = prompt.match(/Expected task_keys:\s*([^\n]+)/);
+  if (!match?.[1]) {
+    return [];
+  }
+
+  return match[1]
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
 async function waitForBackendUrlHealthy(backendBaseUrl: string): Promise<void> {
   const deadline = Date.now() + HEALTHCHECK_TIMEOUT_MS;
 
@@ -132,6 +175,17 @@ async function waitForBackendHealthy(logs: string[]): Promise<string> {
   }
 
   throw new Error(`Backend did not become healthy.\n${logs.join("")}`);
+}
+
+async function ingestDiff(
+  request: APIRequestContext,
+  backendBaseUrl: string,
+  payload: Record<string, unknown>
+): Promise<void> {
+  const response = await request.post(`${backendBaseUrl}/api/v1/ingest/diff`, {
+    data: payload
+  });
+  expect(response.status()).toBe(202);
 }
 
 async function stopBackend(process: ReturnType<typeof spawn> | undefined): Promise<void> {
@@ -283,7 +337,7 @@ test("auto-syncs ChatGPT history on provider visit", async ({ request }, testInf
       const page = await context.newPage();
       await page.goto(conversationUrl, { waitUntil: "domcontentloaded" });
 
-      await expect
+      await eventually
         .poll(
           async () =>
             serviceWorker.evaluate(async () => {
@@ -299,7 +353,7 @@ test("auto-syncs ChatGPT history on provider visit", async ({ request }, testInf
         )
         .toBe("success");
 
-      await expect
+      await eventually
         .poll(
           async () => {
             const response = await request.get(`${backendBaseUrl}/api/v1/sessions?provider=chatgpt`);
@@ -345,6 +399,1294 @@ test("auto-syncs ChatGPT history on provider visit", async ({ request }, testInf
       await popup.goto(`chrome-extension://${extensionId}/popup.html`, { waitUntil: "domcontentloaded" });
       await expect(popup.locator("#history-sync")).toContainText("success");
       await expect(popup.locator("#last-session")).toHaveText(`chatgpt:${sessionId}`);
+    } finally {
+      await context.close();
+    }
+  } finally {
+    await stopBackend(backendProcess);
+    await rm(userDataDir, { recursive: true, force: true });
+    await rm(backendDataDir, { recursive: true, force: true });
+  }
+});
+
+test("skips indexing when trigger-word mode is enabled and the opening request does not match", async ({ request }, testInfo) => {
+  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const sessionId = `e2e-chatgpt-trigger-skip-${Date.now()}`;
+  const backendLogs: string[] = [];
+  let backendProcess: ReturnType<typeof spawn> | undefined;
+  let backendBaseUrl = configuredBackendBaseUrl();
+
+  try {
+    if (backendBaseUrl) {
+      await waitForBackendUrlHealthy(backendBaseUrl);
+    } else {
+      const backendChild = spawn(
+        backendPython,
+        ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "0"],
+        {
+          cwd: backendRoot,
+          env: {
+            ...globalThis.process.env,
+            PYTHONUNBUFFERED: "1",
+            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
+            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            TSMC_LLM_BACKEND: "heuristic"
+          },
+          stdio: ["ignore", "pipe", "pipe"]
+        }
+      );
+      backendProcess = backendChild;
+
+      backendChild.stdout?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+      backendChild.stderr?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+
+      backendBaseUrl = await waitForBackendHealthy(backendLogs);
+    }
+
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      channel: "chromium",
+      headless: testInfo.project.use.headless ?? true,
+      args: [`--disable-extensions-except=${extensionDist}`, `--load-extension=${extensionDist}`]
+    });
+
+    try {
+      let [serviceWorker] = context.serviceWorkers();
+      if (!serviceWorker) {
+        serviceWorker = await context.waitForEvent("serviceworker");
+      }
+      const extensionId = serviceWorker.url().split("/")[2] ?? "";
+      expect(extensionId).not.toHaveLength(0);
+
+      const optionsPage = await context.newPage();
+      await optionsPage.goto(`chrome-extension://${extensionId}/options.html`, { waitUntil: "domcontentloaded" });
+      await optionsPage.locator("#backend-url").fill(backendBaseUrl);
+      await optionsPage.locator("#auto-sync-history").setChecked(true);
+      await optionsPage.locator("#indexing-mode-trigger").setChecked(true);
+      await optionsPage.locator("#trigger-words").fill("lorem");
+      await optionsPage.locator("#settings-form").evaluate((form) => {
+        (form as HTMLFormElement).requestSubmit();
+      });
+      await expect(optionsPage.locator("#save-status")).toHaveText("Settings saved.");
+
+      const conversationUrl = "https://chatgpt.com/";
+      const sessionApiUrl = "https://chatgpt.com/api/auth/session";
+      const listApiUrl = "https://chatgpt.com/backend-api/conversations?offset=0&limit=100&order=updated";
+      const detailApiUrl = `https://chatgpt.com/backend-api/conversation/${sessionId}`;
+
+      await context.route(sessionApiUrl, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            accessToken: "e2e-token"
+          })
+        });
+      });
+
+      await context.route(listApiUrl, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            items: [
+              {
+                id: sessionId,
+                title: "E2E Trigger Skip"
+              }
+            ],
+            total: 1
+          })
+        });
+      });
+
+      await context.route(detailApiUrl, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            conversation_id: sessionId,
+            title: "E2E Trigger Skip",
+            mapping: {
+              root: {
+                id: "root"
+              },
+              userNode: {
+                id: "userNode",
+                parent: "root",
+                message: {
+                  id: "msg-user",
+                  author: { role: "user" },
+                  create_time: 1711842000,
+                  content: { parts: ["Please keep this planning thread out of TSMC for now."] }
+                }
+              },
+              assistantNode: {
+                id: "assistantNode",
+                parent: "msg-user",
+                message: {
+                  id: "msg-assistant",
+                  author: { role: "assistant" },
+                  create_time: 1711842060,
+                  content: { parts: ["Understood, I will keep it separate."] }
+                }
+              }
+            },
+            current_node: "assistantNode"
+          })
+        });
+      });
+
+      const page = await context.newPage();
+      await page.goto(conversationUrl, { waitUntil: "domcontentloaded" });
+
+      await eventually
+        .poll(
+          async () =>
+            serviceWorker.evaluate(async () => {
+              const stored = await chrome.storage.local.get("tsmc.status");
+              return (stored["tsmc.status"] ??
+                {}) as {
+                lastIndexingDecision?: string;
+                lastIndexingReason?: string | null;
+              };
+            }),
+          {
+            message: "Waiting for the extension to record a skipped indexing decision."
+          }
+        )
+        .toMatchObject({
+          lastIndexingDecision: "skipped"
+        });
+
+      const sessionsResponse = await request.get(`${backendBaseUrl}/api/v1/sessions?provider=chatgpt`);
+      expect(sessionsResponse.ok()).toBeTruthy();
+      const sessions = (await sessionsResponse.json()) as Array<{ external_session_id: string }>;
+      expect(sessions).toHaveLength(0);
+
+      const popup = await context.newPage();
+      await popup.goto(`chrome-extension://${extensionId}/popup.html`, { waitUntil: "domcontentloaded" });
+      await expect(popup.locator("#last-error")).toHaveText("None");
+    } finally {
+      await context.close();
+    }
+  } finally {
+    await stopBackend(backendProcess);
+    await rm(userDataDir, { recursive: true, force: true });
+    await rm(backendDataDir, { recursive: true, force: true });
+  }
+});
+
+test("runs queued AI processing from the popup through the signed-in provider tab", async ({ request }, testInfo) => {
+  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const pendingSessionId = "processing-source-session";
+  const secondPendingSessionId = "processing-source-session-2";
+  const backendLogs: string[] = [];
+  const observedPrompts: string[] = [];
+  let backendProcess: ReturnType<typeof spawn> | undefined;
+  let backendBaseUrl = configuredBackendBaseUrl();
+
+  try {
+    if (backendBaseUrl) {
+      await waitForBackendUrlHealthy(backendBaseUrl);
+    } else {
+      const backendChild = spawn(
+        backendPython,
+        ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "0"],
+        {
+          cwd: backendRoot,
+          env: {
+            ...globalThis.process.env,
+            PYTHONUNBUFFERED: "1",
+            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
+            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            TSMC_LLM_BACKEND: "browser_proxy",
+            TSMC_EXPERIMENTAL_BROWSER_AUTOMATION: "true",
+            TSMC_BROWSER_LLM_MODEL: "browser-chatgpt"
+          },
+          stdio: ["ignore", "pipe", "pipe"]
+        }
+      );
+      backendProcess = backendChild;
+
+      backendChild.stdout?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+      backendChild.stderr?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+
+      backendBaseUrl = await waitForBackendHealthy(backendLogs);
+    }
+
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      channel: "chromium",
+      headless: testInfo.project.use.headless ?? true,
+      args: [`--disable-extensions-except=${extensionDist}`, `--load-extension=${extensionDist}`]
+    });
+
+    try {
+      let [serviceWorker] = context.serviceWorkers();
+      if (!serviceWorker) {
+        serviceWorker = await context.waitForEvent("serviceworker");
+      }
+      const extensionId = serviceWorker.url().split("/")[2] ?? "";
+      expect(extensionId).not.toHaveLength(0);
+
+      const optionsPage = await context.newPage();
+      await optionsPage.goto(`chrome-extension://${extensionId}/options.html`, { waitUntil: "domcontentloaded" });
+      await optionsPage.locator("#backend-url").fill(backendBaseUrl);
+      await optionsPage.locator("#auto-sync-history").setChecked(true);
+      await optionsPage.locator("#settings-form").evaluate((form) => {
+        (form as HTMLFormElement).requestSubmit();
+      });
+      await expect(optionsPage.locator("#save-status")).toHaveText("Settings saved.");
+
+      const ingestResponse = await request.post(`${backendBaseUrl}/api/v1/ingest/diff`, {
+        data: {
+          provider: "gemini",
+          external_session_id: pendingSessionId,
+          sync_mode: "full_snapshot",
+          title: "Pending Processing Session",
+          source_url: `https://gemini.google.com/app/${pendingSessionId}`,
+          captured_at: "2026-04-02T12:00:00.000Z",
+          messages: [
+            {
+              external_message_id: "msg-1",
+              role: "user",
+              content: "I need to plan tomorrow and review today's work."
+            }
+          ],
+          raw_capture: { source: "e2e-processing" }
+        }
+      });
+      expect(ingestResponse.ok()).toBeTruthy();
+      const secondIngestResponse = await request.post(`${backendBaseUrl}/api/v1/ingest/diff`, {
+        data: {
+          provider: "gemini",
+          external_session_id: secondPendingSessionId,
+          sync_mode: "full_snapshot",
+          title: "Pending Processing Session 2",
+          source_url: `https://gemini.google.com/app/${secondPendingSessionId}`,
+          captured_at: "2026-04-02T12:05:00.000Z",
+          messages: [
+            {
+              external_message_id: "msg-2",
+              role: "user",
+              content: "Explain how FastAPI uses uvloop."
+            }
+          ],
+          raw_capture: { source: "e2e-processing" }
+        }
+      });
+      expect(secondIngestResponse.ok()).toBeTruthy();
+
+      await context.route(/^https:\/\/chatgpt\.com(?:\/.*)?$/, async (route) => {
+        if (route.request().resourceType() !== "document") {
+          await route.fulfill({
+            status: 204,
+            body: ""
+          });
+          return;
+        }
+
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html; charset=utf-8",
+          body: `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ChatGPT</title>
+  </head>
+  <body>
+    <main>
+      <textarea id="prompt-textarea"></textarea>
+      <button data-testid="send-button" type="button">Send</button>
+      <section id="responses"></section>
+    </main>
+    <script>
+      const textarea = document.querySelector("#prompt-textarea");
+      const sendButton = document.querySelector("[data-testid='send-button']");
+      const responses = document.querySelector("#responses");
+      sendButton.addEventListener("click", async () => {
+        const prompt = textarea.value;
+        const response = await fetch("/backend-api/conversation/processing-worker", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt })
+        });
+        const data = await response.json();
+        const article = document.createElement("article");
+        const assistant = document.createElement("div");
+        assistant.setAttribute("data-message-author-role", "assistant");
+        assistant.textContent = data.messages[data.messages.length - 1].content;
+        article.appendChild(assistant);
+        responses.appendChild(article);
+      });
+    </script>
+  </body>
+</html>`
+        });
+      });
+
+      await context.route("https://chatgpt.com/backend-api/conversation/processing-worker", async (route) => {
+        const payload = route.request().postDataJSON() as { prompt?: string } | null;
+        observedPrompts.push(payload?.prompt ?? "");
+        const taskRefs = parseProcessingPromptTasks(payload?.prompt ?? "");
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            conversation_id: "worker-chat-session",
+            title: "TSMC Processing Worker",
+            messages: [
+              {
+                id: "worker-user-1",
+                role: "user",
+                content: payload?.prompt ?? ""
+              },
+              {
+                id: "worker-assistant-1",
+                parent: "worker-user-1",
+                role: "assistant",
+                content: JSON.stringify({
+                  results: taskRefs.map((task) => {
+                    if (task.source_session_id === secondPendingSessionId) {
+                      return {
+                        task_key: task.task_key,
+                        category: "factual",
+                        classification_reason: "This is a technical explanation request.",
+                        journal: null,
+                        factual_triplets: [
+                          {
+                            subject: "FastAPI",
+                            predicate: "uses",
+                            object: "uvloop",
+                            confidence: 0.93
+                          }
+                        ],
+                        idea: null
+                      };
+                    }
+
+                    return {
+                      task_key: task.task_key,
+                      category: "journal",
+                      classification_reason: "This is personal planning and reflection.",
+                      journal: {
+                        entry: "Planned the next day and reviewed progress from today.",
+                        action_items: ["Review the release checklist", "Write tomorrow's priorities"]
+                      },
+                      factual_triplets: [],
+                      idea: null
+                    };
+                  })
+                })
+              }
+            ]
+          })
+        });
+      });
+
+      const workerPage = await context.newPage();
+      await workerPage.goto("https://chatgpt.com/", { waitUntil: "domcontentloaded" });
+
+      const popup = await context.newPage();
+      await popup.goto(`chrome-extension://${extensionId}/popup.html`, { waitUntil: "domcontentloaded" });
+
+      await expect(popup.locator("#processing-pending")).toHaveText("2");
+      await expect(popup.locator("#run-processing")).toBeEnabled();
+
+      await popup.locator("#run-processing").click();
+
+      await eventually
+        .poll(
+          async () => {
+            const response = await request.get(`${backendBaseUrl}/api/v1/sessions?provider=gemini`);
+            if (!response.ok()) {
+              return null;
+            }
+            const sessions = (await response.json()) as Array<{
+              id: string;
+              external_session_id: string;
+              category: string | null;
+            }>;
+            const firstCategory = sessions.find((session) => session.external_session_id === pendingSessionId)?.category ?? null;
+            const secondCategory =
+              sessions.find((session) => session.external_session_id === secondPendingSessionId)?.category ?? null;
+            return `${firstCategory ?? "null"}:${secondCategory ?? "null"}`;
+          },
+          {
+            message: "Waiting for the extension worker to finish queued AI processing."
+          }
+        )
+        .toBe("journal:factual");
+
+      const sessionsResponse = await request.get(`${backendBaseUrl}/api/v1/sessions?provider=gemini`);
+      expect(sessionsResponse.ok()).toBeTruthy();
+      const sessions = (await sessionsResponse.json()) as Array<{
+        id: string;
+        external_session_id: string;
+        category: string | null;
+      }>;
+      const matchedSession = sessions.find((session) => session.external_session_id === pendingSessionId);
+      const matchedSecondSession = sessions.find((session) => session.external_session_id === secondPendingSessionId);
+      expect(matchedSession?.category).toBe("journal");
+      expect(matchedSecondSession?.category).toBe("factual");
+
+      const sessionResponse = await request.get(`${backendBaseUrl}/api/v1/sessions/${matchedSession?.id}`);
+      expect(sessionResponse.ok()).toBeTruthy();
+      const persisted = (await sessionResponse.json()) as {
+        category: string | null;
+        journal_entry: string | null;
+        classification_reason: string | null;
+      };
+
+      expect(persisted.category).toBe("journal");
+      expect(persisted.classification_reason).toContain("personal planning");
+      expect(persisted.journal_entry).toContain("Planned the next day");
+
+      const secondSessionResponse = await request.get(`${backendBaseUrl}/api/v1/sessions/${matchedSecondSession?.id}`);
+      expect(secondSessionResponse.ok()).toBeTruthy();
+      const secondPersisted = (await secondSessionResponse.json()) as {
+        category: string | null;
+        triplets: Array<{ subject: string; predicate: string; object: string }>;
+        classification_reason: string | null;
+      };
+
+      expect(secondPersisted.category).toBe("factual");
+      expect(secondPersisted.classification_reason).toContain("technical explanation");
+      expect(secondPersisted.triplets).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            subject: "FastAPI",
+            predicate: "uses",
+            object: "uvloop"
+          })
+        ])
+      );
+
+      const workerSessionsResponse = await request.get(`${backendBaseUrl}/api/v1/sessions?provider=chatgpt`);
+      expect(workerSessionsResponse.ok()).toBeTruthy();
+      const workerSessions = (await workerSessionsResponse.json()) as Array<{ external_session_id: string }>;
+      expect(workerSessions).toHaveLength(0);
+
+      await eventually
+        .poll(
+          async () =>
+            serviceWorker.evaluate(async () => {
+              const stored = await chrome.storage.local.get("tsmc.status");
+              return (stored["tsmc.status"] ??
+                {}) as {
+                processingInProgress?: boolean;
+                processingPendingCount?: number;
+                processingProcessedCount?: number;
+                processingLastError?: string | null;
+              };
+            }),
+          {
+            message: "Waiting for the popup state to reflect the completed AI processing run."
+          }
+        )
+        .toMatchObject({
+          processingInProgress: false,
+          processingPendingCount: 0,
+          processingProcessedCount: 2,
+          processingLastError: null
+        });
+
+      expect(observedPrompts).toHaveLength(1);
+      expect(observedPrompts[0]).toContain("Use fast mode.");
+      expect(observedPrompts[0]).toContain(`"source_session_id":"${pendingSessionId}"`);
+      expect(observedPrompts[0]).toContain(`"source_session_id":"${secondPendingSessionId}"`);
+      expect(observedPrompts[0]).toContain("I need to plan tomorrow and review today's work.");
+      expect(observedPrompts[0]).toContain("Explain how FastAPI uses uvloop.");
+
+      await expect(popup.locator("#processing-pending")).toHaveText("0");
+      await expect(popup.locator("#processing-status")).toContainText("browser-chatgpt");
+      await expect(popup.locator("#last-error")).toHaveText("None");
+
+      await serviceWorker.evaluate(async () => {
+        const stored = await chrome.storage.local.get("tsmc.status");
+        await chrome.storage.local.set({
+          "tsmc.status": {
+            ...(stored["tsmc.status"] ?? {}),
+            processingLastError: "stale processing error"
+          }
+        });
+      });
+
+      await popup.reload({ waitUntil: "domcontentloaded" });
+      await expect(popup.locator("#processing-status")).not.toContainText("Failed:");
+      await expect(popup.locator("#last-error")).toHaveText("None");
+    } finally {
+      await context.close();
+    }
+  } finally {
+    await stopBackend(backendProcess);
+    await rm(userDataDir, { recursive: true, force: true });
+    await rm(backendDataDir, { recursive: true, force: true });
+  }
+});
+
+test("salvages a partial batched AI processing reply and continues with the remaining queued task", async ({ request }, testInfo) => {
+  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const firstPendingSessionId = "processing-partial-session-1";
+  const secondPendingSessionId = "processing-partial-session-2";
+  const backendLogs: string[] = [];
+  const observedPrompts: string[] = [];
+  let backendProcess: ReturnType<typeof spawn> | undefined;
+  let backendBaseUrl = configuredBackendBaseUrl();
+
+  try {
+    if (backendBaseUrl) {
+      await waitForBackendUrlHealthy(backendBaseUrl);
+    } else {
+      const backendChild = spawn(
+        backendPython,
+        ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "0"],
+        {
+          cwd: backendRoot,
+          env: {
+            ...globalThis.process.env,
+            PYTHONUNBUFFERED: "1",
+            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
+            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            TSMC_LLM_BACKEND: "browser_proxy",
+            TSMC_EXPERIMENTAL_BROWSER_AUTOMATION: "true",
+            TSMC_BROWSER_LLM_MODEL: "browser-chatgpt"
+          },
+          stdio: ["ignore", "pipe", "pipe"]
+        }
+      );
+      backendProcess = backendChild;
+
+      backendChild.stdout?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+      backendChild.stderr?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+
+      backendBaseUrl = await waitForBackendHealthy(backendLogs);
+    }
+
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      channel: "chromium",
+      headless: testInfo.project.use.headless ?? true,
+      args: [`--disable-extensions-except=${extensionDist}`, `--load-extension=${extensionDist}`]
+    });
+
+    try {
+      let [serviceWorker] = context.serviceWorkers();
+      if (!serviceWorker) {
+        serviceWorker = await context.waitForEvent("serviceworker");
+      }
+      const extensionId = serviceWorker.url().split("/")[2] ?? "";
+      expect(extensionId).not.toHaveLength(0);
+
+      const optionsPage = await context.newPage();
+      await optionsPage.goto(`chrome-extension://${extensionId}/options.html`, { waitUntil: "domcontentloaded" });
+      await optionsPage.locator("#backend-url").fill(backendBaseUrl);
+      await optionsPage.locator("#auto-sync-history").setChecked(true);
+      await optionsPage.locator("#settings-form").evaluate((form) => {
+        (form as HTMLFormElement).requestSubmit();
+      });
+      await expect(optionsPage.locator("#save-status")).toHaveText("Settings saved.");
+
+      const firstIngestResponse = await request.post(`${backendBaseUrl}/api/v1/ingest/diff`, {
+        data: {
+          provider: "gemini",
+          external_session_id: firstPendingSessionId,
+          sync_mode: "full_snapshot",
+          title: "Partial Processing Session 1",
+          source_url: `https://gemini.google.com/app/${firstPendingSessionId}`,
+          captured_at: "2026-04-02T13:00:00.000Z",
+          messages: [
+            {
+              external_message_id: "partial-msg-1",
+              role: "user",
+              content: "Summarize this into a personal journal note."
+            }
+          ],
+          raw_capture: { source: "e2e-processing-partial" }
+        }
+      });
+      expect(firstIngestResponse.ok()).toBeTruthy();
+
+      const secondIngestResponse = await request.post(`${backendBaseUrl}/api/v1/ingest/diff`, {
+        data: {
+          provider: "gemini",
+          external_session_id: secondPendingSessionId,
+          sync_mode: "full_snapshot",
+          title: "Partial Processing Session 2",
+          source_url: `https://gemini.google.com/app/${secondPendingSessionId}`,
+          captured_at: "2026-04-02T13:05:00.000Z",
+          messages: [
+            {
+              external_message_id: "partial-msg-2",
+              role: "user",
+              content: "Explain how FastAPI uses uvloop."
+            }
+          ],
+          raw_capture: { source: "e2e-processing-partial" }
+        }
+      });
+      expect(secondIngestResponse.ok()).toBeTruthy();
+
+      await context.route(/^https:\/\/chatgpt\.com(?:\/.*)?$/, async (route) => {
+        if (route.request().resourceType() !== "document") {
+          await route.fulfill({
+            status: 204,
+            body: ""
+          });
+          return;
+        }
+
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html; charset=utf-8",
+          body: `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ChatGPT</title>
+  </head>
+  <body>
+    <main>
+      <textarea id="prompt-textarea"></textarea>
+      <button data-testid="send-button" type="button">Send</button>
+      <section id="responses"></section>
+    </main>
+    <script>
+      const textarea = document.querySelector("#prompt-textarea");
+      const sendButton = document.querySelector("[data-testid='send-button']");
+      const responses = document.querySelector("#responses");
+      sendButton.addEventListener("click", async () => {
+        const prompt = textarea.value;
+        const response = await fetch("/backend-api/conversation/processing-worker", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt })
+        });
+        const data = await response.json();
+        const article = document.createElement("article");
+        const assistant = document.createElement("div");
+        assistant.setAttribute("data-message-author-role", "assistant");
+        assistant.textContent = data.messages[data.messages.length - 1].content;
+        article.appendChild(assistant);
+        responses.appendChild(article);
+      });
+    </script>
+  </body>
+</html>`
+        });
+      });
+
+      await context.route("https://chatgpt.com/backend-api/conversation/processing-worker", async (route) => {
+        const payload = route.request().postDataJSON() as { prompt?: string } | null;
+        observedPrompts.push(payload?.prompt ?? "");
+        const taskRefs = parseProcessingPromptTasks(payload?.prompt ?? "");
+        const journalTask = taskRefs.find((task) => task.source_session_id === firstPendingSessionId) ?? taskRefs[0];
+        const assistantContent =
+          observedPrompts.length === 1
+            ? JSON.stringify({
+                results: [
+                  {
+                    task_key: journalTask?.task_key ?? "task_1",
+                    category: "journal",
+                    classification_reason: "Personal planning and reflection.",
+                    journal: {
+                      entry: "Captured the personal planning request as a journal note.",
+                      action_items: ["Review tomorrow's priorities"]
+                    },
+                    factual_triplets: [],
+                    idea: null
+                  }
+                ]
+              })
+            : JSON.stringify({
+                results: taskRefs.map((task) => ({
+                  task_key: task.task_key,
+                  category: "factual",
+                  classification_reason: "Technical explanation request.",
+                  journal: null,
+                  factual_triplets: [
+                    {
+                      subject: "FastAPI",
+                      predicate: "uses",
+                      object: "uvloop",
+                      confidence: 0.92
+                    }
+                  ],
+                  idea: null
+                }))
+              });
+
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            conversation_id: "worker-chat-session",
+            title: "TSMC Processing Worker",
+            messages: [
+              {
+                id: `worker-user-${observedPrompts.length}`,
+                role: "user",
+                content: payload?.prompt ?? ""
+              },
+              {
+                id: `worker-assistant-${observedPrompts.length}`,
+                parent: `worker-user-${observedPrompts.length}`,
+                role: "assistant",
+                content: assistantContent
+              }
+            ]
+          })
+        });
+      });
+
+      const workerPage = await context.newPage();
+      await workerPage.goto("https://chatgpt.com/", { waitUntil: "domcontentloaded" });
+
+      const popup = await context.newPage();
+      await popup.goto(`chrome-extension://${extensionId}/popup.html`, { waitUntil: "domcontentloaded" });
+
+      await expect(popup.locator("#processing-pending")).toHaveText("2");
+      await popup.locator("#run-processing").click();
+
+      await eventually
+        .poll(
+          async () => {
+            const response = await request.get(`${backendBaseUrl}/api/v1/sessions?provider=gemini`);
+            if (!response.ok()) {
+              return null;
+            }
+            const sessions = (await response.json()) as Array<{
+              external_session_id: string;
+              category: string | null;
+            }>;
+            const firstCategory = sessions.find((session) => session.external_session_id === firstPendingSessionId)?.category ?? null;
+            const secondCategory =
+              sessions.find((session) => session.external_session_id === secondPendingSessionId)?.category ?? null;
+            return `${firstCategory ?? "null"}:${secondCategory ?? "null"}`;
+          },
+          {
+            message: "Waiting for the extension to salvage the first processing result and continue with the second queued task."
+          }
+        )
+        .toBe("journal:factual");
+
+      expect(observedPrompts).toHaveLength(2);
+      expect(observedPrompts[0]).toContain(`"source_session_id":"${firstPendingSessionId}"`);
+      expect(observedPrompts[0]).toContain(`"source_session_id":"${secondPendingSessionId}"`);
+      expect(observedPrompts[1]).toContain(`"source_session_id":"${secondPendingSessionId}"`);
+      expect(observedPrompts[1]).not.toContain(`"source_session_id":"${firstPendingSessionId}"`);
+      expect(observedPrompts[1]).toContain('"task_key":"task_1"');
+
+      await eventually
+        .poll(
+          async () =>
+            serviceWorker.evaluate(async () => {
+              const stored = await chrome.storage.local.get("tsmc.status");
+              return (stored["tsmc.status"] ??
+                {}) as {
+                processingInProgress?: boolean;
+                processingPendingCount?: number;
+                processingProcessedCount?: number;
+                processingLastError?: string | null;
+              };
+            }),
+          {
+            message: "Waiting for the popup state to reflect the salvaged processing run."
+          }
+        )
+        .toMatchObject({
+          processingInProgress: false,
+          processingPendingCount: 0,
+          processingProcessedCount: 2,
+          processingLastError: null
+        });
+
+      await expect(popup.locator("#last-error")).toHaveText("None");
+    } finally {
+      await context.close();
+    }
+  } finally {
+    await stopBackend(backendProcess);
+    await rm(userDataDir, { recursive: true, force: true });
+    await rm(backendDataDir, { recursive: true, force: true });
+  }
+});
+
+test("repairs malformed processing JSON by retrying in the provider tab", async ({ request }, testInfo) => {
+  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const pendingSessionId = "processing-repair-session";
+  const backendLogs: string[] = [];
+  const observedPrompts: string[] = [];
+  let backendProcess: ReturnType<typeof spawn> | undefined;
+  let backendBaseUrl = configuredBackendBaseUrl();
+
+  try {
+    if (backendBaseUrl) {
+      await waitForBackendUrlHealthy(backendBaseUrl);
+    } else {
+      const backendChild = spawn(
+        backendPython,
+        ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "0"],
+        {
+          cwd: backendRoot,
+          env: {
+            ...globalThis.process.env,
+            PYTHONUNBUFFERED: "1",
+            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
+            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            TSMC_LLM_BACKEND: "browser_proxy",
+            TSMC_EXPERIMENTAL_BROWSER_AUTOMATION: "true",
+            TSMC_BROWSER_LLM_MODEL: "browser-chatgpt"
+          },
+          stdio: ["ignore", "pipe", "pipe"]
+        }
+      );
+      backendProcess = backendChild;
+
+      backendChild.stdout?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+      backendChild.stderr?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+
+      backendBaseUrl = await waitForBackendHealthy(backendLogs);
+    }
+
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      channel: "chromium",
+      headless: testInfo.project.use.headless ?? true,
+      args: [`--disable-extensions-except=${extensionDist}`, `--load-extension=${extensionDist}`]
+    });
+
+    try {
+      let [serviceWorker] = context.serviceWorkers();
+      if (!serviceWorker) {
+        serviceWorker = await context.waitForEvent("serviceworker");
+      }
+      const extensionId = serviceWorker.url().split("/")[2] ?? "";
+      expect(extensionId).not.toHaveLength(0);
+
+      const optionsPage = await context.newPage();
+      await optionsPage.goto(`chrome-extension://${extensionId}/options.html`, { waitUntil: "domcontentloaded" });
+      await optionsPage.locator("#backend-url").fill(backendBaseUrl);
+      await optionsPage.locator("#auto-sync-history").setChecked(true);
+      await optionsPage.locator("#settings-form").evaluate((form) => {
+        (form as HTMLFormElement).requestSubmit();
+      });
+      await expect(optionsPage.locator("#save-status")).toHaveText("Settings saved.");
+
+      const ingestResponse = await request.post(`${backendBaseUrl}/api/v1/ingest/diff`, {
+        data: {
+          provider: "gemini",
+          external_session_id: pendingSessionId,
+          sync_mode: "full_snapshot",
+          title: "Pending Processing Repair Session",
+          source_url: `https://gemini.google.com/app/${pendingSessionId}`,
+          captured_at: "2026-04-02T12:00:00.000Z",
+          messages: [
+            {
+              external_message_id: "repair-msg-1",
+              role: "user",
+              content: "Turn this into a personal planning journal note."
+            }
+          ],
+          raw_capture: { source: "e2e-processing-repair" }
+        }
+      });
+      expect(ingestResponse.ok()).toBeTruthy();
+
+      await context.route(/^https:\/\/chatgpt\.com(?:\/.*)?$/, async (route) => {
+        if (route.request().resourceType() !== "document") {
+          await route.fulfill({
+            status: 204,
+            body: ""
+          });
+          return;
+        }
+
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html; charset=utf-8",
+          body: `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ChatGPT</title>
+  </head>
+  <body>
+    <main>
+      <textarea id="prompt-textarea"></textarea>
+      <button data-testid="send-button" type="button">Send</button>
+      <section id="responses"></section>
+    </main>
+    <script>
+      const textarea = document.querySelector("#prompt-textarea");
+      const sendButton = document.querySelector("[data-testid='send-button']");
+      const responses = document.querySelector("#responses");
+      sendButton.addEventListener("click", async () => {
+        const prompt = textarea.value;
+        const response = await fetch("/backend-api/conversation/processing-worker", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt })
+        });
+        const data = await response.json();
+        const article = document.createElement("article");
+        const assistant = document.createElement("div");
+        assistant.setAttribute("data-message-author-role", "assistant");
+        assistant.textContent = data.messages[data.messages.length - 1].content;
+        article.appendChild(assistant);
+        responses.appendChild(article);
+      });
+    </script>
+  </body>
+</html>`
+        });
+      });
+
+      await context.route("https://chatgpt.com/backend-api/conversation/processing-worker", async (route) => {
+        const payload = route.request().postDataJSON() as { prompt?: string } | null;
+        observedPrompts.push(payload?.prompt ?? "");
+        const taskKeys = parseExpectedProcessingTaskKeys(payload?.prompt ?? "");
+        const assistantContent =
+          observedPrompts.length === 1
+            ? `{"results":[{"task_key":"${taskKeys[0] ?? "task_1"}","category":"journal","classification_reason":"Personal planning and reflection.","journal":{"entry":"Drafted tomorrow priorities`
+            : JSON.stringify({
+                results: taskKeys.map((taskKey) => ({
+                  task_key: taskKey,
+                  category: "journal",
+                  classification_reason: "Personal planning and reflection.",
+                  journal: {
+                    entry: "Drafted tomorrow priorities and reviewed the release checklist.",
+                    action_items: ["Review the release checklist"]
+                  },
+                  factual_triplets: [],
+                  idea: null
+                }))
+              });
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            conversation_id: "worker-chat-session",
+            title: "TSMC Processing Worker",
+            messages: [
+              {
+                id: `worker-user-${observedPrompts.length}`,
+                role: "user",
+                content: payload?.prompt ?? ""
+              },
+              {
+                id: `worker-assistant-${observedPrompts.length}`,
+                parent: `worker-user-${observedPrompts.length}`,
+                role: "assistant",
+                content: assistantContent
+              }
+            ]
+          })
+        });
+      });
+
+      const workerPage = await context.newPage();
+      await workerPage.goto("https://chatgpt.com/", { waitUntil: "domcontentloaded" });
+
+      const popup = await context.newPage();
+      await popup.goto(`chrome-extension://${extensionId}/popup.html`, { waitUntil: "domcontentloaded" });
+
+      await expect(popup.locator("#processing-pending")).toHaveText("1");
+      await popup.locator("#run-processing").click();
+
+      await eventually
+        .poll(
+          async () => {
+            const response = await request.get(`${backendBaseUrl}/api/v1/sessions?provider=gemini`);
+            if (!response.ok()) {
+              return null;
+            }
+            const sessions = (await response.json()) as Array<{
+              id: string;
+              external_session_id: string;
+              category: string | null;
+            }>;
+            return sessions.find((session) => session.external_session_id === pendingSessionId)?.category ?? null;
+          },
+          {
+            message: "Waiting for the extension worker to repair and complete queued AI processing."
+          }
+        )
+        .toBe("journal");
+
+      const sessionResponse = await request.get(`${backendBaseUrl}/api/v1/sessions?provider=gemini`);
+      expect(sessionResponse.ok()).toBeTruthy();
+      const sessions = (await sessionResponse.json()) as Array<{
+        id: string;
+        external_session_id: string;
+        category: string | null;
+      }>;
+      const matchedSession = sessions.find((session) => session.external_session_id === pendingSessionId);
+      expect(matchedSession?.category).toBe("journal");
+
+      expect(observedPrompts).toHaveLength(2);
+      expect(observedPrompts[0]).toContain("Use fast mode.");
+      expect(observedPrompts[0]).toContain('"results"');
+      expect(observedPrompts[0]).toContain('"task_key":"task_1"');
+      expect(observedPrompts[1]).toContain("Repair it and return exactly one valid JSON object.");
+      expect(observedPrompts[1]).toContain("Could not parse the processing response as valid JSON");
+      expect(observedPrompts[1]).toContain("Expected task_keys:");
+      expect(observedPrompts[1]).toContain("complete JSON object");
+
+      const workerSessionsResponse = await request.get(`${backendBaseUrl}/api/v1/sessions?provider=chatgpt`);
+      expect(workerSessionsResponse.ok()).toBeTruthy();
+      const workerSessions = (await workerSessionsResponse.json()) as Array<{ external_session_id: string }>;
+      expect(workerSessions).toHaveLength(0);
+
+      await expect(popup.locator("#last-error")).toHaveText("None");
+    } finally {
+      await context.close();
+    }
+  } finally {
+    await stopBackend(backendProcess);
+    await rm(userDataDir, { recursive: true, force: true });
+    await rm(backendDataDir, { recursive: true, force: true });
+  }
+});
+
+test("waits for provider generation to finish before attempting JSON repair", async ({ request }, testInfo) => {
+  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const pendingSessionId = "processing-wait-session";
+  const backendLogs: string[] = [];
+  const observedPrompts: string[] = [];
+  let backendProcess: ReturnType<typeof spawn> | undefined;
+  let backendBaseUrl = configuredBackendBaseUrl();
+
+  try {
+    if (backendBaseUrl) {
+      await waitForBackendUrlHealthy(backendBaseUrl);
+    } else {
+      const backendChild = spawn(
+        backendPython,
+        ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "0"],
+        {
+          cwd: backendRoot,
+          env: {
+            ...globalThis.process.env,
+            PYTHONUNBUFFERED: "1",
+            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
+            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            TSMC_LLM_BACKEND: "browser_proxy",
+            TSMC_EXPERIMENTAL_BROWSER_AUTOMATION: "true",
+            TSMC_BROWSER_LLM_MODEL: "browser-chatgpt"
+          },
+          stdio: ["ignore", "pipe", "pipe"]
+        }
+      );
+      backendProcess = backendChild;
+
+      backendChild.stdout?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+      backendChild.stderr?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+
+      backendBaseUrl = await waitForBackendHealthy(backendLogs);
+    }
+
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      channel: "chromium",
+      headless: testInfo.project.use.headless ?? true,
+      args: [`--disable-extensions-except=${extensionDist}`, `--load-extension=${extensionDist}`]
+    });
+
+    try {
+      let [serviceWorker] = context.serviceWorkers();
+      if (!serviceWorker) {
+        serviceWorker = await context.waitForEvent("serviceworker");
+      }
+      const extensionId = serviceWorker.url().split("/")[2] ?? "";
+      expect(extensionId).not.toHaveLength(0);
+
+      const optionsPage = await context.newPage();
+      await optionsPage.goto(`chrome-extension://${extensionId}/options.html`, { waitUntil: "domcontentloaded" });
+      await optionsPage.locator("#backend-url").fill(backendBaseUrl);
+      await optionsPage.locator("#auto-sync-history").setChecked(true);
+      await optionsPage.locator("#settings-form").evaluate((form) => {
+        (form as HTMLFormElement).requestSubmit();
+      });
+      await expect(optionsPage.locator("#save-status")).toHaveText("Settings saved.");
+
+      const ingestResponse = await request.post(`${backendBaseUrl}/api/v1/ingest/diff`, {
+        data: {
+          provider: "gemini",
+          external_session_id: pendingSessionId,
+          sync_mode: "full_snapshot",
+          title: "Pending Processing Wait Session",
+          source_url: `https://gemini.google.com/app/${pendingSessionId}`,
+          captured_at: "2026-04-03T12:00:00.000Z",
+          messages: [
+            {
+              external_message_id: "wait-msg-1",
+              role: "user",
+              content: "Turn this into a personal planning journal note."
+            }
+          ],
+          raw_capture: { source: "e2e-processing-wait" }
+        }
+      });
+      expect(ingestResponse.ok()).toBeTruthy();
+
+      await context.route(/^https:\/\/chatgpt\.com(?:\/.*)?$/, async (route) => {
+        if (route.request().resourceType() !== "document") {
+          await route.fulfill({
+            status: 204,
+            body: ""
+          });
+          return;
+        }
+
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html; charset=utf-8",
+          body: `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ChatGPT</title>
+  </head>
+  <body>
+    <main>
+      <textarea id="prompt-textarea"></textarea>
+      <button data-testid="send-button" type="button">Send</button>
+      <button data-testid="stop-button" type="button" aria-label="Stop generating" hidden>Stop</button>
+      <section id="responses"></section>
+    </main>
+    <script>
+      const textarea = document.querySelector("#prompt-textarea");
+      const sendButton = document.querySelector("[data-testid='send-button']");
+      const stopButton = document.querySelector("[data-testid='stop-button']");
+      const responses = document.querySelector("#responses");
+      sendButton.addEventListener("click", async () => {
+        const prompt = textarea.value;
+        const response = await fetch("/backend-api/conversation/processing-worker", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt })
+        });
+        const data = await response.json();
+        const article = document.createElement("article");
+        const assistant = document.createElement("div");
+        assistant.setAttribute("data-message-author-role", "assistant");
+        assistant.textContent = data.messages[data.messages.length - 1].content;
+        article.appendChild(assistant);
+        responses.appendChild(article);
+        sendButton.hidden = true;
+        stopButton.hidden = false;
+        window.setTimeout(() => {
+          assistant.textContent = data.final_content;
+          stopButton.hidden = true;
+          sendButton.hidden = false;
+        }, 11000);
+      });
+    </script>
+  </body>
+</html>`
+        });
+      });
+
+      await context.route("https://chatgpt.com/backend-api/conversation/processing-worker", async (route) => {
+        const payload = route.request().postDataJSON() as { prompt?: string } | null;
+        observedPrompts.push(payload?.prompt ?? "");
+        const taskKeys = parseExpectedProcessingTaskKeys(payload?.prompt ?? "");
+        const partialContent = `{"results":[{"task_key":"${taskKeys[0] ?? "task_1"}","category":"journal","classification_reason":"Personal planning."`;
+        const finalContent = JSON.stringify({
+          results: [
+            {
+              task_key: taskKeys[0] ?? "task_1",
+              category: "journal",
+              classification_reason: "Personal planning and reflection.",
+              journal: {
+                entry: "Drafted tomorrow priorities and reviewed the release checklist.",
+                action_items: ["Review the release checklist"]
+              },
+              factual_triplets: [],
+              idea: null
+            }
+          ]
+        });
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            conversation_id: "worker-chat-session",
+            title: "TSMC Processing Worker",
+            final_content: finalContent,
+            messages: [
+              {
+                id: `worker-user-${observedPrompts.length}`,
+                role: "user",
+                content: payload?.prompt ?? ""
+              },
+              {
+                id: `worker-assistant-${observedPrompts.length}`,
+                parent: `worker-user-${observedPrompts.length}`,
+                role: "assistant",
+                content: partialContent
+              }
+            ]
+          })
+        });
+      });
+
+      const workerPage = await context.newPage();
+      await workerPage.goto("https://chatgpt.com/", { waitUntil: "domcontentloaded" });
+
+      const popup = await context.newPage();
+      await popup.goto(`chrome-extension://${extensionId}/popup.html`, { waitUntil: "domcontentloaded" });
+
+      await expect(popup.locator("#processing-pending")).toHaveText("1");
+      await popup.locator("#run-processing").click();
+
+      await eventually
+        .poll(
+          async () => {
+            const response = await request.get(`${backendBaseUrl}/api/v1/sessions?provider=gemini`);
+            if (!response.ok()) {
+              return null;
+            }
+            const sessions = (await response.json()) as Array<{
+              id: string;
+              external_session_id: string;
+              category: string | null;
+            }>;
+            return sessions.find((session) => session.external_session_id === pendingSessionId)?.category ?? null;
+          },
+          {
+            timeout: 25_000,
+            message: "Waiting for the extension worker to wait for the provider to finish before completing processing."
+          }
+        )
+        .toBe("journal");
+
+      expect(observedPrompts).toHaveLength(1);
+      expect(observedPrompts[0]).toContain('"task_key":"task_1"');
+      await expect(popup.locator("#last-error")).toHaveText("None");
     } finally {
       await context.close();
     }
@@ -642,7 +1984,7 @@ test("auto-syncs Gemini history on provider visit", async ({ request }, testInfo
       const page = await context.newPage();
       await page.goto(`https://gemini.google.com/app/${sessionId}`, { waitUntil: "domcontentloaded" });
 
-      await expect
+      await eventually
         .poll(
           async () =>
             serviceWorker.evaluate(async () => {
@@ -684,7 +2026,7 @@ test("auto-syncs Gemini history on provider visit", async ({ request }, testInfo
       expect(completedStatus.historySyncSkippedCount).toBe(2);
       expect(completedStatus.historySyncLastConversationCount).toBe(4);
 
-      await expect
+      await eventually
         .poll(
           async () => {
             const response = await request.get(`${backendBaseUrl}/api/v1/sessions?provider=gemini`);
@@ -747,7 +2089,7 @@ test("auto-syncs Gemini history on provider visit", async ({ request }, testInfo
 
       await page.reload({ waitUntil: "domcontentloaded" });
 
-      await expect
+      await eventually
         .poll(
           async () =>
             serviceWorker.evaluate(async (baseline) => {
@@ -822,8 +2164,42 @@ test("auto-syncs Gemini history on provider visit", async ({ request }, testInfo
 
 test("surfaces provider drift alerts when Gemini history shapes change", async ({}, testInfo) => {
   const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const backendLogs: string[] = [];
+  let backendProcess: ReturnType<typeof spawn> | undefined;
+  let backendBaseUrl = configuredBackendBaseUrl();
 
   try {
+    if (backendBaseUrl) {
+      await waitForBackendUrlHealthy(backendBaseUrl);
+    } else {
+      const backendChild = spawn(
+        backendPython,
+        ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "0"],
+        {
+          cwd: backendRoot,
+          env: {
+            ...globalThis.process.env,
+            PYTHONUNBUFFERED: "1",
+            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
+            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            TSMC_LLM_BACKEND: "heuristic"
+          },
+          stdio: ["ignore", "pipe", "pipe"]
+        }
+      );
+      backendProcess = backendChild;
+
+      backendChild.stdout?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+      backendChild.stderr?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+
+      backendBaseUrl = await waitForBackendHealthy(backendLogs);
+    }
+
     const context = await chromium.launchPersistentContext(userDataDir, {
       channel: "chromium",
       headless: testInfo.project.use.headless ?? true,
@@ -837,6 +2213,15 @@ test("surfaces provider drift alerts when Gemini history shapes change", async (
       }
       const extensionId = serviceWorker.url().split("/")[2] ?? "";
       expect(extensionId).not.toHaveLength(0);
+
+      const optionsPage = await context.newPage();
+      await optionsPage.goto(`chrome-extension://${extensionId}/options.html`, { waitUntil: "domcontentloaded" });
+      await optionsPage.locator("#backend-url").fill(backendBaseUrl);
+      await optionsPage.locator("#auto-sync-history").setChecked(true);
+      await optionsPage.locator("#settings-form").evaluate((form) => {
+        (form as HTMLFormElement).requestSubmit();
+      });
+      await expect(optionsPage.locator("#save-status")).toHaveText("Settings saved.");
 
       await context.route(/^https:\/\/gemini\.google\.com\/app(?:\/.*)?$/, async (route) => {
         await route.fulfill({
@@ -877,7 +2262,7 @@ test("surfaces provider drift alerts when Gemini history shapes change", async (
       const page = await context.newPage();
       await page.goto("https://gemini.google.com/app/drift-test", { waitUntil: "domcontentloaded" });
 
-      await expect
+      await eventually
         .poll(
           async () =>
             serviceWorker.evaluate(async () => {
@@ -916,7 +2301,9 @@ test("surfaces provider drift alerts when Gemini history shapes change", async (
       await context.close();
     }
   } finally {
+    await stopBackend(backendProcess);
     await rm(userDataDir, { recursive: true, force: true });
+    await rm(backendDataDir, { recursive: true, force: true });
   }
 });
 
@@ -1162,7 +2549,7 @@ test("auto-syncs Grok history on provider visit", async ({ request }, testInfo) 
       const page = await context.newPage();
       await page.goto(`https://grok.com/c/${sessionId}`, { waitUntil: "domcontentloaded" });
 
-      await expect
+      await eventually
         .poll(
           async () =>
             serviceWorker.evaluate(async () => {
@@ -1204,7 +2591,7 @@ test("auto-syncs Grok history on provider visit", async ({ request }, testInfo) 
       expect(completedStatus.historySyncSkippedCount).toBe(1);
       expect(completedStatus.historySyncLastConversationCount).toBe(3);
 
-      await expect
+      await eventually
         .poll(
           async () => {
             const response = await request.get(`${backendBaseUrl}/api/v1/sessions?provider=grok`);
@@ -1263,7 +2650,7 @@ test("auto-syncs Grok history on provider visit", async ({ request }, testInfo) 
 
       await page.reload({ waitUntil: "domcontentloaded" });
 
-      await expect
+      await eventually
         .poll(
           async () =>
             serviceWorker.evaluate(async (baseline) => {
@@ -1480,7 +2867,7 @@ test("falls back to Grok response-node and load-responses when direct responses 
       const page = await context.newPage();
       await page.goto(`https://grok.com/c/${sessionId}`, { waitUntil: "domcontentloaded" });
 
-      await expect
+      await eventually
         .poll(
           async () =>
             serviceWorker.evaluate(async () => {
@@ -1496,7 +2883,7 @@ test("falls back to Grok response-node and load-responses when direct responses 
         )
         .toBe("success");
 
-      await expect
+      await eventually
         .poll(
           async () => {
             const response = await request.get(`${backendBaseUrl}/api/v1/sessions?provider=grok`);
@@ -1546,8 +2933,42 @@ test("falls back to Grok response-node and load-responses when direct responses 
 
 test("surfaces provider drift alerts when Grok history shapes change", async ({}, testInfo) => {
   const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-e2e-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-e2e-"));
+  const backendLogs: string[] = [];
+  let backendProcess: ReturnType<typeof spawn> | undefined;
+  let backendBaseUrl = configuredBackendBaseUrl();
 
   try {
+    if (backendBaseUrl) {
+      await waitForBackendUrlHealthy(backendBaseUrl);
+    } else {
+      const backendChild = spawn(
+        backendPython,
+        ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "0"],
+        {
+          cwd: backendRoot,
+          env: {
+            ...globalThis.process.env,
+            PYTHONUNBUFFERED: "1",
+            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
+            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            TSMC_LLM_BACKEND: "heuristic"
+          },
+          stdio: ["ignore", "pipe", "pipe"]
+        }
+      );
+      backendProcess = backendChild;
+
+      backendChild.stdout?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+      backendChild.stderr?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+
+      backendBaseUrl = await waitForBackendHealthy(backendLogs);
+    }
+
     const context = await chromium.launchPersistentContext(userDataDir, {
       channel: "chromium",
       headless: testInfo.project.use.headless ?? true,
@@ -1561,6 +2982,15 @@ test("surfaces provider drift alerts when Grok history shapes change", async ({}
       }
       const extensionId = serviceWorker.url().split("/")[2] ?? "";
       expect(extensionId).not.toHaveLength(0);
+
+      const optionsPage = await context.newPage();
+      await optionsPage.goto(`chrome-extension://${extensionId}/options.html`, { waitUntil: "domcontentloaded" });
+      await optionsPage.locator("#backend-url").fill(backendBaseUrl);
+      await optionsPage.locator("#auto-sync-history").setChecked(true);
+      await optionsPage.locator("#settings-form").evaluate((form) => {
+        (form as HTMLFormElement).requestSubmit();
+      });
+      await expect(optionsPage.locator("#save-status")).toHaveText("Settings saved.");
 
       await context.route(/^https:\/\/grok\.com(?:\/c\/.*)?$/, async (route) => {
         await route.fulfill({
@@ -1592,7 +3022,7 @@ test("surfaces provider drift alerts when Grok history shapes change", async ({}
       const page = await context.newPage();
       await page.goto("https://grok.com/c/drift-test", { waitUntil: "domcontentloaded" });
 
-      await expect
+      await eventually
         .poll(
           async () =>
             serviceWorker.evaluate(async () => {
@@ -1631,6 +3061,325 @@ test("surfaces provider drift alerts when Grok history shapes change", async ({}
       await context.close();
     }
   } finally {
+    await stopBackend(backendProcess);
     await rm(userDataDir, { recursive: true, force: true });
+    await rm(backendDataDir, { recursive: true, force: true });
+  }
+});
+
+test("renders the dashboard with backend corpus, graph, and storage statistics", async ({ request }, testInfo) => {
+  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-dashboard-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-dashboard-"));
+  const backendLogs: string[] = [];
+  let backendProcess: ReturnType<typeof spawn> | undefined;
+  let backendBaseUrl = configuredBackendBaseUrl();
+
+  try {
+    if (backendBaseUrl) {
+      await waitForBackendUrlHealthy(backendBaseUrl);
+    } else {
+      const backendChild = spawn(
+        backendPython,
+        ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "0"],
+        {
+          cwd: backendRoot,
+          env: {
+            ...globalThis.process.env,
+            PYTHONUNBUFFERED: "1",
+            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
+            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            TSMC_LLM_BACKEND: "heuristic"
+          },
+          stdio: ["ignore", "pipe", "pipe"]
+        }
+      );
+      backendProcess = backendChild;
+
+      backendChild.stdout?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+      backendChild.stderr?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+
+      backendBaseUrl = await waitForBackendHealthy(backendLogs);
+    }
+
+    const capturedAt = new Date("2026-04-14T17:20:00.000Z").toISOString();
+
+    await ingestDiff(request, backendBaseUrl, {
+      provider: "gemini",
+      external_session_id: "dashboard-factual",
+      sync_mode: "full_snapshot",
+      title: "Rust knowledge",
+      source_url: "https://gemini.google.com/app/dashboard-factual",
+      captured_at: capturedAt,
+      custom_tags: [],
+      raw_capture: {
+        source: "dashboard-e2e",
+        provider: "gemini"
+      },
+      messages: [
+        {
+          external_message_id: "fact-user",
+          role: "user",
+          content: "Explain Rust fundamentals."
+        },
+        {
+          external_message_id: "fact-assistant",
+          parent_external_message_id: "fact-user",
+          role: "assistant",
+          content:
+            "Rust is a systems programming language. Rust uses ownership. Rust supports fearless concurrency."
+        }
+      ]
+    });
+    await ingestDiff(request, backendBaseUrl, {
+      provider: "chatgpt",
+      external_session_id: "dashboard-ideas",
+      sync_mode: "full_snapshot",
+      title: "Idea sprint",
+      source_url: "https://chatgpt.com/c/dashboard-ideas",
+      captured_at: capturedAt,
+      custom_tags: [],
+      raw_capture: {
+        source: "dashboard-e2e",
+        provider: "chatgpt"
+      },
+      messages: [
+        {
+          external_message_id: "idea-user",
+          role: "user",
+          content: "Brainstorm a small product idea for turning AI chat histories into a research notebook."
+        },
+        {
+          external_message_id: "idea-assistant",
+          parent_external_message_id: "idea-user",
+          role: "assistant",
+          content:
+            "One advantage is that it gives every conversation a reusable artifact. One risk is information overload without clear filters. Next step: build a narrow prototype for factual research sessions."
+        }
+      ]
+    });
+    await ingestDiff(request, backendBaseUrl, {
+      provider: "grok",
+      external_session_id: "dashboard-todo",
+      sync_mode: "full_snapshot",
+      title: "Todo update",
+      source_url: "https://grok.com/c/dashboard-todo",
+      captured_at: capturedAt,
+      custom_tags: [],
+      raw_capture: {
+        source: "dashboard-e2e",
+        provider: "grok"
+      },
+      messages: [
+        {
+          external_message_id: "todo-user",
+          role: "user",
+          content: "Please add Buy milk to my to-do list."
+        },
+        {
+          external_message_id: "todo-assistant",
+          parent_external_message_id: "todo-user",
+          role: "assistant",
+          content: "Added Buy milk to your shared to-do list."
+        }
+      ]
+    });
+
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      channel: "chromium",
+      headless: testInfo.project.use.headless ?? true,
+      args: [`--disable-extensions-except=${extensionDist}`, `--load-extension=${extensionDist}`]
+    });
+
+    try {
+      let [serviceWorker] = context.serviceWorkers();
+      if (!serviceWorker) {
+        serviceWorker = await context.waitForEvent("serviceworker");
+      }
+      const extensionId = serviceWorker.url().split("/")[2] ?? "";
+      expect(extensionId).not.toHaveLength(0);
+
+      const optionsPage = await context.newPage();
+      await optionsPage.goto(`chrome-extension://${extensionId}/options.html`, { waitUntil: "domcontentloaded" });
+      await optionsPage.locator("#backend-url").fill(backendBaseUrl);
+      await optionsPage.locator("#auto-sync-history").setChecked(true);
+      await optionsPage.locator("#settings-form").evaluate((form) => {
+        (form as HTMLFormElement).requestSubmit();
+      });
+      await expect(optionsPage.locator("#save-status")).toHaveText("Settings saved.");
+
+      const popup = await context.newPage();
+      await popup.goto(`chrome-extension://${extensionId}/popup.html`, { waitUntil: "domcontentloaded" });
+      const dashboardPagePromise = context.waitForEvent("page");
+      await popup.locator("#open-dashboard").click();
+      const dashboardPage = await dashboardPagePromise;
+      await dashboardPage.waitForLoadState("domcontentloaded");
+
+      await expect(dashboardPage.locator("#backend-alert")).toBeHidden();
+      await expect(dashboardPage.locator("#metric-sessions")).toHaveText("3");
+      await expect(dashboardPage.locator("#metric-messages")).toHaveText("6");
+      await expect(dashboardPage.locator("#metric-sync-events")).toHaveText("3");
+      await expect(dashboardPage.locator("#metric-triplets")).toHaveText("3");
+      await expect(dashboardPage.locator("#metric-entities")).toHaveText("6");
+      await expect(dashboardPage.locator("#metric-edges")).toHaveText("3");
+      await expect(dashboardPage.locator("#category-total-label")).toContainText("3 indexed sessions");
+      await expect(dashboardPage.locator("#category-list")).toContainText("Factual");
+      await expect(dashboardPage.locator("#category-list")).toContainText("Ideas");
+      await expect(dashboardPage.locator("#category-list")).toContainText("To-Do");
+      await expect(dashboardPage.locator("#graph-summary")).toContainText("6 entities, 3 edges");
+      await expect(dashboardPage.locator("#top-entities")).toContainText("Rust");
+      await expect(dashboardPage.locator("#system-auth-mode")).toHaveText("bootstrap_local");
+      await expect(dashboardPage.locator("#system-todo-path")).toContainText("To-Do List.md");
+      await expect(dashboardPage.locator("#health-last-error")).toHaveText("None");
+    } finally {
+      await context.close();
+    }
+  } finally {
+    await stopBackend(backendProcess);
+    await rm(userDataDir, { recursive: true, force: true });
+    await rm(backendDataDir, { recursive: true, force: true });
+  }
+});
+
+test("searches the knowledge base and injects a fact into the focused page field", async ({ request }, testInfo) => {
+  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-search-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-search-"));
+  const backendLogs: string[] = [];
+  let backendProcess: ReturnType<typeof spawn> | undefined;
+  let backendBaseUrl = configuredBackendBaseUrl();
+
+  try {
+    if (backendBaseUrl) {
+      await waitForBackendUrlHealthy(backendBaseUrl);
+    } else {
+      const backendChild = spawn(
+        backendPython,
+        ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "0"],
+        {
+          cwd: backendRoot,
+          env: {
+            ...globalThis.process.env,
+            PYTHONUNBUFFERED: "1",
+            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
+            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            TSMC_LLM_BACKEND: "heuristic"
+          },
+          stdio: ["ignore", "pipe", "pipe"]
+        }
+      );
+      backendProcess = backendChild;
+
+      backendChild.stdout?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+      backendChild.stderr?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+
+      backendBaseUrl = await waitForBackendHealthy(backendLogs);
+    }
+
+    await ingestDiff(request, backendBaseUrl, {
+      provider: "gemini",
+      external_session_id: "search-factual",
+      sync_mode: "full_snapshot",
+      title: "Rust ownership facts",
+      source_url: "https://gemini.google.com/app/search-factual",
+      captured_at: new Date("2026-04-14T18:10:00.000Z").toISOString(),
+      custom_tags: [],
+      raw_capture: {
+        source: "search-e2e",
+        provider: "gemini"
+      },
+      messages: [
+        {
+          external_message_id: "search-user",
+          role: "user",
+          content: "Explain Rust ownership."
+        },
+        {
+          external_message_id: "search-assistant",
+          parent_external_message_id: "search-user",
+          role: "assistant",
+          content: "Rust uses ownership to manage memory safely without a garbage collector."
+        }
+      ]
+    });
+
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      channel: "chromium",
+      headless: testInfo.project.use.headless ?? true,
+      args: [`--disable-extensions-except=${extensionDist}`, `--load-extension=${extensionDist}`]
+    });
+
+    try {
+      let [serviceWorker] = context.serviceWorkers();
+      if (!serviceWorker) {
+        serviceWorker = await context.waitForEvent("serviceworker");
+      }
+      const extensionId = serviceWorker.url().split("/")[2] ?? "";
+      expect(extensionId).not.toHaveLength(0);
+
+      const optionsPage = await context.newPage();
+      await optionsPage.goto(`chrome-extension://${extensionId}/options.html`, { waitUntil: "domcontentloaded" });
+      await optionsPage.locator("#backend-url").fill(backendBaseUrl);
+      await optionsPage.locator("#auto-sync-history").setChecked(true);
+      await optionsPage.locator("#settings-form").evaluate((form) => {
+        (form as HTMLFormElement).requestSubmit();
+      });
+      await expect(optionsPage.locator("#save-status")).toHaveText("Settings saved.");
+
+      await context.route("https://example.com/compose", async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html; charset=utf-8",
+          body: `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Compose</title>
+  </head>
+  <body>
+    <main>
+      <label for="composer">Composer</label>
+      <textarea id="composer" rows="12" cols="80" placeholder="Write here"></textarea>
+    </main>
+  </body>
+</html>`
+        });
+      });
+
+      const page = await context.newPage();
+      await page.goto("https://example.com/compose", { waitUntil: "domcontentloaded" });
+      await page.locator("#composer").click();
+
+      const openSearchResponse = await serviceWorker.evaluate(async () => {
+        const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        if (!tab?.id) {
+          return { ok: false, error: "Missing active tab." };
+        }
+        return (await chrome.tabs.sendMessage(tab.id, {
+          type: "TOGGLE_QUICK_SEARCH"
+        })) as { ok: boolean; error?: string };
+      });
+      expect(openSearchResponse.ok).toBe(true);
+
+      await page.locator("#tsmc-quick-search-query").fill("ownership");
+      await expect(page.locator("#tsmc-quick-search-results")).toContainText("Rust | uses | ownership");
+
+      const factCard = page.locator("article.result").filter({ hasText: "Rust | uses | ownership" }).first();
+      await factCard.getByRole("button", { name: "Insert" }).click();
+
+      await expect(page.locator("#composer")).toHaveValue(/Rust \| uses \| ownership/);
+    } finally {
+      await context.close();
+    }
+  } finally {
+    await stopBackend(backendProcess);
+    await rm(userDataDir, { recursive: true, force: true });
+    await rm(backendDataDir, { recursive: true, force: true });
   }
 });

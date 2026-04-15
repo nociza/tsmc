@@ -7,11 +7,15 @@ import type {
   SaveSettingsResponse,
   SyncStatus
 } from "../shared/types";
+import { describeIndexingMode, normalizeRuleWords } from "../shared/indexing-rules";
 
 const form = document.querySelector<HTMLFormElement>("#settings-form");
 const backendUrlInput = document.querySelector<HTMLInputElement>("#backend-url");
 const backendTokenInput = document.querySelector<HTMLInputElement>("#backend-token");
 const autoSyncHistoryInput = document.querySelector<HTMLInputElement>("#auto-sync-history");
+const indexingModeInput = document.querySelector<HTMLInputElement>("#indexing-mode-trigger");
+const triggerWordsInput = document.querySelector<HTMLInputElement>("#trigger-words");
+const blacklistWordsInput = document.querySelector<HTMLInputElement>("#blacklist-words");
 const providerInputs = {
   chatgpt: document.querySelector<HTMLInputElement>("#provider-chatgpt"),
   gemini: document.querySelector<HTMLInputElement>("#provider-gemini"),
@@ -25,6 +29,15 @@ const historySync = document.querySelector<HTMLParagraphElement>("#history-sync"
 const providerDriftCard = document.querySelector<HTMLDivElement>("#provider-drift-card");
 const providerDrift = document.querySelector<HTMLParagraphElement>("#provider-drift");
 const backendValidation = document.querySelector<HTMLParagraphElement>("#backend-validation");
+const indexingRulesStatus = document.querySelector<HTMLParagraphElement>("#indexing-rules-status");
+const lastIndexing = document.querySelector<HTMLParagraphElement>("#last-indexing");
+const openDashboardButton = document.querySelector<HTMLButtonElement>("#open-dashboard");
+let currentSettings: ExtensionSettings | null = null;
+let currentStatus: SyncStatus | null = null;
+let loadPromise: Promise<void> | null = null;
+let loadQueued = false;
+let formHydrated = false;
+let formDirty = false;
 
 function formatDate(value?: string): string {
   if (!value) {
@@ -73,15 +86,31 @@ function formatProviderDriftAlert(alert?: ProviderDriftAlert | null): string {
   return `${headline} ${formatDate(alert.detectedAt)}.${evidence}`.trim();
 }
 
+function formatIndexingRules(settings: ExtensionSettings): string {
+  const triggerWords = normalizeRuleWords(settings.triggerWords);
+  const blacklistWords = normalizeRuleWords(settings.blacklistWords);
+  const triggerLabel = triggerWords.length ? triggerWords.join(", ") : "none";
+  const blacklistLabel = blacklistWords.length ? blacklistWords.join(", ") : "none";
+  return `${describeIndexingMode(settings.indexingMode)}. Trigger words: ${triggerLabel}. Blacklist: ${blacklistLabel}.`;
+}
+
+function formatLastIndexing(status: SyncStatus): string {
+  if (!status.lastIndexingDecision) {
+    return "No decision yet";
+  }
+
+  const prefix = status.lastIndexingDecision === "indexed" ? "Indexed" : "Skipped";
+  return status.lastIndexingReason ? `${prefix}: ${status.lastIndexingReason}` : prefix;
+}
+
 async function sendMessage<TResponse>(message: RuntimeMessage): Promise<TResponse> {
   return chrome.runtime.sendMessage(message) as Promise<TResponse>;
 }
 
-async function load(): Promise<void> {
-  const [settings, status] = await Promise.all([
-    sendMessage<ExtensionSettings>({ type: "GET_SETTINGS" }),
-    sendMessage<SyncStatus>({ type: "GET_STATUS" })
-  ]);
+function syncFormFromSettings(settings: ExtensionSettings): void {
+  if (formDirty) {
+    return;
+  }
 
   if (backendUrlInput) {
     backendUrlInput.value = settings.backendUrl;
@@ -92,12 +121,27 @@ async function load(): Promise<void> {
   if (autoSyncHistoryInput) {
     autoSyncHistoryInput.checked = settings.autoSyncHistory;
   }
+  if (indexingModeInput) {
+    indexingModeInput.checked = settings.indexingMode === "trigger_word";
+  }
+  if (triggerWordsInput) {
+    triggerWordsInput.value = settings.triggerWords.join(", ");
+  }
+  if (blacklistWordsInput) {
+    blacklistWordsInput.value = settings.blacklistWords.join(", ");
+  }
 
   for (const [provider, input] of Object.entries(providerInputs)) {
     if (input) {
       input.checked = settings.enabledProviders[provider as keyof typeof settings.enabledProviders];
     }
   }
+
+  formHydrated = true;
+}
+
+function render(settings: ExtensionSettings, status: SyncStatus): void {
+  syncFormFromSettings(settings);
 
   if (lastSuccess) {
     lastSuccess.textContent = formatDate(status.lastSuccessAt);
@@ -115,6 +159,12 @@ async function load(): Promise<void> {
     providerDriftCard.hidden = !status.providerDriftAlert;
     providerDrift.textContent = formatProviderDriftAlert(status.providerDriftAlert);
   }
+  if (indexingRulesStatus) {
+    indexingRulesStatus.textContent = formatIndexingRules(settings);
+  }
+  if (lastIndexing) {
+    lastIndexing.textContent = formatLastIndexing(status);
+  }
   if (backendValidation) {
     if (status.backendValidationError) {
       backendValidation.textContent = status.backendValidationError;
@@ -123,6 +173,32 @@ async function load(): Promise<void> {
     } else {
       backendValidation.textContent = "Not validated yet";
     }
+  }
+}
+
+async function load(): Promise<void> {
+  if (loadPromise) {
+    loadQueued = true;
+    return loadPromise;
+  }
+
+  loadPromise = (async () => {
+    do {
+      loadQueued = false;
+      const [settings, status] = await Promise.all([
+        sendMessage<ExtensionSettings>({ type: "GET_SETTINGS" }),
+        sendMessage<SyncStatus>({ type: "GET_STATUS" })
+      ]);
+      currentSettings = settings;
+      currentStatus = status;
+      render(settings, status);
+    } while (loadQueued);
+  })();
+
+  try {
+    await loadPromise;
+  } finally {
+    loadPromise = null;
   }
 }
 
@@ -136,12 +212,18 @@ form?.addEventListener("submit", async (event) => {
     backendUrl: backendUrlInput.value.trim(),
     backendToken: backendTokenInput?.value.trim() ?? "",
     autoSyncHistory: autoSyncHistoryInput?.checked ?? true,
+    indexingMode: indexingModeInput?.checked ? "trigger_word" : "all",
+    triggerWords: [],
+    blacklistWords: normalizeRuleWords(blacklistWordsInput?.value ?? ""),
     enabledProviders: {
       chatgpt: providerInputs.chatgpt?.checked ?? true,
       gemini: providerInputs.gemini?.checked ?? true,
       grok: providerInputs.grok?.checked ?? true
     }
   };
+  const triggerWords = normalizeRuleWords(triggerWordsInput?.value ?? "");
+  nextSettings.triggerWords =
+    nextSettings.indexingMode === "trigger_word" && triggerWords.length === 0 ? ["lorem"] : triggerWords;
 
   const response = await sendMessage<SaveSettingsResponse>({
     type: "SAVE_SETTINGS",
@@ -151,14 +233,51 @@ form?.addEventListener("submit", async (event) => {
     if (saveStatus) {
       saveStatus.textContent = response.error ?? "Could not validate the backend.";
     }
-    await load();
+    if (backendValidation) {
+      backendValidation.textContent = response.error ?? "Could not validate the backend.";
+    }
     return;
   }
 
+  formDirty = false;
   if (saveStatus) {
     saveStatus.textContent = "Settings saved.";
   }
   await load();
+});
+
+backendUrlInput?.addEventListener("input", () => {
+  formDirty = true;
+});
+
+backendTokenInput?.addEventListener("input", () => {
+  formDirty = true;
+});
+
+autoSyncHistoryInput?.addEventListener("change", () => {
+  formDirty = true;
+});
+
+indexingModeInput?.addEventListener("change", () => {
+  formDirty = true;
+});
+
+triggerWordsInput?.addEventListener("input", () => {
+  formDirty = true;
+});
+
+blacklistWordsInput?.addEventListener("input", () => {
+  formDirty = true;
+});
+
+for (const input of Object.values(providerInputs)) {
+  input?.addEventListener("change", () => {
+    formDirty = true;
+  });
+}
+
+openDashboardButton?.addEventListener("click", () => {
+  void chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") });
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -166,7 +285,13 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     return;
   }
 
-  if (changes["tsmc.status"] || changes["tsmc.settings"]) {
+  if (changes["tsmc.status"]?.newValue && currentSettings) {
+    currentStatus = changes["tsmc.status"].newValue as SyncStatus;
+    render(currentSettings, currentStatus);
+    return;
+  }
+
+  if (changes["tsmc.settings"] || changes["tsmc.settings.cache"] || changes["tsmc.settings.secrets"]) {
     void load();
   }
 });

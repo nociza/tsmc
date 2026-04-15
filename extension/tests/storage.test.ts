@@ -62,6 +62,56 @@ describe("storage", () => {
     expect(sync.set).not.toHaveBeenCalled();
   });
 
+  it("prefers the local settings cache for live reads when sync is stale", async () => {
+    const sync = createStorageArea({
+      "tsmc.settings": {
+        backendUrl: "http://127.0.0.1:18888",
+        enabledProviders: {
+          chatgpt: true,
+          gemini: true,
+          grok: true
+        },
+        autoSyncHistory: true,
+        indexingMode: "all",
+        triggerWords: ["lorem"],
+        blacklistWords: []
+      }
+    });
+    const local = createStorageArea({
+      "tsmc.settings.cache": {
+        backendUrl: "http://127.0.0.1:9999",
+        enabledProviders: {
+          chatgpt: true,
+          gemini: true,
+          grok: true
+        },
+        autoSyncHistory: false,
+        indexingMode: "trigger_word",
+        triggerWords: ["lorem", "alpha"],
+        blacklistWords: ["ignore"]
+      },
+      "tsmc.settings.secrets": {
+        backendToken: "secret-token"
+      }
+    });
+    vi.stubGlobal("chrome", {
+      storage: {
+        sync,
+        local
+      }
+    });
+
+    const { getSettings } = await import("../src/shared/storage");
+    const settings = await getSettings();
+
+    expect(settings.backendUrl).toBe("http://127.0.0.1:9999");
+    expect(settings.autoSyncHistory).toBe(false);
+    expect(settings.backendToken).toBe("secret-token");
+    expect(settings.indexingMode).toBe("trigger_word");
+    expect(settings.triggerWords).toEqual(["lorem", "alpha"]);
+    expect(settings.blacklistWords).toEqual(["ignore"]);
+  });
+
   it("persists merged defaults once during initialization when settings are incomplete", async () => {
     const sync = createStorageArea({
       "tsmc.settings": {
@@ -88,7 +138,24 @@ describe("storage", () => {
           gemini: true,
           grok: true
         },
-        autoSyncHistory: true
+        autoSyncHistory: true,
+        indexingMode: "all",
+        triggerWords: ["lorem"],
+        blacklistWords: []
+      }
+    });
+    expect(local.set).toHaveBeenCalledWith({
+      "tsmc.settings.cache": {
+        backendUrl: "http://127.0.0.1:9000",
+        enabledProviders: {
+          chatgpt: true,
+          gemini: true,
+          grok: true
+        },
+        autoSyncHistory: true,
+        indexingMode: "all",
+        triggerWords: ["lorem"],
+        blacklistWords: []
       }
     });
   });

@@ -14,8 +14,10 @@ from app.schemas.dashboard import CategoryCount, DashboardSummary
 from app.schemas.graph import GraphEdge, GraphNode
 from app.schemas.search import SearchResponse
 from app.schemas.system import SystemStatus
+from app.services.git_versioning import GitVersioningService
 from app.services.graph import GraphService
 from app.services.search import SearchService
+from app.services.todo import TodoListService
 
 
 router = APIRouter()
@@ -47,7 +49,7 @@ async def dashboard_summary(
     categories = [
         CategoryCount(category=category, count=count)
         for category, count in category_rows
-        if category in {SessionCategory.JOURNAL, SessionCategory.FACTUAL, SessionCategory.IDEAS}
+        if category in {SessionCategory.JOURNAL, SessionCategory.FACTUAL, SessionCategory.IDEAS, SessionCategory.TODO}
     ]
     return DashboardSummary(
         total_sessions=total_sessions,
@@ -92,6 +94,8 @@ async def system_status(
     db: AsyncSession = Depends(get_db_session),
 ) -> SystemStatus:
     settings = get_settings()
+    todo_service = TodoListService()
+    git_service = GitVersioningService(repo_root=settings.resolved_vault_root)
     active_tokens = int(
         (await db.scalar(select(func.count(APIToken.id)).where(APIToken.is_active.is_(True), APIToken.revoked_at.is_(None))))
         or 0
@@ -102,8 +106,11 @@ async def system_status(
         server_time=utcnow(),
         markdown_root=str(settings.resolved_markdown_dir),
         vault_root=str(settings.resolved_vault_root),
+        todo_list_path=str(todo_service.ensure_exists()),
         public_url=settings.public_url,
         auth_mode="app_token" if active_tokens else "bootstrap_local",
+        git_versioning_enabled=settings.git_versioning_enabled,
+        git_available=git_service.is_available(),
         total_sessions=int((await db.scalar(select(func.count(ChatSession.id)))) or 0),
         total_messages=int((await db.scalar(select(func.count(ChatMessage.id)))) or 0),
         total_triplets=int((await db.scalar(select(func.count(FactTriplet.id)))) or 0),

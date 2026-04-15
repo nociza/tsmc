@@ -42,6 +42,20 @@ IDEA_TERMS = {
     "vision",
     "product",
 }
+TODO_TERMS = {
+    "todo",
+    "to-do",
+    "task list",
+    "to-do list",
+    "todo list",
+    "check off",
+    "mark as done",
+    "add to my to-do list",
+    "add to my todo list",
+    "remove from my to-do list",
+    "update my to-do list",
+    "update my todo list",
+}
 FACTUAL_TERMS = {
     "api",
     "code",
@@ -81,6 +95,11 @@ QUESTIONISH_SUBJECT_PREFIXES = (
     "show me ",
     "describe ",
 )
+TODO_REQUEST_RE = re.compile(
+    r"\b(?:to-?do|todo|task list)\b.*\b(?:add|edit|update|modify|remove|delete|mark|check|complete|reopen)\b"
+    r"|\b(?:add|edit|update|modify|remove|delete|mark|check|complete|reopen)\b.*\b(?:to-?do|todo|task list)\b",
+    re.I,
+)
 
 
 def message_texts(messages: Iterable[ChatMessage], role: MessageRole | None = None) -> list[str]:
@@ -94,13 +113,22 @@ def message_texts(messages: Iterable[ChatMessage], role: MessageRole | None = No
     return values
 
 
+def is_explicit_todo_request(messages: Iterable[ChatMessage]) -> bool:
+    user_text = " ".join(message_texts(messages, MessageRole.USER))
+    if not user_text:
+        return False
+    return TODO_REQUEST_RE.search(user_text.lower()) is not None
+
+
 def heuristic_classification(messages: list[ChatMessage]) -> ClassificationResult:
     user_text = " ".join(message_texts(messages, MessageRole.USER))
     transcript = " ".join(message_texts(messages))
     lowered = transcript.lower()
+    explicit_todo_request = is_explicit_todo_request(messages)
     scores = Counter(
         {
             SessionCategory.JOURNAL: sum(term in lowered for term in JOURNAL_TERMS) + user_text.lower().count(" i "),
+            SessionCategory.TODO: (4 if explicit_todo_request else 0) + sum(term in lowered for term in TODO_TERMS),
             SessionCategory.IDEAS: sum(term in lowered for term in IDEA_TERMS),
             SessionCategory.FACTUAL: sum(term in lowered for term in FACTUAL_TERMS),
         }
@@ -119,6 +147,7 @@ def heuristic_classification(messages: list[ChatMessage]) -> ClassificationResul
 
     reason = {
         SessionCategory.JOURNAL: "Heuristic classifier detected personal context, reflection, or task-planning language.",
+        SessionCategory.TODO: "Heuristic classifier detected explicit requests to update or manage the shared to-do list.",
         SessionCategory.FACTUAL: "Heuristic classifier detected explanatory, technical, or objective language.",
         SessionCategory.IDEAS: "Heuristic classifier detected ideation, brainstorming, or concept-development language.",
     }[category]

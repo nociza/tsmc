@@ -299,7 +299,7 @@ Why:
 Default:
 
 - `127.0.0.1`
-- port `8000`
+- port `18888`
 
 Why:
 
@@ -362,7 +362,7 @@ Recommended split:
 ```toml
 [server]
 host = "127.0.0.1"
-port = 8000
+port = 18888
 
 [storage]
 data_dir = "/home/alice/.local/share/tsmc"

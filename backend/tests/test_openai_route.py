@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api.routes_openai import router as openai_router
+from app.core.config import get_settings
 from app.db.session import get_db_session
 from app.models import ProviderName
 from app.models.base import Base
@@ -30,13 +31,42 @@ class FakeBrowserProxyService:
 
 
 @pytest.mark.asyncio
-async def test_openai_compatible_models_route_lists_all_supported_models(tmp_path) -> None:
+async def test_openai_compatible_models_route_is_disabled_by_default(tmp_path, monkeypatch) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-openai-models-route-disabled.db'}")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    get_settings.cache_clear()
+    app = FastAPI()
+    app.include_router(openai_router, prefix="/v1")
+
+    async def override_db_session():
+        async with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db_session] = override_db_session
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://127.0.0.1:18888") as client:
+        response = await client.get("/v1/models")
+
+    assert response.status_code == 503
+    assert "Experimental browser automation is disabled" in response.text
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_models_route_lists_all_supported_models(tmp_path, monkeypatch) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-openai-models-route.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
+    monkeypatch.setenv("TSMC_EXPERIMENTAL_BROWSER_AUTOMATION", "true")
+    get_settings.cache_clear()
     app = FastAPI()
     app.include_router(openai_router, prefix="/v1")
     app.state.browser_proxy_service = FakeBrowserProxyService()
@@ -47,7 +77,7 @@ async def test_openai_compatible_models_route_lists_all_supported_models(tmp_pat
 
     app.dependency_overrides[get_db_session] = override_db_session
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://127.0.0.1:8000") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://127.0.0.1:18888") as client:
         response = await client.get("/v1/models")
 
     assert response.status_code == 200
@@ -60,6 +90,7 @@ async def test_openai_compatible_models_route_lists_all_supported_models(tmp_pat
     }
 
     await engine.dispose()
+    get_settings.cache_clear()
 
 
 @pytest.mark.asyncio
@@ -75,6 +106,7 @@ async def test_openai_compatible_route_returns_chat_completion_shape(
     tmp_path,
     model: str,
     expected_provider: str,
+    monkeypatch,
 ) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-openai-route.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -82,6 +114,8 @@ async def test_openai_compatible_route_returns_chat_completion_shape(
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
+    monkeypatch.setenv("TSMC_EXPERIMENTAL_BROWSER_AUTOMATION", "true")
+    get_settings.cache_clear()
     app = FastAPI()
     app.include_router(openai_router, prefix="/v1")
     app.state.browser_proxy_service = FakeBrowserProxyService()
@@ -92,7 +126,7 @@ async def test_openai_compatible_route_returns_chat_completion_shape(
 
     app.dependency_overrides[get_db_session] = override_db_session
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://127.0.0.1:8000") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://127.0.0.1:18888") as client:
         response = await client.post(
             "/v1/chat/completions",
             json={
@@ -113,3 +147,4 @@ async def test_openai_compatible_route_returns_chat_completion_shape(
     assert payload["tsmc"]["store"] is False
 
     await engine.dispose()
+    get_settings.cache_clear()

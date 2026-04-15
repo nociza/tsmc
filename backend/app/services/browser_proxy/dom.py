@@ -33,10 +33,49 @@ async def click_send_button(page: Page, adapter: ProviderUIAdapter) -> bool:
     return True
 
 
-async def send_prompt(page: Page, adapter: ProviderUIAdapter, prompt_text: str) -> None:
+async def disable_thinking_mode(page: Page, adapter: ProviderUIAdapter) -> None:
+    if not adapter.thinking_toggle_patterns:
+        return
+
+    patterns = list(adapter.thinking_toggle_patterns)
+    await page.evaluate(
+        """(needlePatterns) => {
+            const isVisible = (node) => {
+              const style = window.getComputedStyle(node);
+              const rect = node.getBoundingClientRect();
+              return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
+            };
+            const isActive = (node) =>
+              node.getAttribute("aria-pressed") === "true" ||
+              node.getAttribute("aria-checked") === "true" ||
+              node.getAttribute("data-state") === "on" ||
+              node.getAttribute("data-selected") === "true";
+            const nodes = document.querySelectorAll("button,[role='button'],[aria-pressed],[aria-checked]");
+            for (const node of nodes) {
+              if (!(node instanceof HTMLElement)) continue;
+              if (!isVisible(node) || node.matches(":disabled,[aria-disabled='true']") || !isActive(node)) continue;
+              const label = [node.getAttribute("aria-label"), node.getAttribute("title"), node.textContent || ""]
+                .filter(Boolean)
+                .join(" ")
+                .trim()
+                .toLowerCase();
+              if (!label) continue;
+              if (!needlePatterns.some((needle) => label.includes(needle))) continue;
+              node.click();
+              return;
+            }
+        }""",
+        patterns,
+    )
+
+
+async def send_prompt(page: Page, adapter: ProviderUIAdapter, prompt_text: str, *, prefer_fast_mode: bool = False) -> None:
     input_locator = await locate_visible_input(page, adapter)
     if input_locator is None:
         raise BrowserProxyServiceError(f"No writable prompt input was found for {adapter.provider.value}.")
+
+    if prefer_fast_mode:
+        await disable_thinking_mode(page, adapter)
 
     await input_locator.click()
     tag_name = await input_locator.evaluate("(node) => node.tagName.toLowerCase()")

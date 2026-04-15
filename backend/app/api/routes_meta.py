@@ -11,7 +11,7 @@ from app.core.version import get_app_version
 from app.db.session import get_db_session
 from app.models import APIToken
 from app.models.base import utcnow
-from app.schemas.meta import CapabilityAuth, CapabilityExtension, CapabilityResponse, CapabilityStorage
+from app.schemas.meta import CapabilityAuth, CapabilityExtension, CapabilityFeatureSet, CapabilityResponse, CapabilityStorage
 
 
 router = APIRouter()
@@ -40,6 +40,10 @@ async def capabilities(db: AsyncSession = Depends(get_db_session)) -> Capability
         extension=CapabilityExtension(
             min_version=settings.minimum_extension_version,
             auth_mode=auth_mode,
+        ),
+        features=CapabilityFeatureSet(
+            browser_proxy=settings.experimental_browser_automation,
+            openai_compatible_api=settings.experimental_browser_automation,
         ),
         storage=CapabilityStorage(
             markdown_root=str(settings.resolved_markdown_dir),

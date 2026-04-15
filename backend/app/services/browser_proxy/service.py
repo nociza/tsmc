@@ -82,7 +82,7 @@ class BrowserProxyService:
                 target_url = provider_session_url or adapter.start_url
                 await page.goto(target_url, wait_until="domcontentloaded", timeout=self._timeout_ms)
                 await wait_for_input(page, adapter, timeout_seconds=self.settings.browser_timeout_seconds)
-                await send_prompt(page, adapter, prompt_text)
+                await send_prompt(page, adapter, prompt_text, prefer_fast_mode=True)
                 snapshot, response_text = await wait_for_reply(
                     adapter,
                     page,

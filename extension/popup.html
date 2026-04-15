@@ -35,6 +35,14 @@
             <p id="history-sync" class="value">Loading…</p>
           </div>
           <div>
+            <p class="label">AI Processing</p>
+            <p id="processing-status" class="value">Loading…</p>
+          </div>
+          <div>
+            <p class="label">Pending AI Jobs</p>
+            <p id="processing-pending" class="value">Loading…</p>
+          </div>
+          <div>
             <p class="label">Providers</p>
             <p id="providers" class="value">Loading…</p>
           </div>
@@ -48,7 +56,12 @@
           </div>
         </div>
 
-        <button id="open-options" type="button">Open Settings</button>
+        <div class="button-group">
+          <button id="run-processing" type="button" hidden>Run AI Processing</button>
+          <button id="open-quick-search" type="button">Search &amp; Inject</button>
+          <button id="open-dashboard" class="secondary" type="button">Open Dashboard</button>
+          <button id="open-options" class="secondary" type="button">Open Settings</button>
+        </div>
       </section>
     </main>
   </body>

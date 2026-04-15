@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -21,8 +22,10 @@ from app.schemas.openai_proxy import (
     ProxyResponseMetadata,
 )
 from app.services.browser_proxy.providers import resolve_provider_adapter
-from app.services.browser_proxy.service import BrowserProxyService
 from app.services.ingest import IngestService
+
+if TYPE_CHECKING:
+    from app.services.browser_proxy.service import BrowserProxyService
 
 
 GENERIC_PAGE_TITLES = {
@@ -31,6 +34,11 @@ GENERIC_PAGE_TITLES = {
     "grok",
     "new chat",
 }
+
+FAST_PROXY_PREAMBLE = (
+    "Respond directly and quickly. Do not use extended reasoning, chain-of-thought, or thinking mode "
+    "unless the user explicitly asks for it."
+)
 
 
 @dataclass(frozen=True)
@@ -99,14 +107,16 @@ class OpenAIProxyService:
             raise ValueError("The final message must have role='user'.")
 
         if continuing:
-            return flattened[-1].content
+            return f"{FAST_PROXY_PREAMBLE}\n\n{flattened[-1].content}"
 
         if len(flattened) == 1:
-            return flattened[0].content
+            return f"{FAST_PROXY_PREAMBLE}\n\n{flattened[0].content}"
 
         system_blocks = [turn.content for turn in flattened if turn.role == "system"]
         dialogue = [turn for turn in flattened if turn.role != "system"]
         lines = [
+            FAST_PROXY_PREAMBLE,
+            "",
             "Use the following prior conversation as context.",
         ]
         if system_blocks:

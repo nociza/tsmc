@@ -5,8 +5,8 @@
   "type": "module",
   "packageManager": "pnpm@10.14.0",
   "scripts": {
-    "dev": "vite build --watch --mode development",
-    "build": "vite build",
+    "dev": "sh -c 'vite build --watch --mode development --config vite.config.ts & vite build --watch --mode development --config vite.injected.config.ts & wait'",
+    "build": "vite build --config vite.config.ts && vite build --config vite.injected.config.ts",
     "debug:browser": "node scripts/manual-debug-browser.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run tests",

@@ -17,6 +17,7 @@ class ProviderUIAdapter:
     input_selectors: tuple[str, ...]
     send_button_selectors: tuple[str, ...]
     response_selectors: tuple[str, ...]
+    thinking_toggle_patterns: tuple[str, ...] = ()
 
     def matches_model(self, model: str) -> bool:
         candidate = model.strip().lower()
@@ -64,6 +65,7 @@ PROVIDER_ADAPTERS: dict[ProviderName, ProviderUIAdapter] = {
             "article div[data-message-author-role='assistant']",
             "main article",
         ),
+        thinking_toggle_patterns=("think", "reason", "research"),
     ),
     ProviderName.GEMINI: ProviderUIAdapter(
         provider=ProviderName.GEMINI,
@@ -87,6 +89,7 @@ PROVIDER_ADAPTERS: dict[ProviderName, ProviderUIAdapter] = {
             "article model-response",
             "main article",
         ),
+        thinking_toggle_patterns=("thinking", "reason", "research"),
     ),
     ProviderName.GROK: ProviderUIAdapter(
         provider=ProviderName.GROK,
@@ -108,6 +111,7 @@ PROVIDER_ADAPTERS: dict[ProviderName, ProviderUIAdapter] = {
             "main article",
             "[data-testid*='message']",
         ),
+        thinking_toggle_patterns=("think", "reason", "research", "deep search"),
     ),
 }
 

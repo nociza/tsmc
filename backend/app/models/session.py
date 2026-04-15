@@ -39,6 +39,7 @@ class ChatSession(TimestampMixin, Base):
     custom_tags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     classification_reason: Mapped[str | None] = mapped_column(Text)
     journal_entry: Mapped[str | None] = mapped_column(Text)
+    todo_summary: Mapped[str | None] = mapped_column(Text)
     idea_summary: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     share_post: Mapped[str | None] = mapped_column(Text)
     last_captured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)

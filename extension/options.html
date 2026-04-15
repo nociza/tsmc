@@ -15,19 +15,26 @@
           Route captured AI chat deltas into your local backend and choose which providers the
           extension should observe.
         </p>
+        <div class="hero-actions">
+          <button id="open-dashboard" class="button-secondary" type="button">Open Dashboard</button>
+        </div>
       </section>
 
       <section class="panel">
         <form id="settings-form" class="form">
           <label class="field">
             <span>Backend URL</span>
-            <input id="backend-url" name="backend-url" type="url" placeholder="http://127.0.0.1:8000" required />
+            <input id="backend-url" name="backend-url" type="url" placeholder="http://127.0.0.1:18888" required />
           </label>
 
           <label class="field">
             <span>Backend App Token</span>
             <input id="backend-token" name="backend-token" type="password" placeholder="tsmc_pat_..." />
           </label>
+
+          <p class="status">
+            Configure your OpenRouter or other OpenAI-compatible API key on the backend. The extension only needs the backend URL and optional app token.
+          </p>
 
           <label class="toggle toggle-wide">
             <input id="auto-sync-history" type="checkbox" />
@@ -36,6 +43,32 @@
               <small>When enabled, visiting a supported provider triggers a historical sync using the website session.</small>
             </span>
           </label>
+
+          <label class="toggle toggle-wide">
+            <input id="indexing-mode-trigger" type="checkbox" />
+            <span>
+              <strong>Require Trigger Word To Index</strong>
+              <small>
+                When enabled, TSMC only indexes sessions whose opening request matches one of your trigger words.
+                Blacklist words always win and skip indexing.
+              </small>
+            </span>
+          </label>
+
+          <label class="field">
+            <span>Trigger Words</span>
+            <input id="trigger-words" name="trigger-words" type="text" placeholder="lorem" />
+          </label>
+
+          <label class="field">
+            <span>Blacklist Words</span>
+            <input id="blacklist-words" name="blacklist-words" type="text" placeholder="private, ignore" />
+          </label>
+
+          <p class="status">
+            TSMC checks the opening user request, focusing on the first one or two sentences. The default trigger word is
+            <strong> lorem</strong>.
+          </p>
 
           <div class="providers">
             <label class="toggle">
@@ -76,6 +109,14 @@
           <div>
             <p class="status-label">Backend Validation</p>
             <p id="backend-validation" class="status-value">Not validated yet</p>
+          </div>
+          <div>
+            <p class="status-label">Indexing Rules</p>
+            <p id="indexing-rules-status" class="status-value">Index everything. Trigger words: lorem. Blacklist: none.</p>
+          </div>
+          <div>
+            <p class="status-label">Last Indexing</p>
+            <p id="last-indexing" class="status-value">No decision yet</p>
           </div>
           <div id="provider-drift-card" class="alert-card" hidden>
             <p class="status-label">Provider Drift</p>

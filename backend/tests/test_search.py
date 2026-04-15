@@ -3,13 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.core.config import get_settings
 from app.models import ChatMessage, ChatSession, FactTriplet, MessageRole, ProviderName, SessionCategory
 from app.models.base import Base
 from app.services.graph import GraphService
 from app.services.search import SearchService
+from app.services.todo import TodoListService
 
 
 @pytest.mark.asyncio
@@ -59,5 +60,28 @@ async def test_search_and_graph_services_return_agent_friendly_results(tmp_path)
         assert any(result.kind == "entity" and result.title == "SQLite" for result in search.results)
         assert any(node.label == "SQLite" for node in nodes)
         assert any(edge.predicate == "stores" for edge in edges)
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_search_includes_shared_todo_list(tmp_path, monkeypatch) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tsmc-search-todo.db'}")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    monkeypatch.setenv("TSMC_MARKDOWN_DIR", str(tmp_path / "markdown"))
+    get_settings.cache_clear()
+    try:
+        todo_service = TodoListService()
+        todo_service.write_markdown("# To-Do List\n\n## Active\n- [ ] Buy milk\n\n## Done\n")
+
+        async with session_factory() as session:
+            search = await SearchService(session).search("milk")
+            assert any(result.kind == "todo_list" and result.title == "To-Do List" for result in search.results)
+    finally:
+        get_settings.cache_clear()
 
     await engine.dispose()

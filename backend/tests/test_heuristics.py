@@ -1,8 +1,18 @@
 from __future__ import annotations
 
 from app.models import MessageRole, SessionCategory
-from app.schemas.ingest import IngestMessage
-from app.services.heuristics import heuristic_classification, heuristic_idea, heuristic_journal, heuristic_triplets
+import pytest
+
+from app.schemas.processing import ClassificationResult
+from app.services.heuristics import (
+    heuristic_classification,
+    heuristic_idea,
+    heuristic_journal,
+    heuristic_triplets,
+    is_explicit_todo_request,
+)
+from app.services.orchestrator import ProcessingOrchestrator
+from app.services.todo import heuristic_todo_result
 
 
 class StubMessage:
@@ -28,6 +38,51 @@ def test_extracts_triplets_from_factual_text() -> None:
 
     triplets = heuristic_triplets(messages)  # type: ignore[arg-type]
     assert any(triplet.subject == "FastAPI" and triplet.predicate == "uses" for triplet in triplets)
+
+
+def test_classifies_todo_like_conversation() -> None:
+    messages = [
+        StubMessage(MessageRole.USER, "Add buy milk to my to-do list and mark file taxes as done."),
+        StubMessage(MessageRole.ASSISTANT, "I'll update the shared list."),
+    ]
+
+    result = heuristic_classification(messages)  # type: ignore[arg-type]
+    assert result.category == SessionCategory.TODO
+    assert is_explicit_todo_request(messages) is True
+
+
+def test_does_not_treat_personal_planning_as_explicit_shared_todo_request() -> None:
+    messages = [
+        StubMessage(
+            MessageRole.USER,
+            "I felt scattered today. Help me plan tomorrow, remind me to call my mom, and make sure I finish the release notes before lunch.",
+        ),
+        StubMessage(MessageRole.ASSISTANT, "Start with a narrow morning reset and one focused writing block."),
+    ]
+
+    assert is_explicit_todo_request(messages) is False
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_rejects_llm_todo_result_without_explicit_shared_list_request() -> None:
+    messages = [
+        StubMessage(
+            MessageRole.USER,
+            "I felt scattered today. Help me plan tomorrow, remind me to call my mom, and make sure I finish the release notes before lunch.",
+        ),
+        StubMessage(MessageRole.ASSISTANT, "Start with a narrow morning reset and one focused writing block."),
+    ]
+
+    class StubClient:
+        async def generate_json(self, **kwargs) -> ClassificationResult:
+            return ClassificationResult(category=SessionCategory.TODO, reason="Wrongly treated reminders as a todo list.")
+
+    orchestrator = ProcessingOrchestrator()
+    orchestrator.client = StubClient()  # type: ignore[assignment]
+
+    result = await orchestrator.classify(messages)  # type: ignore[arg-type]
+
+    assert result.category == SessionCategory.JOURNAL
 
 
 def test_does_not_extract_triplet_from_question_prompt() -> None:
@@ -91,3 +146,18 @@ def test_journal_fallback_action_items_do_not_match_partial_words() -> None:
 
     result = heuristic_journal(messages)  # type: ignore[arg-type]
     assert not any("starting in the late evening" in item.lower() for item in result.action_items)
+
+
+def test_heuristic_todo_update_rewrites_shared_file() -> None:
+    messages = [
+        StubMessage(MessageRole.USER, "Add buy milk to my to-do list and mark file taxes as done."),
+    ]
+
+    result = heuristic_todo_result(  # type: ignore[arg-type]
+        messages,
+        "# To-Do List\n\n## Active\n- [ ] File taxes\n\n## Done\n",
+    )
+
+    assert "buy milk" in result.summary.lower()
+    assert "- [ ] buy milk" in result.updated_markdown
+    assert "- [x] File taxes" in result.updated_markdown

@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import getpass
 import json
-import subprocess
 import shutil
 import sys
 from importlib.metadata import PackageNotFoundError, version
@@ -35,7 +34,6 @@ from app.cli_service import (
 )
 from app.models import APIToken, ProviderName, User
 from app.models.base import Base
-from app.services.browser_proxy.service import BrowserProxyService
 from app.services.auth import create_api_token, ensure_admin_user, revoke_api_token
 
 
@@ -76,6 +74,9 @@ def load_effective_config(args: argparse.Namespace) -> tuple[CLIPaths, CLIConfig
         port=getattr(args, "port", None),
         data_dir=getattr(args, "data_dir", None),
         markdown_dir=getattr(args, "markdown_dir", None),
+        llm_backend=getattr(args, "llm_backend", None),
+        browser_llm_model=getattr(args, "browser_llm_model", None),
+        browser_llm_state_path=getattr(args, "browser_llm_state_path", None),
         public_url=getattr(args, "public_url", None),
         browser_profile_dir=getattr(args, "browser_profile_dir", None),
         browser_headless=getattr(args, "browser_headless", None),
@@ -157,6 +158,8 @@ def command_service_install(args: argparse.Namespace) -> int:
     print_kv("Markdown", effective_config.markdown_dir)
     print_kv("Database", effective_config.database_path)
     print_kv("Browser Profile", effective_config.browser_profile_dir)
+    print_kv("Browser LLM Model", effective_config.browser_llm_model)
+    print_kv("Browser LLM State", effective_config.browser_llm_state_path)
     linger_warning = maybe_warn_about_linger()
     if linger_warning:
         print()
@@ -192,6 +195,8 @@ def command_service_status(args: argparse.Namespace) -> int:
     print_kv("Markdown", config.markdown_dir)
     print_kv("Database", config.database_path)
     print_kv("Browser Profile", config.browser_profile_dir)
+    print_kv("Browser LLM Model", config.browser_llm_model)
+    print_kv("Browser LLM State", config.browser_llm_state_path)
     return 0 if status.active else 1
 
 
@@ -243,6 +248,8 @@ def command_doctor(args: argparse.Namespace) -> int:
 
     if not shutil.which("systemctl"):
         problems.append("systemctl is not available.")
+    if not shutil.which("git"):
+        problems.append("git is not available, so vault and to-do versioning will be disabled.")
     if not paths.config_path.exists():
         problems.append(f"Config file is missing: {paths.config_path}")
     if not paths.env_path.exists():
@@ -289,6 +296,8 @@ def command_config_show(args: argparse.Namespace) -> int:
         },
         "processing": {
             "llm_backend": config.llm_backend,
+            "browser_llm_model": config.browser_llm_model,
+            "browser_llm_state_path": str(config.browser_llm_state_path),
         },
         "browser": {
             "profile_dir": str(config.browser_profile_dir),
@@ -315,50 +324,32 @@ def command_config_path(args: argparse.Namespace) -> int:
     print_kv("Markdown", config.markdown_dir)
     print_kv("Database", config.database_path)
     print_kv("Browser Profile", config.browser_profile_dir)
+    print_kv("Browser LLM Model", config.browser_llm_model)
+    print_kv("Browser LLM State", config.browser_llm_state_path)
     return 0
 
 
 def command_browser_install(_args: argparse.Namespace) -> int:
-    result = subprocess.run(
-        [sys.executable, "-m", "playwright", "install", "chromium"],
-        check=False,
-    )
-    if result.returncode != 0:
-        return int(result.returncode)
-    print("Installed Playwright Chromium.")
-    return 0
+    print("Experimental browser automation is disabled by default.")
+    print("Use an OpenAI-compatible API key and model for backend processing instead.")
+    return 1
 
 
 def command_browser_login(args: argparse.Namespace) -> int:
-    paths, config = load_effective_config(args)
     provider = ProviderName(args.provider)
-
-    async def run() -> dict[str, object]:
-        ensure_cli_directories(config, paths)
-        ensure_env_file(paths.env_path)
-        apply_runtime_environment(config, paths.env_path)
-        service = BrowserProxyService()
-        await service.start()
-        try:
-            handle = await service.open_login_browser(provider)
-            print(f"Opened {provider.value} in a managed browser profile.")
-            print_kv("Profile", handle.profile_dir)
-            print_kv("URL", handle.start_url)
-            print("Log in and verify the chat page loads, then press Enter here to close the browser.")
-            input()
-            await handle.context.close()
-            return {
-                "provider": provider.value,
-                "profile_dir": str(handle.profile_dir),
-                "start_url": handle.start_url,
-            }
-        finally:
-            await service.close()
-
-    payload = asyncio.run(run())
+    payload = {
+        "provider": provider.value,
+        "status": "disabled",
+        "message": (
+            "Experimental browser automation is disabled by default. "
+            "Configure an OpenAI-compatible API key for backend processing instead."
+        ),
+    }
     if args.json:
         print_json(payload)
-    return 0
+    else:
+        print(payload["message"])
+    return 1
 
 
 def _prompt_password(password: str | None) -> str:
@@ -514,6 +505,9 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--port", type=int)
     run_parser.add_argument("--data-dir", type=Path)
     run_parser.add_argument("--markdown-dir", type=Path)
+    run_parser.add_argument("--llm-backend")
+    run_parser.add_argument("--browser-llm-model")
+    run_parser.add_argument("--browser-llm-state-path", type=Path)
     run_parser.add_argument("--browser-profile-dir", type=Path)
     run_parser.add_argument("--browser-channel")
     run_parser.add_argument("--browser-executable-path")
@@ -534,6 +528,9 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("--port", type=int)
     install_parser.add_argument("--data-dir", type=Path)
     install_parser.add_argument("--markdown-dir", type=Path)
+    install_parser.add_argument("--llm-backend")
+    install_parser.add_argument("--browser-llm-model")
+    install_parser.add_argument("--browser-llm-state-path", type=Path)
     install_parser.add_argument("--public-url")
     install_parser.add_argument("--browser-profile-dir", type=Path)
     install_parser.add_argument("--browser-channel")
@@ -592,11 +589,11 @@ def build_parser() -> argparse.ArgumentParser:
     token_revoke_parser.add_argument("--json", action="store_true")
     token_revoke_parser.set_defaults(func=command_token_revoke)
 
-    browser_parser = subparsers.add_parser("browser", help="Manage the browser automation profile.")
+    browser_parser = subparsers.add_parser("browser", help="Deprecated browser automation commands.")
     browser_subparsers = browser_parser.add_subparsers(dest="browser_command", required=True)
-    browser_install_parser = browser_subparsers.add_parser("install", help="Install Playwright Chromium.")
+    browser_install_parser = browser_subparsers.add_parser("install", help="Deprecated. Use the Chrome extension instead.")
     browser_install_parser.set_defaults(func=command_browser_install)
-    browser_login_parser = browser_subparsers.add_parser("login", help="Open a managed browser to log into a provider.")
+    browser_login_parser = browser_subparsers.add_parser("login", help="Deprecated. Sign into the provider in your normal browser.")
     browser_login_parser.add_argument("--provider", choices=[provider.value for provider in ProviderName], required=True)
     browser_login_parser.add_argument("--json", action="store_true")
     browser_login_parser.set_defaults(func=command_browser_login)

@@ -15,6 +15,11 @@ class JournalResult(BaseModel):
     action_items: list[str] = Field(default_factory=list)
 
 
+class TodoResult(BaseModel):
+    summary: str = Field(min_length=1)
+    updated_markdown: str = Field(min_length=1)
+
+
 class TripletResult(BaseModel):
     subject: str = Field(min_length=1)
     predicate: str = Field(min_length=1)
@@ -28,4 +33,3 @@ class IdeaResult(BaseModel):
     cons: list[str] = Field(default_factory=list)
     next_steps: list[str] = Field(default_factory=list)
     share_post: str = Field(min_length=1, max_length=280)
-

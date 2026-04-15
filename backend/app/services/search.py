@@ -4,9 +4,10 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import ChatMessage, ChatSession, FactTriplet
+from app.models import ChatMessage, ChatSession, FactTriplet, SessionCategory
 from app.schemas.search import SearchResult, SearchResponse
 from app.services.graph import entity_note_path
+from app.services.todo import TODO_TITLE, TodoListService
 
 
 def _snippet(text: str | None, query: str) -> str:
@@ -37,6 +38,7 @@ class SearchService:
                     ChatSession.title.ilike(pattern),
                     ChatSession.classification_reason.ilike(pattern),
                     ChatSession.journal_entry.ilike(pattern),
+                    ChatSession.todo_summary.ilike(pattern),
                     ChatSession.share_post.ilike(pattern),
                     ChatSession.messages.any(ChatMessage.content.ilike(pattern)),
                 )
@@ -75,6 +77,7 @@ class SearchService:
                             [
                                 session.classification_reason or "",
                                 session.journal_entry or "",
+                                session.todo_summary or "",
                                 session.share_post or "",
                                 *(message.content for message in session.messages[:3]),
                             ]
@@ -107,6 +110,19 @@ class SearchService:
                         markdown_path=entity_note_path(entity),
                     )
                 )
+
+        todo_service = TodoListService()
+        todo_markdown = todo_service.read_markdown()
+        if query.lower() in todo_markdown.lower():
+            results.append(
+                SearchResult(
+                    kind="todo_list",
+                    title=TODO_TITLE,
+                    snippet=_snippet(todo_markdown, query),
+                    category=SessionCategory.TODO,
+                    markdown_path=str(todo_service.path),
+                )
+            )
 
         ordered = results[:limit]
         return SearchResponse(query=query, count=len(ordered), results=ordered)

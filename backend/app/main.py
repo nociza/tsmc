@@ -9,7 +9,8 @@ from app.api.routes_openai import router as openai_router
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.db.session import init_db
-from app.services.browser_proxy.service import BrowserProxyService
+from app.services.git_versioning import GitVersioningService
+from app.services.todo import TodoListService
 
 try:
     import uvloop
@@ -28,12 +29,11 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     settings.resolved_markdown_dir.mkdir(parents=True, exist_ok=True)
     settings.resolved_browser_profile_dir.mkdir(parents=True, exist_ok=True)
+    settings.resolved_browser_llm_state_path.parent.mkdir(parents=True, exist_ok=True)
     await init_db()
-    browser_proxy_service = BrowserProxyService(settings)
-    await browser_proxy_service.start()
-    app.state.browser_proxy_service = browser_proxy_service
+    TodoListService().ensure_exists()
+    await GitVersioningService(repo_root=settings.resolved_vault_root).ensure_repo()
     yield
-    await browser_proxy_service.close()
 
 
 app = FastAPI(

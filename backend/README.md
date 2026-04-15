@@ -22,26 +22,23 @@ tsmc config path
 tsmc doctor
 ```
 
-## Browser Proxy API
+## Processing
 
-TSMC exposes an OpenAI-compatible endpoint at `/v1/chat/completions`.
-
-Setup:
+Recommended OpenRouter env settings:
 
 ```bash
-tsmc browser install
-tsmc browser login --provider chatgpt
-tsmc browser login --provider gemini
-tsmc browser login --provider grok
+TSMC_OPENAI_API_KEY=your_openrouter_key
+TSMC_OPENAI_BASE_URL=https://openrouter.ai/api/v1
+TSMC_OPENAI_MODEL=openai/gpt-4.1-mini
 ```
 
-Then point your OpenAI client at `http://127.0.0.1:8000/v1` and use:
+Browser automation is experimental and disabled by default.
 
-- `browser-chatgpt`
-- `browser-gemini`
-- `browser-grok`
+For `tsmc service install`, put those values in `~/.config/tsmc/tsmc.env`.
 
-Use `store=true` to send the proxy transcript through the normal TSMC ingest pipeline.
+## Vault And To-Do Versioning
+
+TSMC writes the Obsidian vault under `markdown/TSMC`, keeps a shared `Dashboards/To-Do List.md`, and initializes a local git repository in that vault by default. Session notes, dashboards, graph files, and to-do updates are committed automatically.
 
 ## Run In the Foreground
 

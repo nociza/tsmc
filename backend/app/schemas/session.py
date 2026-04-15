@@ -53,8 +53,8 @@ class SessionRead(SessionListItem):
     source_url: str | None
     classification_reason: str | None
     journal_entry: str | None
+    todo_summary: str | None
     idea_summary: dict[str, Any] | None
     created_at: datetime
     messages: list[MessageRead]
     triplets: list[TripletRead]
-

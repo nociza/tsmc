@@ -88,3 +88,16 @@ async def ideas_view(
         .order_by(ChatSession.updated_at.desc())
     )
     return [SessionListItem.model_validate(session) for session in result.scalars().all()]
+
+
+@router.get("/views/todo", response_model=list[SessionListItem])
+async def todo_view(
+    _: AuthContext = Depends(require_scope("read")),
+    db: AsyncSession = Depends(get_db_session),
+) -> list[SessionListItem]:
+    result = await db.execute(
+        select(ChatSession)
+        .where(ChatSession.category == SessionCategory.TODO)
+        .order_by(ChatSession.updated_at.desc())
+    )
+    return [SessionListItem.model_validate(session) for session in result.scalars().all()]

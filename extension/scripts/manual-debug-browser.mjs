@@ -8,7 +8,7 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
 const extensionRoot = resolve(currentDir, "..");
 const extensionDist = resolve(extensionRoot, "dist");
 const userDataDir = resolve(extensionRoot, ".playwright-user-data");
-const backendUrl = (process.env.TSMC_DEBUG_BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+const backendUrl = (process.env.TSMC_DEBUG_BACKEND_URL || "http://127.0.0.1:18888").replace(/\/$/, "");
 const targetUrl = process.env.TSMC_DEBUG_URL || "https://gemini.google.com/app";
 
 function attachPageDebug(page) {

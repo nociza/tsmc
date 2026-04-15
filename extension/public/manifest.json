@@ -3,7 +3,7 @@
   "name": "TSMC",
   "version": "0.2.0",
   "description": "Capture AI chat deltas from supported providers and sync them to a local TSMC backend.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "tabs", "scripting", "activeTab"],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
@@ -20,13 +20,7 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://chatgpt.com/*",
-        "https://chat.openai.com/*",
-        "https://gemini.google.com/*",
-        "https://grok.com/*",
-        "https://x.com/*"
-      ],
+      "matches": ["https://*/*", "http://*/*"],
       "js": ["assets/content.js"],
       "run_at": "document_start"
     },
@@ -43,6 +37,15 @@
       "world": "MAIN"
     }
   ],
+  "commands": {
+    "open-quick-search": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "Open TSMC search and inject on the current page"
+    }
+  },
   "options_page": "options.html",
   "action": {
     "default_title": "TSMC",

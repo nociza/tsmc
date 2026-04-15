@@ -1,19 +1,27 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.models import ChatMessage
-from app.schemas.processing import ClassificationResult, IdeaResult, JournalResult, TripletResult
+from app.schemas.processing import ClassificationResult, IdeaResult, JournalResult, TodoResult, TripletResult
 from app.services.heuristics import (
     heuristic_classification,
     heuristic_idea,
     heuristic_journal,
     heuristic_triplets,
+    is_explicit_todo_request,
 )
 from app.services.llm.base import LLMClient
+from app.services.llm.browser_proxy_client import BrowserProxyClient
 from app.services.llm.google_client import GoogleGenAIClient
 from app.services.llm.openai_client import OpenAIClient
+from app.services.todo import heuristic_todo_result
+
+if TYPE_CHECKING:
+    from app.services.browser_proxy.service import BrowserProxyService
 
 
 class TripletListSchema(BaseModel):
@@ -28,12 +36,17 @@ def render_transcript(messages: list[ChatMessage]) -> str:
 
 
 class ProcessingOrchestrator:
-    def __init__(self) -> None:
+    def __init__(self, browser_proxy: BrowserProxyService | None = None) -> None:
         self.settings = get_settings()
+        self.browser_proxy = browser_proxy
         self.client = self._resolve_client()
 
     def _resolve_client(self) -> LLMClient | None:
         backend = self.settings.llm_backend.lower()
+        if backend == "browser_proxy":
+            if not self.settings.experimental_browser_automation or self.browser_proxy is None:
+                return None
+            return BrowserProxyClient(self.browser_proxy, settings=self.settings)
         if backend == "openai":
             return OpenAIClient()
         if backend == "google":
@@ -51,19 +64,28 @@ class ProcessingOrchestrator:
             return heuristic_classification(messages)
 
         try:
-            return await self.client.generate_json(
+            classification = await self.client.generate_json(
                 system_prompt=(
-                    "You classify transcripts into one of three buckets: journal, factual, or ideas. "
+                    "You classify transcripts into one of four buckets: journal, factual, ideas, or todo. "
                     "Return JSON with keys category and reason."
                 ),
                 user_prompt=(
-                    "Classify this transcript. Use 'journal' for personal context, day-to-day planning, or reflection. "
+                    "Classify this transcript. Use 'journal' for personal context, day-to-day planning, reminders, prioritization, or reflection. "
+                    "Use 'todo' only when the user explicitly asks to create, edit, add, remove, reorder, reopen, or complete items on a shared to-do list or checklist file. "
+                    "General planning, reminders, or scheduling are not 'todo' unless the transcript explicitly mentions modifying the shared to-do list. "
                     "Use 'factual' for coding, research, explanation, or objective Q&A. "
                     "Use 'ideas' for brainstorming, creative exploration, or original concepts.\n\n"
                     f"{transcript}"
                 ),
                 schema=ClassificationResult,
             )
+            if is_explicit_todo_request(messages):
+                if classification.category == SessionCategory.TODO:
+                    return classification
+                return heuristic_classification(messages)
+            if classification.category == SessionCategory.TODO:
+                return heuristic_classification(messages)
+            return classification
         except Exception:
             return heuristic_classification(messages)
 
@@ -101,7 +123,10 @@ class ProcessingOrchestrator:
                 ),
                 user_prompt=(
                     "Extract the clearest factual relationships from this transcript. "
-                    "Use normalized predicates and skip speculative relationships.\n\n"
+                    "Use normalized predicates and skip speculative relationships. "
+                    "Prefer durable entities such as libraries, frameworks, protocols, runtimes, files, or products. "
+                    "Avoid vague outcome phrases, generic adjectives, and long descriptive clauses as nodes. "
+                    "Keep the set small and high signal.\n\n"
                     f"{transcript}"
                 ),
                 schema=TripletListSchema,
@@ -109,6 +134,34 @@ class ProcessingOrchestrator:
             return wrapper.triplets
         except Exception:
             return heuristic_triplets(messages)
+
+    async def todo(self, messages: list[ChatMessage], current_markdown: str) -> TodoResult:
+        transcript = render_transcript(messages)
+        if not transcript or not self.client:
+            return heuristic_todo_result(messages, current_markdown)
+
+        try:
+            return await self.client.generate_json(
+                system_prompt=(
+                    "You maintain a single shared markdown to-do list for a user. "
+                    "Return JSON with keys summary and updated_markdown."
+                ),
+                user_prompt=(
+                    "Update the shared markdown to-do list using the transcript.\n"
+                    "Only apply changes the user clearly requested to the shared to-do list.\n"
+                    "Do not turn general planning advice into to-do items unless the transcript explicitly asks to modify the shared list.\n"
+                    "Preserve unfinished work unless the transcript says to remove or complete it.\n"
+                    "Keep the response markdown concise and readable for Obsidian.\n"
+                    "The file should remain a complete standalone markdown document.\n\n"
+                    "Current to-do list markdown:\n"
+                    f"{current_markdown}\n\n"
+                    "Transcript:\n"
+                    f"{transcript}"
+                ),
+                schema=TodoResult,
+            )
+        except Exception:
+            return heuristic_todo_result(messages, current_markdown)
 
     async def ideas(self, messages: list[ChatMessage]) -> IdeaResult:
         transcript = render_transcript(messages)
@@ -123,7 +176,9 @@ class ProcessingOrchestrator:
                 ),
                 user_prompt=(
                     "Distill the transcript into a structured brainstorm summary. "
-                    "Keep the share_post concise and engaging without hype.\n\n"
+                    "Keep the share_post concise, specific, and credible. "
+                    "Avoid hype words such as revolutionary, effortless, unlock, game-changing, or world-class. "
+                    "Write it like a thoughtful builder note that another person would actually want to share.\n\n"
                     f"{transcript}"
                 ),
                 schema=IdeaResult,
