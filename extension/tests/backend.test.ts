@@ -27,6 +27,7 @@ describe("backend validation helpers", () => {
         indexingMode: "all",
         triggerWords: ["lorem"],
         blacklistWords: [],
+        selectionCaptureEnabled: false,
         enabledProviders: {
           chatgpt: true,
           gemini: true,
@@ -83,6 +84,7 @@ describe("backend validation helpers", () => {
         indexingMode: "all",
         triggerWords: ["lorem"],
         blacklistWords: [],
+        selectionCaptureEnabled: false,
         enabledProviders: {
           chatgpt: true,
           gemini: true,
@@ -119,6 +121,7 @@ describe("backend validation helpers", () => {
       indexingMode: "all",
       triggerWords: ["lorem"],
       blacklistWords: [],
+      selectionCaptureEnabled: false,
       enabledProviders: {
         chatgpt: true,
         gemini: true,
@@ -161,6 +164,7 @@ describe("backend validation helpers", () => {
         indexingMode: "all",
         triggerWords: ["lorem"],
         blacklistWords: [],
+        selectionCaptureEnabled: false,
         enabledProviders: {
           chatgpt: true,
           gemini: true,
@@ -204,6 +208,7 @@ describe("backend validation helpers", () => {
         indexingMode: "all",
         triggerWords: ["lorem"],
         blacklistWords: [],
+        selectionCaptureEnabled: false,
         enabledProviders: {
           chatgpt: true,
           gemini: true,
@@ -225,5 +230,77 @@ describe("backend validation helpers", () => {
     });
     expect(response.vault_root).toBe("/srv/knowledge/TSMC");
     expect(response.regenerated_session_count).toBe(12);
+  });
+
+  it("posts source captures to the backend in the expected shape", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        source_id: "capture-1",
+        title: "Rust ownership note",
+        capture_kind: "selection",
+        save_mode: "ai",
+        processed: true,
+        category: "factual",
+        markdown_path: "/srv/knowledge/TSMC/Captures/selection--rust-ownership-note--capture.md",
+        raw_source_path: "/srv/knowledge/TSMC/Sources/selection--rust-ownership-note--capture--source.md"
+      })
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { saveSourceCaptureToBackend } = await import("../src/background/backend");
+    const response = await saveSourceCaptureToBackend(
+      {
+        backendUrl: "https://notes.example.com/",
+        backendToken: "tsmc_pat_test",
+        autoSyncHistory: true,
+        indexingMode: "all",
+        triggerWords: ["lorem"],
+        blacklistWords: [],
+        selectionCaptureEnabled: false,
+        enabledProviders: {
+          chatgpt: true,
+          gemini: true,
+          grok: true
+        }
+      },
+      {
+        captureKind: "selection",
+        saveMode: "ai",
+        title: "Rust ownership note",
+        pageTitle: "Rust reference",
+        sourceUrl: "https://example.com/rust",
+        selectionText: "Rust uses ownership to manage memory safely.",
+        sourceText: "Rust uses ownership to manage memory safely.",
+        sourceMarkdown: "Rust uses ownership to manage memory safely.",
+        rawPayload: {
+          selectionLength: 44
+        }
+      }
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith("https://notes.example.com/api/v1/capture/source", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer tsmc_pat_test"
+      },
+      body: JSON.stringify({
+        capture_kind: "selection",
+        save_mode: "ai",
+        title: "Rust ownership note",
+        page_title: "Rust reference",
+        source_url: "https://example.com/rust",
+        selection_text: "Rust uses ownership to manage memory safely.",
+        source_text: "Rust uses ownership to manage memory safely.",
+        source_markdown: "Rust uses ownership to manage memory safely.",
+        raw_payload: {
+          selectionLength: 44
+        }
+      })
+    });
+    expect(response.ok).toBe(true);
+    expect(response.category).toBe("factual");
+    expect(response.sourceId).toBe("capture-1");
   });
 });

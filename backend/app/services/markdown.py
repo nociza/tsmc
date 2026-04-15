@@ -13,8 +13,9 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import NO_VALUE
 
 from app.core.config import get_settings
-from app.models import ChatMessage, ChatSession, FactTriplet, SessionCategory, SyncEvent
+from app.models import ChatMessage, ChatSession, FactTriplet, SessionCategory, SourceCapture, SyncEvent
 from app.services.git_versioning import GitVersioningService
+from app.services.text import take_sentences
 from app.services.todo import TodoListService, TODO_TITLE
 
 
@@ -78,6 +79,14 @@ class MarkdownExporter:
         await self._commit_vault(session)
         return target
 
+    async def write_source_capture(self, source_capture: SourceCapture) -> tuple[Path, Path]:
+        self._ensure_directories()
+        note_path, source_path = self._write_source_capture_files(source_capture)
+        await self._write_graph_notes()
+        await self._write_dashboards()
+        await self._commit_source_capture(source_capture)
+        return note_path, source_path
+
     async def rebuild_vault(self) -> int:
         self._ensure_directories()
         await self._write_dashboards()
@@ -98,6 +107,14 @@ class MarkdownExporter:
 
         for session in sessions:
             session.markdown_path = str(self._write_session_files(session))
+
+        source_captures = (
+            await self.db.execute(select(SourceCapture).order_by(SourceCapture.updated_at.desc()))
+        ).scalars().all()
+        for source_capture in source_captures:
+            note_path, source_path = self._write_source_capture_files(source_capture)
+            source_capture.markdown_path = str(note_path)
+            source_capture.raw_source_path = str(source_path)
 
         await self._write_graph_notes()
         await self._write_dashboards()
@@ -219,6 +236,83 @@ class MarkdownExporter:
 
         return "\n".join(lines).strip() + "\n"
 
+    def render_source_capture(self, source_capture: SourceCapture) -> str:
+        title = self._capture_display_title(source_capture)
+        lines = [
+            "---",
+            f"id: {yaml_scalar(source_capture.id)}",
+            f"type: {yaml_scalar('source_capture')}",
+            f"capture_kind: {yaml_scalar(source_capture.capture_kind)}",
+            f"save_mode: {yaml_scalar(source_capture.save_mode)}",
+            f"category: {yaml_scalar(source_capture.category.value if source_capture.category else 'unclassified')}",
+            f"source_url: {yaml_scalar(source_capture.source_url or '')}",
+            f"created_at: {yaml_scalar(source_capture.created_at)}",
+            f"updated_at: {yaml_scalar(source_capture.updated_at)}",
+            "---",
+            "",
+            f"# {title}",
+            "",
+            "## Metadata",
+            "",
+            f"- Capture Kind: `{source_capture.capture_kind}`",
+            f"- Save Mode: `{source_capture.save_mode}`",
+            f"- Category: `{source_capture.category.value if source_capture.category else 'unclassified'}`",
+            f"- Page Title: {source_capture.page_title or 'n/a'}",
+            f"- Source URL: {source_capture.source_url or 'n/a'}",
+            f"- Raw Source: {self._wiki_link(self._source_capture_source_path(source_capture), 'Source Document')}",
+            "",
+        ]
+        if source_capture.classification_reason:
+            lines.extend(["## Classification", "", source_capture.classification_reason.strip(), ""])
+        if source_capture.summary:
+            lines.extend(["## Summary", "", source_capture.summary.strip(), ""])
+
+        content = (source_capture.cleaned_markdown or source_capture.source_markdown or source_capture.source_text).strip()
+        lines.extend(["## Saved Content", "", content, ""])
+        return "\n".join(lines).strip() + "\n"
+
+    def render_source_capture_source(self, source_capture: SourceCapture) -> str:
+        title = self._capture_display_title(source_capture)
+        lines = [
+            "---",
+            f"id: {yaml_scalar(f'tsmc-capture-source-{source_capture.id}')}",
+            f"type: {yaml_scalar('source_capture_source')}",
+            f"capture_id: {yaml_scalar(source_capture.id)}",
+            f"capture_note: {yaml_scalar(self._source_capture_note_path(source_capture).relative_to(self.vault_root).as_posix())}",
+            f"capture_kind: {yaml_scalar(source_capture.capture_kind)}",
+            f"save_mode: {yaml_scalar(source_capture.save_mode)}",
+            f"source_url: {yaml_scalar(source_capture.source_url or '')}",
+            f"created_at: {yaml_scalar(source_capture.created_at)}",
+            f"updated_at: {yaml_scalar(source_capture.updated_at)}",
+            "---",
+            "",
+            f"# Source Document: {title}",
+            "",
+            "## Overview",
+            "",
+            f"- Capture Note: {self._wiki_link(self._source_capture_note_path(source_capture), title)}",
+            f"- Page Title: {source_capture.page_title or 'n/a'}",
+            f"- Source URL: {source_capture.source_url or 'n/a'}",
+            "",
+        ]
+        if source_capture.selection_text:
+            lines.extend(["## Original Selection", "", source_capture.selection_text.strip(), ""])
+        if source_capture.source_markdown:
+            lines.extend(["## Captured Markdown", ""])
+            lines.extend(self._fenced_block("markdown", source_capture.source_markdown.strip()))
+            lines.append("")
+        lines.extend(["## Captured Text", ""])
+        lines.extend(self._fenced_block("text", source_capture.source_text.strip()))
+        lines.append("")
+        lines.extend(["## Raw Payload", ""])
+        if source_capture.raw_payload is None:
+            lines.append("No raw payload was stored for this capture.")
+            lines.append("")
+        else:
+            lines.extend(self._fenced_block("json", self._json_dump(source_capture.raw_payload)))
+            lines.append("")
+        return "\n".join(lines).strip() + "\n"
+
     async def _write_graph_notes(self) -> None:
         if self.db is None:
             return
@@ -294,21 +388,35 @@ class MarkdownExporter:
         sessions = (
             await self.db.execute(select(ChatSession).order_by(ChatSession.updated_at.desc()))
         ).scalars().all()
+        source_captures = (
+            await self.db.execute(select(SourceCapture).order_by(SourceCapture.updated_at.desc()))
+        ).scalars().all()
         triplet_count = int((await self.db.scalar(select(func.count(FactTriplet.id)))) or 0)
 
         dashboards_dir = self.vault_root / "Dashboards"
         for category, label in CATEGORY_LABELS.items():
             lines = [f"# {label} Index", ""]
             category_sessions = [session for session in sessions if session.category == category]
+            category_captures = [capture for capture in source_captures if capture.category == category]
             lines.append(f"- Total sessions: {len(category_sessions)}")
+            lines.append(f"- Total saved sources: {len(category_captures)}")
             lines.append("")
             if category == SessionCategory.TODO:
                 lines.append(f"- Shared List: {self._wiki_link(self._todo_list_path(), TODO_TITLE)}")
                 lines.append("")
-            for session in category_sessions:
-                lines.append(
-                    f"- {self._wiki_link(self._session_note_path(session), session.title or session.external_session_id)}"
-                )
+            if category_sessions:
+                lines.extend(["## Sessions", ""])
+                for session in category_sessions:
+                    lines.append(
+                        f"- {self._wiki_link(self._session_note_path(session), session.title or session.external_session_id)}"
+                    )
+                lines.append("")
+            if category_captures:
+                lines.extend(["## Saved Sources", ""])
+                for capture in category_captures:
+                    lines.append(
+                        f"- {self._wiki_link(self._source_capture_note_path(capture), self._capture_display_title(capture))}"
+                    )
             (dashboards_dir / f"{label} Index.md").write_text(
                 "\n".join(lines).strip() + "\n",
                 encoding="utf-8",
@@ -324,20 +432,36 @@ class MarkdownExporter:
             "\n".join(graph_index_lines).strip() + "\n",
             encoding="utf-8",
         )
+        capture_index_lines = [
+            "# Captures Index",
+            "",
+            f"- Total captures: {len(source_captures)}",
+            f"- Raw captures: {len([capture for capture in source_captures if capture.save_mode == 'raw'])}",
+            f"- AI-enriched captures: {len([capture for capture in source_captures if capture.save_mode == 'ai'])}",
+            "",
+        ]
+        for capture in source_captures:
+            label = self._capture_display_title(capture)
+            suffix = f" [{capture.save_mode}]"
+            capture_index_lines.append(f"- {self._wiki_link(self._source_capture_note_path(capture), label)}{suffix}")
+        (dashboards_dir / "Captures Index.md").write_text(
+            "\n".join(capture_index_lines).strip() + "\n",
+            encoding="utf-8",
+        )
         (dashboards_dir / "Home.md").write_text(
-            self._render_home_dashboard(sessions, triplet_count),
+            self._render_home_dashboard(sessions, source_captures, triplet_count),
             encoding="utf-8",
         )
         (self.vault_root / "README.md").write_text(
-            self._render_vault_readme(sessions, triplet_count),
+            self._render_vault_readme(sessions, source_captures, triplet_count),
             encoding="utf-8",
         )
         (self.vault_root / "AGENTS.md").write_text(
-            self._render_agents_guide(sessions, triplet_count),
+            self._render_agents_guide(sessions, source_captures, triplet_count),
             encoding="utf-8",
         )
         (self.vault_root / "manifest.json").write_text(
-            self._render_manifest_json(sessions, triplet_count),
+            self._render_manifest_json(sessions, source_captures, triplet_count),
             encoding="utf-8",
         )
 
@@ -364,6 +488,7 @@ class MarkdownExporter:
         self.base_dir.mkdir(parents=True, exist_ok=True)
         for category_label in CATEGORY_LABELS.values():
             (self.vault_root / category_label).mkdir(parents=True, exist_ok=True)
+        (self.vault_root / "Captures").mkdir(parents=True, exist_ok=True)
         (self.vault_root / "Sessions").mkdir(parents=True, exist_ok=True)
         (self.vault_root / "Sources").mkdir(parents=True, exist_ok=True)
         (self.vault_root / "Graph" / "Entities").mkdir(parents=True, exist_ok=True)
@@ -381,6 +506,19 @@ class MarkdownExporter:
         source_target.write_text(self.render_source_session(session), encoding="utf-8")
         return target
 
+    def _write_source_capture_files(self, source_capture: SourceCapture) -> tuple[Path, Path]:
+        target = self._source_capture_note_path(source_capture)
+        raw_target = self._source_capture_source_path(source_capture)
+        previous_path = Path(source_capture.markdown_path).expanduser() if source_capture.markdown_path else None
+        previous_raw_path = Path(source_capture.raw_source_path).expanduser() if source_capture.raw_source_path else None
+        if previous_path and previous_path != target and previous_path.exists():
+            previous_path.unlink()
+        if previous_raw_path and previous_raw_path != raw_target and previous_raw_path.exists():
+            previous_raw_path.unlink()
+        target.write_text(self.render_source_capture(source_capture), encoding="utf-8")
+        raw_target.write_text(self.render_source_capture_source(source_capture), encoding="utf-8")
+        return target, raw_target
+
     def _session_note_path(self, session: ChatSession) -> Path:
         category_dir = CATEGORY_LABELS.get(session.category, "Sessions")
         filename = f"{session.provider.value}--{slugify(session.external_session_id)}.md"
@@ -395,6 +533,17 @@ class MarkdownExporter:
 
     def _todo_list_path(self) -> Path:
         return TodoListService(base_dir=self.base_dir, vault_root_name=self.vault_root_name).path
+
+    def _source_capture_note_path(self, source_capture: SourceCapture) -> Path:
+        filename = f"{source_capture.capture_kind}--{slugify(self._capture_slug_seed(source_capture))}--{source_capture.id[:8]}.md"
+        return self.vault_root / "Captures" / filename
+
+    def _source_capture_source_path(self, source_capture: SourceCapture) -> Path:
+        filename = (
+            f"{source_capture.capture_kind}--{slugify(self._capture_slug_seed(source_capture))}"
+            f"--{source_capture.id[:8]}--source.md"
+        )
+        return self.vault_root / "Sources" / filename
 
     def _session_entities(self, session: ChatSession) -> list[str]:
         entities = {triplet.subject for triplet in session.triplets} | {triplet.object for triplet in session.triplets}
@@ -469,7 +618,12 @@ class MarkdownExporter:
             return []
         return list(loaded or [])
 
-    def _render_home_dashboard(self, sessions: list[ChatSession], triplet_count: int) -> str:
+    def _render_home_dashboard(
+        self,
+        sessions: list[ChatSession],
+        source_captures: list[SourceCapture],
+        triplet_count: int,
+    ) -> str:
         provider_counts = self._provider_counts(sessions)
         lines = [
             "# TSMC Home",
@@ -480,10 +634,12 @@ class MarkdownExporter:
             f"- Agent workflow: {self._wiki_link(self.vault_root / 'AGENTS.md', 'AGENTS')}",
             f"- Shared to-do list: {self._wiki_link(self._todo_list_path(), TODO_TITLE)}",
             f"- Graph overview: {self._wiki_link(self.vault_root / 'Dashboards' / 'Graph Index.md', 'Graph Index')}",
+            f"- Saved sources: {self._wiki_link(self.vault_root / 'Dashboards' / 'Captures Index.md', 'Captures Index')}",
             "",
             "## Snapshot",
             "",
             f"- Total sessions: {len(sessions)}",
+            f"- Total saved sources: {len(source_captures)}",
             f"- Total fact triplets: {triplet_count}",
             "",
             "## Collections",
@@ -491,6 +647,7 @@ class MarkdownExporter:
         ]
         for _, label in CATEGORY_LABELS.items():
             lines.append(f"- {self._wiki_link(self.vault_root / 'Dashboards' / f'{label} Index.md', f'{label} Index')}")
+        lines.append(f"- {self._wiki_link(self.vault_root / 'Dashboards' / 'Captures Index.md', 'Captures Index')}")
         lines.extend(["", "## Providers", ""])
         if provider_counts:
             for provider, count in provider_counts.items():
@@ -505,9 +662,22 @@ class MarkdownExporter:
                 )
         else:
             lines.append("- No captured sessions yet.")
+        lines.extend(["", "## Recent Saved Sources", ""])
+        if source_captures:
+            for capture in source_captures[:12]:
+                lines.append(
+                    f"- {self._wiki_link(self._source_capture_note_path(capture), self._capture_display_title(capture))}"
+                )
+        else:
+            lines.append("- No saved sources yet.")
         return "\n".join(lines).strip() + "\n"
 
-    def _render_vault_readme(self, sessions: list[ChatSession], triplet_count: int) -> str:
+    def _render_vault_readme(
+        self,
+        sessions: list[ChatSession],
+        source_captures: list[SourceCapture],
+        triplet_count: int,
+    ) -> str:
         lines = [
             "# TSMC Vault",
             "",
@@ -516,6 +686,7 @@ class MarkdownExporter:
             "## What Lives Here",
             "",
             "- `Factual/`, `Ideas/`, `Journal/`, `Todo/`, `Sessions/`: processed conversation notes.",
+            "- `Captures/`: saved selections and saved pages.",
             "- `Sources/`: raw provider captures and raw message payloads.",
             "- `Graph/Entities/`: per-entity notes derived from fact triplets.",
             "- `Dashboards/`: entry points, indexes, and the shared to-do list.",
@@ -530,6 +701,7 @@ class MarkdownExporter:
             "## Current Snapshot",
             "",
             f"- Sessions: {len(sessions)}",
+            f"- Saved sources: {len(source_captures)}",
             f"- Fact triplets: {triplet_count}",
             f"- Vault root: `{self.vault_root}`",
             "- Machine manifest: `manifest.json`",
@@ -543,7 +715,12 @@ class MarkdownExporter:
         ]
         return "\n".join(lines).strip() + "\n"
 
-    def _render_agents_guide(self, sessions: list[ChatSession], triplet_count: int) -> str:
+    def _render_agents_guide(
+        self,
+        sessions: list[ChatSession],
+        source_captures: list[SourceCapture],
+        triplet_count: int,
+    ) -> str:
         lines = [
             "# AGENTS",
             "",
@@ -552,6 +729,7 @@ class MarkdownExporter:
             "## Ground Truth",
             "",
             "- `Sources/` contains the raw scraped content and raw payloads.",
+            "- `Captures/` contains user-saved selections and full-page captures.",
             "- Processed category notes summarize and organize those sources for reuse.",
             "- `Graph/` captures extracted entities and relationships for factual retrieval.",
             "- `Dashboards/To-Do List.md` is the single shared to-do file.",
@@ -566,6 +744,7 @@ class MarkdownExporter:
             "## Current Snapshot",
             "",
             f"- Sessions: {len(sessions)}",
+            f"- Saved sources: {len(source_captures)}",
             f"- Fact triplets: {triplet_count}",
             "- Manifest: `manifest.json`",
             "",
@@ -578,7 +757,12 @@ class MarkdownExporter:
         ]
         return "\n".join(lines).strip() + "\n"
 
-    def _render_manifest_json(self, sessions: list[ChatSession], triplet_count: int) -> str:
+    def _render_manifest_json(
+        self,
+        sessions: list[ChatSession],
+        source_captures: list[SourceCapture],
+        triplet_count: int,
+    ) -> str:
         categories = {
             (category.value if category else "unclassified"): len(
                 [session for session in sessions if session.category == category]
@@ -597,9 +781,14 @@ class MarkdownExporter:
             },
             "counts": {
                 "sessions": len(sessions),
+                "source_captures": len(source_captures),
                 "triplets": triplet_count,
                 "providers": self._provider_counts(sessions),
                 "categories": categories,
+                "capture_kinds": {
+                    "selection": len([capture for capture in source_captures if capture.capture_kind == "selection"]),
+                    "page": len([capture for capture in source_captures if capture.capture_kind == "page"]),
+                },
             },
         }
         return json.dumps(manifest, indent=2, sort_keys=True) + "\n"
@@ -610,6 +799,17 @@ class MarkdownExporter:
             counts[session.provider.value] += 1
         return dict(sorted(counts.items()))
 
+    def _capture_slug_seed(self, source_capture: SourceCapture) -> str:
+        return self._capture_display_title(source_capture)
+
+    def _capture_display_title(self, source_capture: SourceCapture) -> str:
+        return (
+            source_capture.title
+            or source_capture.page_title
+            or take_sentences(source_capture.selection_text or source_capture.source_text, 1)
+            or "Saved source"
+        )
+
     @property
     def vault_root(self) -> Path:
         return self.base_dir / self.vault_root_name
@@ -618,4 +818,8 @@ class MarkdownExporter:
         message = f"Update vault for {session.provider.value}:{session.external_session_id}"
         if session.category == SessionCategory.TODO:
             message = f"Update to-do list from {session.provider.value}:{session.external_session_id}"
+        await GitVersioningService(repo_root=self.vault_root).commit_all(message=message)
+
+    async def _commit_source_capture(self, source_capture: SourceCapture) -> None:
+        message = f"Save {source_capture.capture_kind} source {source_capture.id[:8]}"
         await GitVersioningService(repo_root=self.vault_root).commit_all(message=message)

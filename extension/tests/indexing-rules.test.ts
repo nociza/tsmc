@@ -14,7 +14,8 @@ const baseSettings: ExtensionSettings = {
   autoSyncHistory: true,
   indexingMode: "all",
   triggerWords: ["lorem"],
-  blacklistWords: []
+  blacklistWords: [],
+  selectionCaptureEnabled: false
 };
 
 const snapshot: NormalizedSessionSnapshot = {

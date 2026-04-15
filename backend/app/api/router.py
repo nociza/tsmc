@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.routes_auth import router as auth_router
+from app.api.routes_capture import router as capture_router
 from app.api.routes_dashboard import router as dashboard_router
 from app.api.routes_health import router as health_router
 from app.api.routes_ingest import router as ingest_router
@@ -14,6 +15,7 @@ api_router = APIRouter()
 api_router.include_router(health_router, tags=["health"])
 api_router.include_router(meta_router, tags=["meta"])
 api_router.include_router(auth_router, tags=["auth"])
+api_router.include_router(capture_router, tags=["capture"])
 api_router.include_router(ingest_router, prefix="/ingest", tags=["ingest"])
 api_router.include_router(processing_router, tags=["processing"])
 api_router.include_router(sessions_router, tags=["sessions"])

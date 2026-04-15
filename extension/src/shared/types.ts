@@ -2,6 +2,8 @@ export type ProviderName = "chatgpt" | "gemini" | "grok";
 export type MessageRole = "user" | "assistant" | "system" | "tool" | "unknown";
 export type CaptureMode = "incremental" | "full_snapshot";
 export type IndexingMode = "all" | "trigger_word";
+export type SourceCaptureKind = "selection" | "page";
+export type SourceSaveMode = "raw" | "ai";
 
 export interface CapturedBody {
   text?: string;
@@ -84,6 +86,7 @@ export interface ExtensionSettings {
   indexingMode: IndexingMode;
   triggerWords: string[];
   blacklistWords: string[];
+  selectionCaptureEnabled: boolean;
 }
 
 export interface BackendCapabilities {
@@ -230,6 +233,7 @@ export interface BackendSearchResult {
   title: string;
   snippet: string;
   session_id?: string | null;
+  source_id?: string | null;
   entity_id?: string | null;
   category?: SessionCategoryName | null;
   provider?: ProviderName | null;
@@ -363,6 +367,31 @@ export interface SaveKnowledgePathResponse {
   error?: string;
 }
 
+export interface SourceCapturePayload {
+  captureKind: SourceCaptureKind;
+  saveMode: SourceSaveMode;
+  title?: string;
+  pageTitle?: string;
+  sourceUrl: string;
+  selectionText?: string;
+  sourceText: string;
+  sourceMarkdown?: string;
+  rawPayload?: unknown;
+}
+
+export interface SourceCaptureResponse {
+  ok: boolean;
+  sourceId?: string;
+  title?: string;
+  captureKind?: SourceCaptureKind;
+  saveMode?: SourceSaveMode;
+  processed?: boolean;
+  category?: SessionCategoryName | null;
+  markdownPath?: string | null;
+  rawSourcePath?: string | null;
+  error?: string;
+}
+
 export type RuntimeMessage =
   | { type: "NETWORK_CAPTURE"; payload: CapturedNetworkEvent }
   | { type: "PAGE_VISIT"; payload: PageVisitPayload }
@@ -377,4 +406,6 @@ export type RuntimeMessage =
   | { type: "GET_SETTINGS" }
   | { type: "SAVE_SETTINGS"; payload: Partial<ExtensionSettings> }
   | { type: "SAVE_KNOWLEDGE_PATH"; payload: { markdownRoot: string } }
+  | { type: "SAVE_SOURCE_CAPTURE"; payload: SourceCapturePayload }
+  | { type: "SAVE_CURRENT_PAGE_SOURCE"; payload?: { saveMode?: SourceSaveMode } }
   | { type: "GET_STATUS" };

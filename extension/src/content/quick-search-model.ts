@@ -57,6 +57,9 @@ export function resultKindLabel(result: BackendSearchResult): string {
   if (result.kind === "entity") {
     return "Entity";
   }
+  if (result.kind === "source_capture") {
+    return "Source";
+  }
   if (result.kind === "todo_list") {
     return "To-Do";
   }

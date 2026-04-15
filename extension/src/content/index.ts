@@ -7,6 +7,7 @@ import type {
   RuntimeMessage
 } from "../shared/types";
 import { createQuickSearchPalette } from "./quick-search";
+import { createSelectionCaptureController } from "./selection-capture";
 
 const CONTROL_SOURCE = "tsmc-history-control";
 const CONTROL_READY_SOURCE = "tsmc-history-control-ready";
@@ -18,6 +19,9 @@ let pendingControlPayload: MainWorldControlPayload | null = null;
 let proxyPromptInProgress = false;
 let runtimeDispatchQueue = Promise.resolve();
 const quickSearchPalette = createQuickSearchPalette(async <TResponse>(message: RuntimeMessage) => {
+  return chrome.runtime.sendMessage(message) as Promise<TResponse>;
+});
+const selectionCaptureController = createSelectionCaptureController(async <TResponse>(message: RuntimeMessage) => {
   return chrome.runtime.sendMessage(message) as Promise<TResponse>;
 });
 const pendingProxyRequests = new Map<
@@ -223,6 +227,12 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
     quickSearchPalette.toggle();
     sendResponse({ ok: true });
     return false;
+  }
+  if (message.type === "SAVE_CURRENT_PAGE_SOURCE") {
+    void selectionCaptureController.handleRuntimeMessage(message).then((response) => {
+      sendResponse(response ?? { ok: false, error: "Unsupported page capture message." });
+    });
+    return true;
   }
   if (message.type === "TRIGGER_HISTORY_SYNC") {
     const payload: HistorySyncTriggerPayload = message.payload;

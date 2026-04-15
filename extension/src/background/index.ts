@@ -4,6 +4,7 @@ import {
   fetchKnowledgeSearch,
   fetchNextProcessingTask,
   fetchProcessingStatus,
+  saveSourceCaptureToBackend,
   updateKnowledgeStoragePath,
   validateBackendConfiguration
 } from "./backend";
@@ -43,6 +44,8 @@ import type {
   ProviderName,
   RunProviderPromptResponse,
   RuntimeMessage,
+  SourceCapturePayload,
+  SourceCaptureResponse,
   SaveKnowledgePathResponse,
   SaveSettingsResponse,
   SyncStatus
@@ -306,7 +309,7 @@ async function sendMessageToTabWithRetry<TResponse>(tabId: number, message: Runt
   throw (lastError instanceof Error ? lastError : new Error(String(lastError ?? "Timed out sending a tab message.")));
 }
 
-function tabSupportsQuickSearch(tab: chrome.tabs.Tab | undefined): tab is chrome.tabs.Tab & { id: number; url: string } {
+function tabSupportsInteractivePage(tab: chrome.tabs.Tab | undefined): tab is chrome.tabs.Tab & { id: number; url: string } {
   return Boolean(tab && typeof tab.id === "number" && typeof tab.url === "string" && /^https?:\/\//i.test(tab.url));
 }
 
@@ -319,7 +322,7 @@ async function ensureQuickSearchContentScript(tabId: number): Promise<void> {
 
 async function openQuickSearchInActiveTab(): Promise<{ ok: boolean; error?: string }> {
   const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  if (!tabSupportsQuickSearch(activeTab)) {
+  if (!tabSupportsInteractivePage(activeTab)) {
     return {
       ok: false,
       error: "TSMC quick search only works on regular http or https pages."
@@ -352,6 +355,24 @@ async function openQuickSearchInActiveTab(): Promise<{ ok: boolean; error?: stri
       error: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+async function sendMessageToActivePage<TResponse>(message: RuntimeMessage): Promise<TResponse> {
+  const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (!tabSupportsInteractivePage(activeTab)) {
+    throw new Error("TSMC page actions only work on regular http or https pages.");
+  }
+
+  try {
+    return await chrome.tabs.sendMessage(activeTab.id, message);
+  } catch (error) {
+    if (!isRetriableTabMessageError(error)) {
+      throw error;
+    }
+  }
+
+  await ensureQuickSearchContentScript(activeTab.id);
+  return await sendMessageToTabWithRetry<TResponse>(activeTab.id, message);
 }
 
 async function handleKnowledgeSearch(payload: { query: string; limit?: number }): Promise<KnowledgeSearchResponse> {
@@ -398,6 +419,56 @@ async function handleKnowledgeSearch(payload: { query: string; limit?: number })
       query,
       count: 0,
       results: [],
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+async function handleSaveSourceCapture(payload: SourceCapturePayload): Promise<SourceCaptureResponse> {
+  const settings = await getSettings();
+  const status = await refreshBackendStatus(false);
+  if (status.backendValidationError) {
+    return {
+      ok: false,
+      error: status.backendValidationError
+    };
+  }
+
+  try {
+    const response = await saveSourceCaptureToBackend(
+      {
+        ...settings,
+        backendUrl: status.backendUrl ?? settings.backendUrl
+      },
+      payload
+    );
+    await setExtensionStatus({
+      lastError: null
+    });
+    return response;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await setExtensionStatus({
+      lastError: message
+    });
+    return {
+      ok: false,
+      error: message
+    };
+  }
+}
+
+async function handleSaveCurrentPageSource(saveMode: "raw" | "ai" = "ai"): Promise<SourceCaptureResponse> {
+  try {
+    return await sendMessageToActivePage<SourceCaptureResponse>({
+      type: "SAVE_CURRENT_PAGE_SOURCE",
+      payload: {
+        saveMode
+      }
+    });
+  } catch (error) {
+    return {
+      ok: false,
       error: error instanceof Error ? error.message : String(error)
     };
   }
@@ -630,6 +701,32 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
           ok: false,
           error: error instanceof Error ? error.message : String(error)
         } satisfies SaveKnowledgePathResponse);
+      });
+    return true;
+  }
+
+  if (message.type === "SAVE_SOURCE_CAPTURE") {
+    void enqueueTask(() => handleSaveSourceCapture(message.payload))
+      .then(sendResponse)
+      .catch((error) => {
+        console.error("TSMC source capture failed", error);
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error)
+        } satisfies SourceCaptureResponse);
+      });
+    return true;
+  }
+
+  if (message.type === "SAVE_CURRENT_PAGE_SOURCE") {
+    void enqueueTask(() => handleSaveCurrentPageSource(message.payload?.saveMode ?? "ai"))
+      .then(sendResponse)
+      .catch((error) => {
+        console.error("TSMC page capture failed", error);
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error)
+        } satisfies SourceCaptureResponse);
       });
     return true;
   }

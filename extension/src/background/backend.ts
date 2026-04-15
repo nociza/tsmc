@@ -9,7 +9,9 @@ import type {
   BackendSystemStatus,
   ExtensionSettings,
   ProcessingCompleteResponse,
-  ProcessingTaskResponse
+  ProcessingTaskResponse,
+  SourceCapturePayload,
+  SourceCaptureResponse
 } from "../shared/types";
 
 function normalizeBackendUrl(rawUrl: string): string {
@@ -238,4 +240,52 @@ export async function updateKnowledgeStoragePath(
     throw new Error(`Knowledge path update failed with ${response.status}: ${details.slice(0, 300)}`);
   }
   return (await response.json()) as BackendStorageSettings;
+}
+
+export async function saveSourceCaptureToBackend(
+  settings: ExtensionSettings,
+  payload: SourceCapturePayload,
+  capabilities?: BackendCapabilities
+): Promise<SourceCaptureResponse> {
+  const response = await fetch(backendApiUrl(settings, "/capture/source", capabilities), {
+    method: "POST",
+    headers: buildBackendHeaders(settings),
+    body: JSON.stringify({
+      capture_kind: payload.captureKind,
+      save_mode: payload.saveMode,
+      title: payload.title,
+      page_title: payload.pageTitle,
+      source_url: payload.sourceUrl,
+      selection_text: payload.selectionText,
+      source_text: payload.sourceText,
+      source_markdown: payload.sourceMarkdown,
+      raw_payload: payload.rawPayload
+    })
+  });
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Source capture failed with ${response.status}: ${details.slice(0, 300)}`);
+  }
+
+  const saved = (await response.json()) as {
+    source_id: string;
+    title: string;
+    capture_kind: "selection" | "page";
+    save_mode: "raw" | "ai";
+    processed: boolean;
+    category?: "journal" | "factual" | "ideas" | "todo" | null;
+    markdown_path?: string | null;
+    raw_source_path?: string | null;
+  };
+  return {
+    ok: true,
+    sourceId: saved.source_id,
+    title: saved.title,
+    captureKind: saved.capture_kind,
+    saveMode: saved.save_mode,
+    processed: saved.processed,
+    category: saved.category ?? null,
+    markdownPath: saved.markdown_path ?? null,
+    rawSourcePath: saved.raw_source_path ?? null
+  };
 }

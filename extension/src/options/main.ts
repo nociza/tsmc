@@ -16,6 +16,7 @@ const backendTokenInput = document.querySelector<HTMLInputElement>("#backend-tok
 const knowledgePathInput = document.querySelector<HTMLInputElement>("#knowledge-path");
 const saveKnowledgePathButton = document.querySelector<HTMLButtonElement>("#save-knowledge-path");
 const autoSyncHistoryInput = document.querySelector<HTMLInputElement>("#auto-sync-history");
+const selectionCaptureEnabledInput = document.querySelector<HTMLInputElement>("#selection-capture-enabled");
 const indexingModeInput = document.querySelector<HTMLInputElement>("#indexing-mode-trigger");
 const triggerWordsInput = document.querySelector<HTMLInputElement>("#trigger-words");
 const blacklistWordsInput = document.querySelector<HTMLInputElement>("#blacklist-words");
@@ -126,6 +127,9 @@ function syncFormFromSettings(settings: ExtensionSettings): void {
   if (autoSyncHistoryInput) {
     autoSyncHistoryInput.checked = settings.autoSyncHistory;
   }
+  if (selectionCaptureEnabledInput) {
+    selectionCaptureEnabledInput.checked = settings.selectionCaptureEnabled;
+  }
   if (indexingModeInput) {
     indexingModeInput.checked = settings.indexingMode === "trigger_word";
   }
@@ -231,6 +235,7 @@ form?.addEventListener("submit", async (event) => {
     backendUrl: backendUrlInput.value.trim(),
     backendToken: backendTokenInput?.value.trim() ?? "",
     autoSyncHistory: autoSyncHistoryInput?.checked ?? true,
+    selectionCaptureEnabled: selectionCaptureEnabledInput?.checked ?? false,
     indexingMode: indexingModeInput?.checked ? "trigger_word" : "all",
     triggerWords: [],
     blacklistWords: normalizeRuleWords(blacklistWordsInput?.value ?? ""),
@@ -278,6 +283,10 @@ knowledgePathInput?.addEventListener("input", () => {
 });
 
 autoSyncHistoryInput?.addEventListener("change", () => {
+  formDirty = true;
+});
+
+selectionCaptureEnabledInput?.addEventListener("change", () => {
   formDirty = true;
 });
 

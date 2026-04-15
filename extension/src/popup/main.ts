@@ -1,6 +1,12 @@
 import "./styles.css";
 
-import type { ExtensionSettings, ProviderDriftAlert, RuntimeMessage, SyncStatus } from "../shared/types";
+import type {
+  ExtensionSettings,
+  ProviderDriftAlert,
+  RuntimeMessage,
+  SourceCaptureResponse,
+  SyncStatus
+} from "../shared/types";
 
 const backendUrl = document.querySelector<HTMLParagraphElement>("#backend-url");
 const backendStatus = document.querySelector<HTMLParagraphElement>("#backend-status");
@@ -14,9 +20,11 @@ const lastError = document.querySelector<HTMLParagraphElement>("#last-error");
 const providerDriftCard = document.querySelector<HTMLDivElement>("#provider-drift-card");
 const providerDrift = document.querySelector<HTMLParagraphElement>("#provider-drift");
 const runProcessingButton = document.querySelector<HTMLButtonElement>("#run-processing");
+const saveCurrentPageButton = document.querySelector<HTMLButtonElement>("#save-current-page");
 const openQuickSearchButton = document.querySelector<HTMLButtonElement>("#open-quick-search");
 const openDashboardButton = document.querySelector<HTMLButtonElement>("#open-dashboard");
 const openOptionsButton = document.querySelector<HTMLButtonElement>("#open-options");
+const captureStatus = document.querySelector<HTMLParagraphElement>("#capture-status");
 let currentSettings: ExtensionSettings | null = null;
 let currentStatus: SyncStatus | null = null;
 let loadPromise: Promise<void> | null = null;
@@ -250,6 +258,27 @@ openQuickSearchButton?.addEventListener("click", async () => {
     return;
   }
   window.close();
+});
+
+saveCurrentPageButton?.addEventListener("click", async () => {
+  if (captureStatus) {
+    captureStatus.textContent = "Saving current page…";
+  }
+  const response = await sendMessage<SourceCaptureResponse>({
+    type: "SAVE_CURRENT_PAGE_SOURCE",
+    payload: {
+      saveMode: "ai"
+    }
+  });
+  if (!response.ok) {
+    if (captureStatus) {
+      captureStatus.textContent = response.error ?? "Could not save the current page.";
+    }
+    return;
+  }
+  if (captureStatus) {
+    captureStatus.textContent = `Saved ${response.title ?? "page"} to TSMC.`;
+  }
 });
 
 openOptionsButton?.addEventListener("click", () => {

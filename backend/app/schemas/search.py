@@ -10,6 +10,7 @@ class SearchResult(BaseModel):
     title: str
     snippet: str
     session_id: str | None = None
+    source_id: str | None = None
     entity_id: str | None = None
     category: SessionCategory | None = None
     provider: ProviderName | None = None

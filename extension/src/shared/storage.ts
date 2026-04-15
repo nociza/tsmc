@@ -26,7 +26,8 @@ export const defaultSettings: ExtensionSettings = {
   autoSyncHistory: true,
   indexingMode: "all",
   triggerWords: ["lorem"],
-  blacklistWords: []
+  blacklistWords: [],
+  selectionCaptureEnabled: false
 };
 
 function mergeSettings(
@@ -43,7 +44,8 @@ function mergeSettings(
     autoSyncHistory: current.autoSyncHistory ?? defaultSettings.autoSyncHistory,
     indexingMode: current.indexingMode ?? defaultSettings.indexingMode,
     triggerWords: current.triggerWords ?? defaultSettings.triggerWords,
-    blacklistWords: current.blacklistWords ?? defaultSettings.blacklistWords
+    blacklistWords: current.blacklistWords ?? defaultSettings.blacklistWords,
+    selectionCaptureEnabled: current.selectionCaptureEnabled ?? defaultSettings.selectionCaptureEnabled
   };
 }
 
@@ -54,7 +56,8 @@ function shouldPersistSettings(current: Partial<ExtensionSettings>): boolean {
     !current.enabledProviders ||
     !current.indexingMode ||
     !current.triggerWords ||
-    !current.blacklistWords
+    !current.blacklistWords ||
+    current.selectionCaptureEnabled === undefined
   ) {
     return true;
   }
@@ -74,7 +77,8 @@ function publicSettings(settings: ExtensionSettings | Partial<ExtensionSettings>
     autoSyncHistory: settings.autoSyncHistory ?? defaultSettings.autoSyncHistory,
     indexingMode: settings.indexingMode ?? defaultSettings.indexingMode,
     triggerWords: settings.triggerWords ?? defaultSettings.triggerWords,
-    blacklistWords: settings.blacklistWords ?? defaultSettings.blacklistWords
+    blacklistWords: settings.blacklistWords ?? defaultSettings.blacklistWords,
+    selectionCaptureEnabled: settings.selectionCaptureEnabled ?? defaultSettings.selectionCaptureEnabled
   };
 }
 
@@ -123,7 +127,8 @@ export async function saveSettings(update: Partial<ExtensionSettings>): Promise<
     autoSyncHistory: update.autoSyncHistory ?? current.autoSyncHistory,
     indexingMode: update.indexingMode ?? current.indexingMode,
     triggerWords: update.triggerWords ?? current.triggerWords,
-    blacklistWords: update.blacklistWords ?? current.blacklistWords
+    blacklistWords: update.blacklistWords ?? current.blacklistWords,
+    selectionCaptureEnabled: update.selectionCaptureEnabled ?? current.selectionCaptureEnabled
   };
   await chrome.storage.sync.set({
     [SETTINGS_KEY]: publicSettings(next)

@@ -4,7 +4,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import ChatMessage, ChatSession, FactTriplet, SessionCategory
+from app.models import ChatMessage, ChatSession, FactTriplet, SessionCategory, SourceCapture
 from app.schemas.search import SearchResult, SearchResponse
 from app.services.graph import entity_note_path
 from app.services.todo import TODO_TITLE, TodoListService
@@ -61,10 +61,28 @@ class SearchService:
             .limit(limit)
         )
         triplet_rows = (await self.db.execute(triplet_statement)).scalars().all()
+        source_statement = (
+            select(SourceCapture)
+            .where(
+                or_(
+                    SourceCapture.title.ilike(pattern),
+                    SourceCapture.page_title.ilike(pattern),
+                    SourceCapture.source_url.ilike(pattern),
+                    SourceCapture.summary.ilike(pattern),
+                    SourceCapture.classification_reason.ilike(pattern),
+                    SourceCapture.cleaned_markdown.ilike(pattern),
+                    SourceCapture.source_text.ilike(pattern),
+                )
+            )
+            .order_by(SourceCapture.updated_at.desc())
+            .limit(limit)
+        )
+        source_rows = (await self.db.execute(source_statement)).scalars().all()
 
         results: list[SearchResult] = []
         seen_session_ids: set[str] = set()
         seen_entities: set[str] = set()
+        seen_source_ids: set[str] = set()
 
         for session in session_rows:
             seen_session_ids.add(session.id)
@@ -110,6 +128,31 @@ class SearchService:
                         markdown_path=entity_note_path(entity),
                     )
                 )
+
+        for source_capture in source_rows:
+            if source_capture.id in seen_source_ids:
+                continue
+            seen_source_ids.add(source_capture.id)
+            results.append(
+                SearchResult(
+                    kind="source_capture",
+                    title=source_capture.title or source_capture.page_title or "Saved source",
+                    snippet=_snippet(
+                        "\n".join(
+                            [
+                                source_capture.summary or "",
+                                source_capture.cleaned_markdown or "",
+                                source_capture.selection_text or "",
+                                source_capture.source_text,
+                            ]
+                        ),
+                        query,
+                    ),
+                    source_id=source_capture.id,
+                    category=source_capture.category,
+                    markdown_path=source_capture.markdown_path or source_capture.raw_source_path,
+                )
+            )
 
         todo_service = TodoListService()
         todo_markdown = todo_service.read_markdown()

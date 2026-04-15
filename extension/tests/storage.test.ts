@@ -74,7 +74,8 @@ describe("storage", () => {
         autoSyncHistory: true,
         indexingMode: "all",
         triggerWords: ["lorem"],
-        blacklistWords: []
+        blacklistWords: [],
+        selectionCaptureEnabled: false
       }
     });
     const local = createStorageArea({
@@ -88,7 +89,8 @@ describe("storage", () => {
         autoSyncHistory: false,
         indexingMode: "trigger_word",
         triggerWords: ["lorem", "alpha"],
-        blacklistWords: ["ignore"]
+        blacklistWords: ["ignore"],
+        selectionCaptureEnabled: true
       },
       "tsmc.settings.secrets": {
         backendToken: "secret-token"
@@ -141,7 +143,8 @@ describe("storage", () => {
         autoSyncHistory: true,
         indexingMode: "all",
         triggerWords: ["lorem"],
-        blacklistWords: []
+        blacklistWords: [],
+        selectionCaptureEnabled: false
       }
     });
     expect(local.set).toHaveBeenCalledWith({
@@ -155,7 +158,8 @@ describe("storage", () => {
         autoSyncHistory: true,
         indexingMode: "all",
         triggerWords: ["lorem"],
-        blacklistWords: []
+        blacklistWords: [],
+        selectionCaptureEnabled: false
       }
     });
   });

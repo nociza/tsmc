@@ -3383,3 +3383,143 @@ test("searches the knowledge base and injects a fact into the focused page field
     await rm(backendDataDir, { recursive: true, force: true });
   }
 });
+
+test("shows the selection capture pop-up and saves the selected text into the backend", async ({ request }, testInfo) => {
+  const userDataDir = await mkdtemp(join(tmpdir(), "tsmc-extension-selection-capture-"));
+  const backendDataDir = await mkdtemp(join(tmpdir(), "tsmc-backend-selection-capture-"));
+  const backendLogs: string[] = [];
+  let backendProcess: ReturnType<typeof spawn> | undefined;
+  let backendBaseUrl = configuredBackendBaseUrl();
+
+  try {
+    if (backendBaseUrl) {
+      await waitForBackendUrlHealthy(backendBaseUrl);
+    } else {
+      const backendChild = spawn(
+        backendPython,
+        ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "0"],
+        {
+          cwd: backendRoot,
+          env: {
+            ...globalThis.process.env,
+            PYTHONUNBUFFERED: "1",
+            TSMC_DATABASE_URL: `sqlite+aiosqlite:///${join(backendDataDir, "tsmc.db")}`,
+            TSMC_MARKDOWN_DIR: join(backendDataDir, "markdown"),
+            TSMC_LLM_BACKEND: "heuristic"
+          },
+          stdio: ["ignore", "pipe", "pipe"]
+        }
+      );
+      backendProcess = backendChild;
+
+      backendChild.stdout?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+      backendChild.stderr?.on("data", (chunk: Buffer) => {
+        backendLogs.push(chunk.toString());
+      });
+
+      backendBaseUrl = await waitForBackendHealthy(backendLogs);
+    }
+
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      channel: "chromium",
+      headless: testInfo.project.use.headless ?? true,
+      args: [`--disable-extensions-except=${extensionDist}`, `--load-extension=${extensionDist}`]
+    });
+
+    try {
+      let [serviceWorker] = context.serviceWorkers();
+      if (!serviceWorker) {
+        serviceWorker = await context.waitForEvent("serviceworker");
+      }
+      const extensionId = serviceWorker.url().split("/")[2] ?? "";
+      expect(extensionId).not.toHaveLength(0);
+
+      const optionsPage = await context.newPage();
+      await optionsPage.goto(`chrome-extension://${extensionId}/options.html`, { waitUntil: "domcontentloaded" });
+      await optionsPage.locator("#backend-url").fill(backendBaseUrl);
+      await optionsPage.locator("#selection-capture-enabled").setChecked(true);
+      await optionsPage.locator("#settings-form").evaluate((form) => {
+        (form as HTMLFormElement).requestSubmit();
+      });
+      await expect(optionsPage.locator("#save-status")).toHaveText("Settings saved.");
+
+      await context.route("https://example.com/article", async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html; charset=utf-8",
+          body: `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Rust reference</title>
+  </head>
+  <body>
+    <main>
+      <article>
+        <h1>Rust reference</h1>
+        <p id="source">
+          Rust uses ownership to manage memory safely without a garbage collector.
+        </p>
+      </article>
+    </main>
+  </body>
+</html>`
+        });
+      });
+
+      const page = await context.newPage();
+      await page.goto("https://example.com/article", { waitUntil: "domcontentloaded" });
+      await page.evaluate(() => {
+        const element = document.getElementById("source");
+        if (!element) {
+          throw new Error("Missing source paragraph.");
+        }
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      });
+
+      const addButton = page.getByRole("button", { name: "Add to Knowledge Base" });
+      await expect(addButton).toBeVisible();
+      await addButton.click();
+      await expect(page.locator("text=Saved")).toContainText("Saved");
+
+      await eventually
+        .poll(
+          async () => {
+            const response = await request.get(`${backendBaseUrl}/api/v1/search`, {
+              params: {
+                q: "ownership"
+              }
+            });
+            if (response.status() !== 200) {
+              return [];
+            }
+            const payload = (await response.json()) as {
+              results?: Array<{ kind?: string; title?: string }>;
+            };
+            return payload.results ?? [];
+          },
+          {
+            message: "Waiting for the saved source capture to appear in backend search."
+          }
+        )
+        .toContainEqual(
+          expect.objectContaining({
+            kind: "source_capture"
+          })
+        );
+    } finally {
+      await context.close();
+    }
+  } finally {
+    await stopBackend(backendProcess);
+    await rm(userDataDir, { recursive: true, force: true });
+    await rm(backendDataDir, { recursive: true, force: true });
+  }
+});
