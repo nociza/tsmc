@@ -26,8 +26,9 @@
             <p class="meta-label">Status</p>
             <p id="backend-status" class="meta-value truncate-double">Checking…</p>
           </div>
+          <div class="overview-block">
             <p class="metric-label">Last sync</p>
-            <p id="last-success" class="meta-value meta-strong">No sync yet</p>
+            <p id="last-success" class="meta-value meta-strong truncate-single">No sync yet</p>
           </div>
           <div class="overview-block">
             <p class="metric-label">Latest session</p>
@@ -61,9 +62,9 @@
 
       <section class="surface action-surface">
         <div class="action-grid">
-          <button id="save-current-page" class="action-primary" type="button">Save current page</button>
-          <button id="open-quick-search" class="action-secondary" type="button">Search context</button>
-          <button id="run-processing" class="action-secondary" type="button" hidden>Run AI queue</button>
+          <button id="save-current-page" class="action-primary" type="button">Save page</button>
+          <button id="open-quick-search" class="action-secondary" type="button">Search</button>
+          <button id="run-processing" class="action-secondary" type="button" hidden>Run queue</button>
           <button id="open-dashboard" class="action-tertiary" type="button">Dashboard</button>
           <button id="open-options" class="action-tertiary" type="button">Settings</button>
         </div>
@@ -75,7 +76,7 @@
           <div class="panel-header">
             <div>
               <p class="section-eyebrow">Capture</p>
-              <h2>History sync</h2>
+              <h2>History</h2>
             </div>
             <p id="history-badge" class="mini-badge tone-muted">Loading</p>
           </div>
@@ -119,13 +120,10 @@
       </section>
 
       <section id="provider-drift-card" class="surface notice notice-warning" hidden>
-        <div class="notice-header">
-          <div>
-            <p class="section-eyebrow">Attention</p>
-            <h2>Provider drift</h2>
-          </div>
+        <div class="notice-row">
+          <p class="mini-badge tone-warning">Drift</p>
+          <p id="provider-drift" class="notice-text">None</p>
         </div>
-        <p id="provider-drift" class="notice-text">None</p>
       </section>
     </main>
   </body>

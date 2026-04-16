@@ -13,14 +13,16 @@ SaveMyContext captures your ChatGPT, Gemini, and Grok conversations, syncs them 
 
 ### 1. Start the backend
 
-Recommended Linux install:
+Recommended local install:
 
 ```bash
 uv tool install savemycontext
 savemycontext service install --start
 ```
 
-If you want to bootstrap local config first, or run without `systemd`, use:
+On macOS, the same command installs a per-user `launchd` agent instead of a `systemd` service.
+
+If you want to bootstrap local config first, or run without a background service, use:
 
 ```bash
 savemycontext config init --openai-api-key YOUR_KEY
@@ -32,7 +34,7 @@ If you want to run it from this repo instead:
 ```bash
 cd backend
 uv sync
-uv run dev
+uv run python -m app.dev
 ```
 
 ### 2. Load the extension
@@ -96,7 +98,7 @@ SAVEMYCONTEXT_OPENAI_BASE_URL=https://openrouter.ai/api/v1
 SAVEMYCONTEXT_OPENAI_MODEL=openai/gpt-4.1-mini
 ```
 
-Put those in your backend env file, for example `~/.config/savemycontext/savemycontext.env` when using `savemycontext service install`, or set them with:
+Put those in your backend env file, for example `~/.config/savemycontext/savemycontext.env` on Linux or `~/Library/Application Support/savemycontext/savemycontext.env` on macOS when using `savemycontext service install`, or set them with:
 
 ```bash
 savemycontext config set \
@@ -111,11 +113,20 @@ Git versioning is enabled by default for the vault. SaveMyContext initializes a 
 
 ## Where Data Goes
 
-Service install defaults:
+Service install defaults on Linux:
 
 - database: `~/.local/share/savemycontext/savemycontext.db`
 - Markdown vault: `~/.local/share/savemycontext/markdown/SaveMyContext`
 - browser profiles: `~/.local/share/savemycontext/browser-profile/`
+
+Service install defaults on macOS:
+
+- config: `~/Library/Application Support/savemycontext/config.toml`
+- env: `~/Library/Application Support/savemycontext/savemycontext.env`
+- LaunchAgent: `~/Library/LaunchAgents/savemycontext.plist`
+- database: `~/Library/Application Support/savemycontext/data/savemycontext.db`
+- Markdown vault: `~/Library/Application Support/savemycontext/data/markdown/SaveMyContext`
+- browser profiles: `~/Library/Application Support/savemycontext/data/browser-profile/`
 
 Repo-local dev defaults:
 
@@ -178,6 +189,7 @@ pnpm test:e2e
 - OpenRouter or another OpenAI-compatible key should be configured on the backend for processing.
 - Browser-based AI processing is experimental and disabled by default.
 - Git versioning for the vault and shared to-do list is enabled by default.
+- Linux background services use `systemd --user`; macOS background services use `launchd`.
 - The extension bundle auto-rebuilds in dev mode, but Chrome still needs the unpacked extension reloaded after changes.
 
 ## Docs

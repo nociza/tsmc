@@ -26,14 +26,16 @@ from app.cli_config import (
 )
 from app.cli_paths import CLIPaths, default_cli_paths
 from app.cli_service import (
-    daemon_reload,
-    ensure_systemd_user_available,
+    current_service_manager,
+    ensure_service_manager_available,
     get_service_status,
-    maybe_warn_about_linger,
+    maybe_warn_about_service_manager,
     port_is_open,
+    reload_service_manager,
     service_control,
+    service_manager_display_name,
     stream_service_logs,
-    write_systemd_unit,
+    write_service_definition,
 )
 from app.models import APIToken, ProviderName
 from app.models.base import Base
@@ -147,9 +149,11 @@ async def initialize_cli_runtime(config: CLIConfig, paths: CLIPaths) -> None:
 
 
 def print_runtime_summary(config: CLIConfig, paths: CLIPaths) -> None:
+    print_kv("Service Manager", service_manager_display_name())
     print_kv("URL", f"http://{config.host}:{config.port}")
     print_kv("Config", paths.config_path)
     print_kv("Env", paths.env_path)
+    print_kv("Service File", paths.service_definition_path)
     print_kv("Data", config.data_dir)
     print_kv("Markdown", config.markdown_dir)
     print_kv("Database", config.database_path)
@@ -204,7 +208,7 @@ def command_run(args: argparse.Namespace) -> int:
 
 
 def command_service_install(args: argparse.Namespace) -> int:
-    ensure_systemd_user_available()
+    ensure_service_manager_available()
     paths, config = load_effective_config(args)
     env_updates = collect_env_updates(args)
     effective_config = merge_cli_config(
@@ -228,18 +232,18 @@ def command_service_install(args: argparse.Namespace) -> int:
         force_env_defaults=args.force,
         env_updates=env_updates,
     )
-    write_systemd_unit(effective_config, paths, force=args.force)
-    daemon_reload()
+    write_service_definition(effective_config, paths, force=args.force)
+    reload_service_manager()
 
     if args.enable or args.start:
-        service_control("enable", effective_config.service_name)
+        service_control("enable", effective_config, paths)
     if args.start:
-        service_control("start", effective_config.service_name)
+        service_control("start", effective_config, paths)
 
     print("SaveMyContext service installed.")
-    print_kv("Service", f"{effective_config.service_name}.service")
+    print_kv("Service", effective_config.service_name)
     print_runtime_summary(effective_config, paths)
-    linger_warning = maybe_warn_about_linger()
+    linger_warning = maybe_warn_about_service_manager()
     if linger_warning:
         print()
         print(linger_warning)
@@ -250,27 +254,29 @@ def command_service_install(args: argparse.Namespace) -> int:
 def command_service_control(args: argparse.Namespace) -> int:
     paths = resolve_cli_paths(getattr(args, "config", None))
     config = load_cli_config(paths.config_path, paths=paths)
-    ensure_systemd_user_available()
-    service_control(args.action, config.service_name)
+    ensure_service_manager_available()
+    service_control(args.action, config, paths)
     past_tense = {
         "start": "Started",
         "stop": "Stopped",
         "restart": "Restarted",
     }[args.action]
-    print(f"{past_tense} {config.service_name}.service")
+    print(f"{past_tense} {config.service_name}.")
     return 0
 
 
 def command_service_status(args: argparse.Namespace) -> int:
     paths = resolve_cli_paths(getattr(args, "config", None))
     config = load_cli_config(paths.config_path, paths=paths)
-    status = get_service_status(config, config.service_name)
-    print_kv("Service", f"{config.service_name}.service")
-    print_kv("Systemd", status.systemd_state)
+    status = get_service_status(config, paths)
+    print_kv("Service", config.service_name)
+    print_kv("Manager", status.manager_name)
+    print_kv("State", status.manager_state)
     print_kv("Enabled", "yes" if status.enabled else "no")
     print_kv("Health", format_health(status.health_ok, status.health_status_code, status.health_error))
     print_kv("Config", paths.config_path)
     print_kv("Env", paths.env_path)
+    print_kv("Service File", paths.service_definition_path)
     print_kv("Data", config.data_dir)
     print_kv("Markdown", config.markdown_dir)
     print_kv("Database", config.database_path)
@@ -283,26 +289,26 @@ def command_service_status(args: argparse.Namespace) -> int:
 def command_service_logs(args: argparse.Namespace) -> int:
     paths = resolve_cli_paths(getattr(args, "config", None))
     config = load_cli_config(paths.config_path, paths=paths)
-    return stream_service_logs(config.service_name, follow=args.follow, lines=args.lines, since=args.since)
+    return stream_service_logs(config, follow=args.follow, lines=args.lines, since=args.since)
 
 
 def command_service_uninstall(args: argparse.Namespace) -> int:
     paths = resolve_cli_paths(getattr(args, "config", None))
     config = load_cli_config(paths.config_path, paths=paths)
     try:
-        ensure_systemd_user_available()
-        service_control("stop", config.service_name)
+        ensure_service_manager_available()
+        service_control("stop", config, paths)
     except RuntimeError:
         pass
     try:
-        service_control("disable", config.service_name)
+        service_control("disable", config, paths)
     except RuntimeError:
         pass
 
-    if paths.unit_path.exists():
-        paths.unit_path.unlink()
+    if paths.service_definition_path.exists():
+        paths.service_definition_path.unlink()
         try:
-            daemon_reload()
+            reload_service_manager()
         except RuntimeError:
             pass
 
@@ -323,11 +329,18 @@ def command_service_uninstall(args: argparse.Namespace) -> int:
 def command_doctor(args: argparse.Namespace) -> int:
     paths = resolve_cli_paths(getattr(args, "config", None))
     config = load_cli_config(paths.config_path, paths=paths)
-    status = get_service_status(config, config.service_name)
+    status = get_service_status(config, paths)
     problems: list[str] = []
 
-    if not shutil.which("systemctl"):
-        problems.append("systemctl is not available.")
+    manager = current_service_manager()
+    if manager == "systemd":
+        if not shutil.which("systemctl"):
+            problems.append("systemctl is not available.")
+    elif manager == "launchd":
+        if not shutil.which("launchctl"):
+            problems.append("launchctl is not available.")
+    else:
+        problems.append("Background service management is not supported on this operating system.")
     if not shutil.which("git"):
         problems.append("git is not available, so vault and to-do versioning will be disabled.")
     if not paths.config_path.exists():
@@ -338,13 +351,18 @@ def command_doctor(args: argparse.Namespace) -> int:
         problems.append(f"Data directory is missing: {config.data_dir}")
     if not config.markdown_dir.exists():
         problems.append(f"Markdown directory is missing: {config.markdown_dir}")
+    if not status.health_ok:
+        problems.append(f"Health check failed: {format_health(status.health_ok, status.health_status_code, status.health_error)}")
     if not status.active and port_is_open(config.host, config.port) and not status.health_ok:
-        problems.append(f"Port {config.port} is already open but {config.service_name}.service is not active.")
+        problems.append(f"Port {config.port} is already open but the configured background service is not active.")
 
-    print_kv("Service", f"{config.service_name}.service")
+    print_kv("Service", config.service_name)
+    print_kv("Manager", status.manager_name)
+    print_kv("State", status.manager_state)
     print_kv("Health", format_health(status.health_ok, status.health_status_code, status.health_error))
     print_kv("Config", paths.config_path)
     print_kv("Env", paths.env_path)
+    print_kv("Service File", paths.service_definition_path)
     print_kv("Markdown", config.markdown_dir)
     print_kv("Database", config.database_path)
     print_kv("Browser Profile", config.browser_profile_dir)
@@ -358,7 +376,7 @@ def command_doctor(args: argparse.Namespace) -> int:
         print("Suggested next steps:")
         if not paths.config_path.exists() or not paths.env_path.exists():
             print("- Run `savemycontext config init` to create the config, env file, and local data directories.")
-        if shutil.which("systemctl"):
+        if current_service_manager() in {"systemd", "launchd"}:
             print("- Run `savemycontext service install --start` to install the background service.")
         else:
             print("- Run `savemycontext run` if you want to start the backend in the foreground on this machine.")
@@ -451,9 +469,10 @@ def command_config_show(args: argparse.Namespace) -> int:
 def command_config_path(args: argparse.Namespace) -> int:
     paths = resolve_cli_paths(getattr(args, "config", None))
     config = load_cli_config(paths.config_path, paths=paths)
+    print_kv("Service Manager", service_manager_display_name())
     print_kv("Config", paths.config_path)
     print_kv("Env", paths.env_path)
-    print_kv("Unit", paths.unit_path)
+    print_kv("Service File", paths.service_definition_path)
     print_kv("Data", config.data_dir)
     print_kv("Markdown", config.markdown_dir)
     print_kv("Database", config.database_path)
@@ -685,12 +704,12 @@ def build_parser() -> argparse.ArgumentParser:
     service_parser = subparsers.add_parser("service", help="Manage the SaveMyContext background service.")
     service_subparsers = service_parser.add_subparsers(dest="service_command", required=True, parser_class=HelpParser)
 
-    install_parser = service_subparsers.add_parser("install", help="Install the SaveMyContext systemd user service.")
+    install_parser = service_subparsers.add_parser("install", help="Install the SaveMyContext background service for this machine.")
     install_parser.add_argument("--start", action="store_true", help="Start the service immediately after installing it.")
     install_parser.add_argument("--enable", action="store_true", help="Enable the service to start with your user session.")
     add_runtime_override_args(install_parser, include_public_url=True)
     add_env_override_args(install_parser)
-    install_parser.add_argument("--force", action="store_true", help="Rewrite generated env defaults and replace a managed unit file.")
+    install_parser.add_argument("--force", action="store_true", help="Rewrite generated env defaults and replace a managed service file.")
     install_parser.set_defaults(func=command_service_install)
 
     for action in ["start", "stop", "restart"]:

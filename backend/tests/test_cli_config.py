@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import plistlib
 from pathlib import Path
 
 from app.cli_config import CLIConfig, default_cli_config, merge_cli_config, parse_cli_config, render_cli_config
-from app.cli_paths import CLIPaths
-from app.cli_service import render_systemd_unit
+from app.cli_paths import CLIPaths, default_cli_paths
+from app.cli_service import render_launchd_plist, render_systemd_unit
 
 
 def make_paths(tmp_path: Path) -> CLIPaths:
@@ -76,3 +77,53 @@ def test_render_systemd_unit_uses_savemycontext_run_command(tmp_path: Path) -> N
     assert " run --config " in unit
     assert str(paths.config_path) in unit
     assert str(paths.env_path) in unit
+
+
+def test_default_cli_paths_use_launchagents_on_macos(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+
+    paths = default_cli_paths(system_name="Darwin")
+
+    assert paths.config_path == (tmp_path / "Library" / "Application Support" / "savemycontext" / "config.toml")
+    assert paths.data_dir == (tmp_path / "Library" / "Application Support" / "savemycontext" / "data")
+    assert paths.service_definition_path == (tmp_path / "Library" / "LaunchAgents" / "savemycontext.plist")
+
+
+def test_default_cli_paths_keep_launchagents_on_macos_even_with_xdg_overrides(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / ".local" / "share"))
+
+    paths = default_cli_paths(system_name="Darwin")
+
+    assert paths.config_dir == (tmp_path / ".config" / "savemycontext")
+    assert paths.data_dir == (tmp_path / ".local" / "share" / "savemycontext")
+    assert paths.service_definition_path == (tmp_path / "Library" / "LaunchAgents" / "savemycontext.plist")
+
+
+def test_render_launchd_plist_sources_env_and_runs_savemycontext(tmp_path: Path) -> None:
+    paths = make_paths(tmp_path)
+    paths = CLIPaths(
+        config_dir=paths.config_dir,
+        config_path=paths.config_path,
+        env_path=paths.env_path,
+        data_dir=paths.data_dir,
+        markdown_dir=paths.markdown_dir,
+        database_path=paths.database_path,
+        systemd_user_dir=tmp_path / "LaunchAgents",
+        unit_path=tmp_path / "LaunchAgents" / "savemycontext.plist",
+    )
+    config = default_cli_config(paths)
+
+    payload = plistlib.loads(render_launchd_plist(config, paths))
+
+    assert payload["Label"] == "savemycontext"
+    assert payload["ProgramArguments"][0:2] == ["/bin/sh", "-lc"]
+    assert str(paths.env_path) in payload["ProgramArguments"][2]
+    assert " run --config " in payload["ProgramArguments"][2]
+    assert payload["WorkingDirectory"] == str(config.data_dir)
+    assert payload["StandardOutPath"].endswith("service.stdout.log")
+    assert payload["StandardErrorPath"].endswith("service.stderr.log")
+    assert payload["SaveMyContextManaged"] is True

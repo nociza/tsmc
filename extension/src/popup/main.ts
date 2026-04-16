@@ -103,15 +103,14 @@ function formatDate(value?: string | null, fallback = "No sync yet"): string {
   return Number.isNaN(date.getTime()) ? value : compactDateFormatter.format(date);
 }
 
-function formatBackendLabel(settings: ExtensionSettings, status: SyncStatus): string {
+function formatBackendLabel(settings: ExtensionSettings, _status: SyncStatus): string {
   try {
     const parsed = new URL(settings.backendUrl);
     const location =
       parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost" || parsed.hostname === "[::1]"
         ? "Local"
         : "Remote";
-    const version = status.backendVersion ? ` · v${status.backendVersion}` : "";
-    return `${location} · ${parsed.host}${version}`;
+    return `${location} · ${parsed.host}`;
   } catch {
     return settings.backendUrl;
   }
@@ -123,7 +122,13 @@ function formatBackendStatus(status: SyncStatus): string {
   }
 
   if (status.backendValidatedAt && status.backendVersion) {
-    return `${status.backendProduct ?? "savemycontext"} ${status.backendVersion} (${status.backendAuthMode ?? "unknown"})`;
+    const authMode =
+      status.backendAuthMode === "bootstrap_local"
+        ? "local"
+        : status.backendAuthMode === "app_token"
+          ? "token"
+          : status.backendAuthMode ?? "auth";
+    return `v${status.backendVersion} · ${authMode}`;
   }
 
   return "Checking…";
@@ -155,7 +160,7 @@ function formatHistorySync(settings: ExtensionSettings, status: SyncStatus): str
     return `${status.historySyncLastResult ?? "success"} · ${formatDate(status.historySyncLastCompletedAt)}${count}`;
   }
 
-  return "Waiting for the next provider visit.";
+  return "Waiting for next provider visit.";
 }
 
 function formatProcessing(status: SyncStatus): string {
@@ -170,20 +175,18 @@ function formatProcessing(status: SyncStatus): string {
   }
 
   if (status.processingMode === "immediate") {
-    return status.processingWorkerModel
-      ? `Immediate backend processing (${status.processingWorkerModel})`
-      : "Immediate backend processing";
+    return status.processingWorkerModel ? `Immediate · ${status.processingWorkerModel}` : "Immediate processing";
   }
 
   if (status.processingMode === "disabled") {
-    return "Experimental browser automation is disabled.";
+    return "Browser worker disabled.";
   }
 
   if (status.processingWorkerModel) {
-    return `Manual browser worker (${status.processingWorkerModel})`;
+    return `Manual · ${status.processingWorkerModel}`;
   }
 
-  return "No AI worker is configured yet.";
+  return "No AI worker configured.";
 }
 
 function formatProcessingMode(status: SyncStatus): string {
@@ -204,9 +207,7 @@ function formatProviderDriftAlert(alert?: ProviderDriftAlert | null): string {
     return "None";
   }
 
-  const headline = `${alert.provider}: ${alert.message}`;
-  const evidence = alert.evidence ? ` Evidence: ${alert.evidence}` : "";
-  return `${headline} ${formatDate(alert.detectedAt)}.${evidence}`.trim();
+  return `${alert.provider}: ${alert.message} · ${formatDate(alert.detectedAt)}`;
 }
 
 function formatIndexingStatus(status: SyncStatus): string {
@@ -226,10 +227,6 @@ function formatIndexingStatus(status: SyncStatus): string {
     extras.push(`${status.lastSyncedMessageCount} msgs`);
   }
 
-  if (status.lastIndexingReason) {
-    extras.push(status.lastIndexingReason);
-  }
-
   return extras.join(" · ");
 }
 
@@ -241,7 +238,7 @@ function processingButtonState(status: SyncStatus): {
   if (status.processingInProgress) {
     return {
       disabled: true,
-      label: "Running AI queue…",
+      label: "Running…",
       title: "AI processing is already running."
     };
   }
@@ -249,7 +246,7 @@ function processingButtonState(status: SyncStatus): {
   if (status.backendValidationError) {
     return {
       disabled: true,
-      label: "Run AI queue",
+      label: "Run queue",
       title: status.backendValidationError
     };
   }
@@ -257,7 +254,7 @@ function processingButtonState(status: SyncStatus): {
   if (status.processingMode === "immediate") {
     return {
       disabled: true,
-      label: "Run AI queue",
+      label: "Run queue",
       title: "This backend is using immediate server-side processing instead of the extension worker."
     };
   }
@@ -265,7 +262,7 @@ function processingButtonState(status: SyncStatus): {
   if (status.processingMode === "disabled") {
     return {
       disabled: true,
-      label: "Run AI queue",
+      label: "Run queue",
       title: "Experimental browser automation is disabled on this backend."
     };
   }
@@ -273,14 +270,14 @@ function processingButtonState(status: SyncStatus): {
   if (!status.processingPendingCount) {
     return {
       disabled: true,
-      label: "Run AI queue",
+      label: "Run queue",
       title: "There are no pending AI jobs right now."
     };
   }
 
   return {
     disabled: false,
-    label: "Run AI queue",
+    label: "Run queue",
     title: "Use your current signed-in provider tab to process queued SaveMyContext jobs."
   };
 }
@@ -381,8 +378,9 @@ function renderCategoryMix(summary?: BackendDashboardSummary | null): void {
     const item = document.createElement("div");
     item.className = "category-item";
 
-    const head = document.createElement("div");
-    head.className = "category-head";
+    const dot = document.createElement("span");
+    dot.className = "category-dot";
+    dot.style.background = categoryPalette[category].fill;
 
     const name = document.createElement("span");
     name.className = "category-name";
@@ -390,20 +388,10 @@ function renderCategoryMix(summary?: BackendDashboardSummary | null): void {
 
     const value = document.createElement("span");
     value.className = "category-value";
-    value.textContent = `${formatNumber(count)} · ${percentFormatter.format(ratio * 100)}%`;
+    value.textContent = formatNumber(count);
+    item.title = `${categoryLabels[category]} · ${formatNumber(count)} · ${percentFormatter.format(ratio * 100)}%`;
 
-    const bar = document.createElement("div");
-    bar.className = "category-bar";
-    bar.style.background = categoryPalette[category].track;
-
-    const fill = document.createElement("div");
-    fill.className = "category-fill";
-    fill.style.background = categoryPalette[category].fill;
-    fill.style.width = `${Math.max(ratio * 100, count ? 10 : 0)}%`;
-
-    head.append(name, value);
-    bar.append(fill);
-    item.append(head, bar);
+    item.append(dot, name, value);
     categoryList.append(item);
   }
 }
@@ -416,7 +404,7 @@ function renderSummary(summary: BackendDashboardSummary | null, status: SyncStat
     processingPending,
     typeof status.processingPendingCount === "number" ? String(status.processingPendingCount) : "0"
   );
-  setText(corpusStatus, `Latest corpus sync: ${formatDate(summary?.latest_sync_at, "No data yet")}`);
+  setText(corpusStatus, `Corpus sync · ${formatDate(summary?.latest_sync_at, "No data yet")}`);
   renderCategoryMix(summary);
 }
 

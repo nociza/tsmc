@@ -1,8 +1,8 @@
-# SaveMyContext CLI and Linux Service Design
+# SaveMyContext CLI and Local Service Design
 
 ## Summary
 
-This document proposes a user-first CLI for self-hosting the SaveMyContext backend on a Linux machine with a single, simple workflow:
+This document proposes a user-first CLI for self-hosting the SaveMyContext backend on a Linux or macOS machine with a single, simple workflow:
 
 ```bash
 uv tool install savemycontext
@@ -13,11 +13,11 @@ That workflow should:
 
 - install the backend as an isolated tool with `uv`
 - create a stable config and data layout under the user's home directory
-- register a `systemd --user` service
+- register a background user service
 - start the backend in the background
 - leave the generated Markdown files in a predictable location that other local tools, like OpenClaw, can read directly
 
-The CLI is primarily for self-hosted Linux use. Railway or other cloud deployments remain supported through normal ASGI/container deployment, but they are not the primary target for this UX.
+The CLI is primarily for self-hosted local use. On Linux it uses `systemd --user`; on macOS it uses a per-user `launchd` agent. Railway or other cloud deployments remain supported through normal ASGI/container deployment, but they are not the primary target for this UX.
 
 ## Why This Matters
 
@@ -41,7 +41,7 @@ The self-hosted user wants four things:
 
 - Zero repo checkout required for normal users.
 - No Python virtualenv management by hand.
-- No manual `systemd` unit editing for the common case.
+- No manual service-file editing for the common case.
 - No hidden storage paths.
 - No raw SQLAlchemy URLs in the common flow.
 - No ambiguity about where Markdown exports live.
@@ -51,7 +51,7 @@ The self-hosted user wants four things:
 
 - Replacing the extension dev workflow.
 - Solving multi-node or replicated deployments.
-- First-class Windows or macOS background-service support in v1.
+- First-class Windows background-service support in v1.
 - First-class Railway management through the CLI.
 - Full secret-management UX beyond a local env file in v1.
 
@@ -63,7 +63,7 @@ This proposal assumes:
 
 - a PyPI-published package
 - a `console_scripts` entry point named `savemycontext`
-- a Linux machine with `systemd --user`
+- a local machine with either `systemd --user` or `launchd`
 
 Important package naming note:
 
@@ -123,7 +123,7 @@ Purpose:
 
 - bootstrap the local config if it does not exist
 - create data directories
-- generate a user-scoped `systemd` unit
+- generate a user-scoped service definition
 - register the service
 - optionally start it
 
@@ -146,22 +146,24 @@ savemycontext service install --start
 
 Behavior:
 
-1. Resolve config and data directories using XDG defaults.
+1. Resolve config and data directories using platform defaults.
 2. Create config and env files if missing.
 3. Create the Markdown and SQLite directories.
-4. Write a `systemd --user` unit file.
-5. Run `systemctl --user daemon-reload`.
-6. Run `systemctl --user enable savemycontext.service` if `--enable` or `--start` is given.
-7. Run `systemctl --user start savemycontext.service` if `--start` is given.
+4. Write a managed service file.
+5. On Linux, run `systemctl --user daemon-reload`.
+6. On Linux, enable and start `savemycontext.service` when requested.
+7. On macOS, bootstrap the generated LaunchAgent when requested.
 8. Print:
    - service name
+   - service manager
    - local URL
    - config path
+   - service file path
    - Markdown path
    - database path
    - next useful commands
 
-If the user has no `systemd --user` session available, the command should fail clearly and explain that Linux self-hosted service mode currently requires `systemd --user`.
+If the user has no supported local service manager available, the command should fail clearly and explain that they can still use `savemycontext run` in the foreground.
 
 ### `savemycontext service status`
 
@@ -173,7 +175,7 @@ Purpose:
 
 Output should include:
 
-- systemd state
+- service-manager name and state
 - last known PID
 - configured bind address
 - healthcheck result from `/api/v1/health`
@@ -185,7 +187,7 @@ Output should include:
 
 Purpose:
 
-- give the user the exact logs they need without making them learn `journalctl`
+- give the user the exact logs they need without making them learn platform-specific logging commands
 
 Recommended behavior:
 
@@ -195,9 +197,8 @@ Recommended behavior:
 
 Implementation target:
 
-```bash
-journalctl --user -u savemycontext.service
-```
+- Linux: `journalctl --user -u savemycontext.service`
+- macOS: `tail` on the LaunchAgent stdout/stderr log files
 
 ### `savemycontext service uninstall`
 
@@ -215,7 +216,7 @@ Default behavior should be conservative:
 
 - stop the service
 - disable the service
-- remove the unit
+- remove the generated service file
 - keep config and data unless the user explicitly asks to purge them
 
 ### `savemycontext run`

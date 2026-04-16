@@ -1,17 +1,17 @@
 # SaveMyContext Server
 
-Self-hosted FastAPI backend and Linux service CLI for SaveMyContext.
+Self-hosted FastAPI backend and Linux/macOS service CLI for SaveMyContext.
 
 ## Install As a Tool
 
-Recommended user flow on Linux:
+Recommended user flow on Linux and macOS:
 
 ```bash
 uv tool install savemycontext
 savemycontext service install --start
 ```
 
-That installs the backend as an isolated `uv` tool, writes config under `~/.config/savemycontext/`, stores runtime data under `~/.local/share/savemycontext/`, and registers a `systemd --user` service.
+On Linux, that installs a `systemd --user` service. On macOS, it installs a per-user `launchd` agent. The CLI also supports `savemycontext run` if you want the backend in the foreground without a background service.
 
 Useful commands:
 
@@ -34,7 +34,10 @@ SAVEMYCONTEXT_OPENAI_MODEL=openai/gpt-4.1-mini
 
 Browser automation is experimental and disabled by default.
 
-For `savemycontext service install`, put those values in `~/.config/savemycontext/savemycontext.env`.
+For `savemycontext service install`, put those values in the generated env file:
+
+- Linux: `~/.config/savemycontext/savemycontext.env`
+- macOS: `~/Library/Application Support/savemycontext/savemycontext.env`
 
 ## Vault And To-Do Versioning
 
@@ -52,5 +55,5 @@ Run the local development server from source with:
 
 ```bash
 uv sync
-uv run dev
+uv run python -m app.dev
 ```
