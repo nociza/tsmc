@@ -1,22 +1,65 @@
 import "./styles.css";
 
+import { fetchDashboardSummary } from "../background/backend";
 import type {
+  BackendDashboardSummary,
   ExtensionSettings,
   ProviderDriftAlert,
+  ProviderName,
   RuntimeMessage,
+  SessionCategoryName,
   SourceCaptureResponse,
   SyncStatus
 } from "../shared/types";
 
+const numberFormatter = new Intl.NumberFormat();
+const percentFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+const compactDateFormatter = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit"
+});
+
+const categoryOrder: SessionCategoryName[] = ["factual", "ideas", "journal", "todo"];
+const categoryPalette: Record<SessionCategoryName, { fill: string; track: string }> = {
+  factual: { fill: "#1e9f6b", track: "rgba(30, 159, 107, 0.16)" },
+  ideas: { fill: "#d48a1b", track: "rgba(212, 138, 27, 0.16)" },
+  journal: { fill: "#44b8d9", track: "rgba(68, 184, 217, 0.16)" },
+  todo: { fill: "#b6573d", track: "rgba(182, 87, 61, 0.16)" }
+};
+const categoryLabels: Record<SessionCategoryName, string> = {
+  factual: "Factual",
+  ideas: "Ideas",
+  journal: "Journal",
+  todo: "To-Do"
+};
+const providerLabels: Record<ProviderName, string> = {
+  chatgpt: "ChatGPT",
+  gemini: "Gemini",
+  grok: "Grok"
+};
+const toneClasses = ["tone-success", "tone-busy", "tone-warning", "tone-info", "tone-muted"];
+
+const connectionChip = document.querySelector<HTMLParagraphElement>("#connection-chip");
 const backendUrl = document.querySelector<HTMLParagraphElement>("#backend-url");
 const backendStatus = document.querySelector<HTMLParagraphElement>("#backend-status");
 const lastSuccess = document.querySelector<HTMLParagraphElement>("#last-success");
 const lastSession = document.querySelector<HTMLParagraphElement>("#last-session");
+const corpusStatus = document.querySelector<HTMLParagraphElement>("#corpus-status");
+const metricSessions = document.querySelector<HTMLParagraphElement>("#metric-sessions");
+const metricMessages = document.querySelector<HTMLParagraphElement>("#metric-messages");
+const metricTriplets = document.querySelector<HTMLParagraphElement>("#metric-triplets");
 const historySync = document.querySelector<HTMLParagraphElement>("#history-sync");
+const historyBadge = document.querySelector<HTMLParagraphElement>("#history-badge");
 const processingStatus = document.querySelector<HTMLParagraphElement>("#processing-status");
+const processingBadge = document.querySelector<HTMLParagraphElement>("#processing-badge");
 const processingPending = document.querySelector<HTMLParagraphElement>("#processing-pending");
-const providers = document.querySelector<HTMLParagraphElement>("#providers");
+const processingMode = document.querySelector<HTMLParagraphElement>("#processing-mode");
+const providers = document.querySelector<HTMLDivElement>("#providers");
+const indexingStatus = document.querySelector<HTMLParagraphElement>("#indexing-status");
 const lastError = document.querySelector<HTMLParagraphElement>("#last-error");
+const categoryList = document.querySelector<HTMLDivElement>("#category-list");
 const providerDriftCard = document.querySelector<HTMLDivElement>("#provider-drift-card");
 const providerDrift = document.querySelector<HTMLParagraphElement>("#provider-drift");
 const runProcessingButton = document.querySelector<HTMLButtonElement>("#run-processing");
@@ -25,22 +68,70 @@ const openQuickSearchButton = document.querySelector<HTMLButtonElement>("#open-q
 const openDashboardButton = document.querySelector<HTMLButtonElement>("#open-dashboard");
 const openOptionsButton = document.querySelector<HTMLButtonElement>("#open-options");
 const captureStatus = document.querySelector<HTMLParagraphElement>("#capture-status");
+
 let currentSettings: ExtensionSettings | null = null;
 let currentStatus: SyncStatus | null = null;
+let currentSummary: BackendDashboardSummary | null = null;
 let loadPromise: Promise<void> | null = null;
 let loadQueued = false;
 
-function formatDate(value?: string): string {
+function formatNumber(value: number | undefined | null): string {
+  return numberFormatter.format(value ?? 0);
+}
+
+function setText(node: HTMLElement | null, text: string): void {
+  if (!node) {
+    return;
+  }
+  node.textContent = text;
+  node.title = text;
+}
+
+function applyTone(node: HTMLElement | null, tone: string): void {
+  if (!node) {
+    return;
+  }
+  node.classList.remove(...toneClasses);
+  node.classList.add(tone);
+}
+
+function formatDate(value?: string | null, fallback = "No sync yet"): string {
   if (!value) {
-    return "No sync yet";
+    return fallback;
   }
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? value : compactDateFormatter.format(date);
+}
+
+function formatBackendLabel(settings: ExtensionSettings, status: SyncStatus): string {
+  try {
+    const parsed = new URL(settings.backendUrl);
+    const location =
+      parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost" || parsed.hostname === "[::1]"
+        ? "Local"
+        : "Remote";
+    const version = status.backendVersion ? ` · v${status.backendVersion}` : "";
+    return `${location} · ${parsed.host}${version}`;
+  } catch {
+    return settings.backendUrl;
+  }
+}
+
+function formatBackendStatus(status: SyncStatus): string {
+  if (status.backendValidationError) {
+    return status.backendValidationError;
+  }
+
+  if (status.backendValidatedAt && status.backendVersion) {
+    return `${status.backendProduct ?? "savemycontext"} ${status.backendVersion} (${status.backendAuthMode ?? "unknown"})`;
+  }
+
+  return "Checking…";
 }
 
 function formatHistorySync(settings: ExtensionSettings, status: SyncStatus): string {
   if (!settings.autoSyncHistory) {
-    return "Disabled";
+    return "Auto history sync is off.";
   }
 
   if (status.historySyncInProgress) {
@@ -59,40 +150,18 @@ function formatHistorySync(settings: ExtensionSettings, status: SyncStatus): str
   if (status.historySyncLastCompletedAt) {
     const count =
       typeof status.historySyncLastConversationCount === "number"
-        ? `, ${status.historySyncLastConversationCount} conversations`
+        ? ` · ${status.historySyncLastConversationCount} conversations`
         : "";
-    return `${status.historySyncLastResult ?? "success"} ${formatDate(status.historySyncLastCompletedAt)}${count}`;
+    return `${status.historySyncLastResult ?? "success"} · ${formatDate(status.historySyncLastCompletedAt)}${count}`;
   }
 
-  return "Idle";
-}
-
-function formatProviderDriftAlert(alert?: ProviderDriftAlert | null): string {
-  if (!alert) {
-    return "None";
-  }
-
-  const headline = `${alert.provider}: ${alert.message}`;
-  const evidence = alert.evidence ? ` Evidence: ${alert.evidence}` : "";
-  return `${headline} ${formatDate(alert.detectedAt)}.${evidence}`.trim();
-}
-
-function formatBackendStatus(status: SyncStatus): string {
-  if (status.backendValidationError) {
-    return status.backendValidationError;
-  }
-
-  if (status.backendValidatedAt && status.backendVersion) {
-    return `${status.backendProduct ?? "savemycontext"} ${status.backendVersion} (${status.backendAuthMode ?? "unknown"})`;
-  }
-
-  return "Checking…";
+  return "Waiting for the next provider visit.";
 }
 
 function formatProcessing(status: SyncStatus): string {
   if (status.processingInProgress) {
     const provider = status.processingProvider ?? "provider";
-    const processed = typeof status.processingProcessedCount === "number" ? `, ${status.processingProcessedCount} done` : "";
+    const processed = typeof status.processingProcessedCount === "number" ? ` · ${status.processingProcessedCount} done` : "";
     return `Running ${provider}${processed}`;
   }
 
@@ -107,14 +176,61 @@ function formatProcessing(status: SyncStatus): string {
   }
 
   if (status.processingMode === "disabled") {
-    return "Experimental browser automation is disabled";
+    return "Experimental browser automation is disabled.";
   }
 
   if (status.processingWorkerModel) {
     return `Manual browser worker (${status.processingWorkerModel})`;
   }
 
+  return "No AI worker is configured yet.";
+}
+
+function formatProcessingMode(status: SyncStatus): string {
+  if (status.processingMode === "immediate") {
+    return status.processingWorkerModel ? `Server · ${status.processingWorkerModel}` : "Server-side";
+  }
+  if (status.processingMode === "extension_browser") {
+    return status.processingWorkerModel ? `Browser · ${status.processingWorkerModel}` : "Browser worker";
+  }
+  if (status.processingMode === "disabled") {
+    return "Disabled";
+  }
   return "Unavailable";
+}
+
+function formatProviderDriftAlert(alert?: ProviderDriftAlert | null): string {
+  if (!alert) {
+    return "None";
+  }
+
+  const headline = `${alert.provider}: ${alert.message}`;
+  const evidence = alert.evidence ? ` Evidence: ${alert.evidence}` : "";
+  return `${headline} ${formatDate(alert.detectedAt)}.${evidence}`.trim();
+}
+
+function formatIndexingStatus(status: SyncStatus): string {
+  if (!status.lastSessionKey) {
+    return "No captures yet";
+  }
+
+  const decision =
+    status.lastIndexingDecision === "skipped"
+      ? "Skipped"
+      : status.lastIndexingDecision === "indexed"
+        ? "Indexed"
+        : "Captured";
+  const extras: string[] = [decision];
+
+  if (typeof status.lastSyncedMessageCount === "number" && status.lastSyncedMessageCount > 0) {
+    extras.push(`${status.lastSyncedMessageCount} msgs`);
+  }
+
+  if (status.lastIndexingReason) {
+    extras.push(status.lastIndexingReason);
+  }
+
+  return extras.join(" · ");
 }
 
 function processingButtonState(status: SyncStatus): {
@@ -125,7 +241,7 @@ function processingButtonState(status: SyncStatus): {
   if (status.processingInProgress) {
     return {
       disabled: true,
-      label: "Running AI Processing…",
+      label: "Running AI queue…",
       title: "AI processing is already running."
     };
   }
@@ -133,7 +249,7 @@ function processingButtonState(status: SyncStatus): {
   if (status.backendValidationError) {
     return {
       disabled: true,
-      label: "Run AI Processing",
+      label: "Run AI queue",
       title: status.backendValidationError
     };
   }
@@ -141,7 +257,7 @@ function processingButtonState(status: SyncStatus): {
   if (status.processingMode === "immediate") {
     return {
       disabled: true,
-      label: "Run AI Processing",
+      label: "Run AI queue",
       title: "This backend is using immediate server-side processing instead of the extension worker."
     };
   }
@@ -149,7 +265,7 @@ function processingButtonState(status: SyncStatus): {
   if (status.processingMode === "disabled") {
     return {
       disabled: true,
-      label: "Run AI Processing",
+      label: "Run AI queue",
       title: "Experimental browser automation is disabled on this backend."
     };
   }
@@ -157,59 +273,185 @@ function processingButtonState(status: SyncStatus): {
   if (!status.processingPendingCount) {
     return {
       disabled: true,
-      label: "Run AI Processing",
+      label: "Run AI queue",
       title: "There are no pending AI jobs right now."
     };
   }
 
   return {
     disabled: false,
-    label: "Run AI Processing",
-    title: "Use your current signed-in browser session to process queued SaveMyContext jobs."
+    label: "Run AI queue",
+    title: "Use your current signed-in provider tab to process queued SaveMyContext jobs."
   };
 }
 
-async function sendMessage<TResponse>(message: RuntimeMessage): Promise<TResponse> {
-  return chrome.runtime.sendMessage(message) as Promise<TResponse>;
+function connectionState(status: SyncStatus): { label: string; tone: string } {
+  if (status.backendValidationError) {
+    return { label: "Needs attention", tone: "tone-warning" };
+  }
+  if (status.historySyncInProgress || status.processingInProgress) {
+    return { label: "Active", tone: "tone-busy" };
+  }
+  if (status.backendValidatedAt && status.backendVersion) {
+    return { label: "Connected", tone: "tone-success" };
+  }
+  return { label: "Checking", tone: "tone-muted" };
 }
 
-function render(settings: ExtensionSettings, status: SyncStatus): void {
-  if (backendUrl) {
-    const suffix = status.backendVersion ? ` (${status.backendVersion})` : "";
-    backendUrl.textContent = `${settings.backendUrl}${suffix}`;
+function historyState(settings: ExtensionSettings, status: SyncStatus): { label: string; tone: string } {
+  if (!settings.autoSyncHistory) {
+    return { label: "Off", tone: "tone-muted" };
   }
-  if (backendStatus) {
-    backendStatus.textContent = formatBackendStatus(status);
+  if (status.historySyncInProgress) {
+    return { label: "Running", tone: "tone-busy" };
   }
-  if (lastSuccess) {
-    lastSuccess.textContent = formatDate(status.lastSuccessAt);
+  if (status.historySyncLastResult === "failed" || status.historySyncLastResult === "unsupported") {
+    return { label: "Alert", tone: "tone-warning" };
   }
-  if (lastSession) {
-    lastSession.textContent = status.lastSessionKey ?? "n/a";
+  if (status.historySyncLastCompletedAt) {
+    return { label: "Ready", tone: "tone-success" };
   }
-  if (historySync) {
-    historySync.textContent = formatHistorySync(settings, status);
+  return { label: "On", tone: "tone-info" };
+}
+
+function processingState(status: SyncStatus): { label: string; tone: string } {
+  if (status.processingInProgress) {
+    return { label: "Running", tone: "tone-busy" };
   }
-  if (processingStatus) {
-    processingStatus.textContent = formatProcessing(status);
+  if (status.processingLastError) {
+    return { label: "Alert", tone: "tone-warning" };
   }
-  if (processingPending) {
-    processingPending.textContent =
-      typeof status.processingPendingCount === "number" ? String(status.processingPendingCount) : "n/a";
+  if (status.processingMode === "disabled") {
+    return { label: "Off", tone: "tone-muted" };
   }
-  if (providers) {
-    providers.textContent = Object.entries(settings.enabledProviders)
-      .filter(([, enabled]) => enabled)
-      .map(([provider]) => provider)
-      .join(", ");
+  if ((status.processingPendingCount ?? 0) > 0) {
+    return { label: `${status.processingPendingCount} queued`, tone: "tone-info" };
   }
-  if (lastError) {
-    lastError.textContent = status.processingLastError ?? status.historySyncLastError ?? status.lastError ?? "None";
+  if (status.processingMode === "immediate") {
+    return { label: "Server", tone: "tone-success" };
   }
+  if (status.processingMode === "extension_browser") {
+    return { label: "Idle", tone: "tone-success" };
+  }
+  return { label: "Unavailable", tone: "tone-muted" };
+}
+
+function renderProviders(settings: ExtensionSettings): void {
+  if (!providers) {
+    return;
+  }
+
+  providers.replaceChildren();
+  const enabled = (Object.keys(settings.enabledProviders) as ProviderName[]).filter(
+    (provider) => settings.enabledProviders[provider]
+  );
+
+  if (!enabled.length) {
+    const pill = document.createElement("span");
+    pill.className = "provider-pill tone-muted";
+    pill.textContent = "None";
+    providers.append(pill);
+    return;
+  }
+
+  for (const provider of enabled) {
+    const pill = document.createElement("span");
+    pill.className = "provider-pill tone-muted";
+    pill.textContent = providerLabels[provider];
+    providers.append(pill);
+  }
+}
+
+function renderCategoryMix(summary?: BackendDashboardSummary | null): void {
+  if (!categoryList) {
+    return;
+  }
+
+  const counts = new Map<SessionCategoryName, number>(
+    summary?.categories.map((item) => [item.category, item.count] satisfies [SessionCategoryName, number]) ?? []
+  );
+  const total = summary?.categories.reduce((current, item) => current + item.count, 0) ?? 0;
+
+  categoryList.replaceChildren();
+
+  for (const category of categoryOrder) {
+    const count = counts.get(category) ?? 0;
+    const ratio = total ? count / total : 0;
+
+    const item = document.createElement("div");
+    item.className = "category-item";
+
+    const head = document.createElement("div");
+    head.className = "category-head";
+
+    const name = document.createElement("span");
+    name.className = "category-name";
+    name.textContent = categoryLabels[category];
+
+    const value = document.createElement("span");
+    value.className = "category-value";
+    value.textContent = `${formatNumber(count)} · ${percentFormatter.format(ratio * 100)}%`;
+
+    const bar = document.createElement("div");
+    bar.className = "category-bar";
+    bar.style.background = categoryPalette[category].track;
+
+    const fill = document.createElement("div");
+    fill.className = "category-fill";
+    fill.style.background = categoryPalette[category].fill;
+    fill.style.width = `${Math.max(ratio * 100, count ? 10 : 0)}%`;
+
+    head.append(name, value);
+    bar.append(fill);
+    item.append(head, bar);
+    categoryList.append(item);
+  }
+}
+
+function renderSummary(summary: BackendDashboardSummary | null, status: SyncStatus): void {
+  setText(metricSessions, summary ? formatNumber(summary.total_sessions) : "—");
+  setText(metricMessages, summary ? formatNumber(summary.total_messages) : "—");
+  setText(metricTriplets, summary ? formatNumber(summary.total_triplets) : "—");
+  setText(
+    processingPending,
+    typeof status.processingPendingCount === "number" ? String(status.processingPendingCount) : "0"
+  );
+  setText(corpusStatus, `Latest corpus sync: ${formatDate(summary?.latest_sync_at, "No data yet")}`);
+  renderCategoryMix(summary);
+}
+
+function render(settings: ExtensionSettings, status: SyncStatus, summary: BackendDashboardSummary | null): void {
+  const effectiveSummary = status.backendValidationError ? null : summary;
+  const connection = connectionState(status);
+  setText(connectionChip, connection.label);
+  applyTone(connectionChip, connection.tone);
+
+  setText(backendUrl, formatBackendLabel(settings, status));
+  setText(backendStatus, formatBackendStatus(status));
+  setText(lastSuccess, formatDate(status.lastSuccessAt, "No sync yet"));
+  setText(lastSession, status.lastSessionKey ?? "n/a");
+
+  const history = historyState(settings, status);
+  setText(historyBadge, history.label);
+  applyTone(historyBadge, history.tone);
+  setText(historySync, formatHistorySync(settings, status));
+
+  const processing = processingState(status);
+  setText(processingBadge, processing.label);
+  applyTone(processingBadge, processing.tone);
+  setText(processingStatus, formatProcessing(status));
+  setText(processingMode, formatProcessingMode(status));
+
+  renderSummary(effectiveSummary, status);
+  renderProviders(settings);
+  setText(indexingStatus, formatIndexingStatus(status));
+  setText(lastError, status.processingLastError ?? status.historySyncLastError ?? status.lastError ?? "None");
+
   if (providerDriftCard && providerDrift) {
     providerDriftCard.hidden = !status.providerDriftAlert;
-    providerDrift.textContent = formatProviderDriftAlert(status.providerDriftAlert);
+    setText(providerDrift, formatProviderDriftAlert(status.providerDriftAlert));
   }
+
   if (runProcessingButton) {
     runProcessingButton.hidden = status.processingMode !== "extension_browser";
     const buttonState = processingButtonState(status);
@@ -217,6 +459,10 @@ function render(settings: ExtensionSettings, status: SyncStatus): void {
     runProcessingButton.textContent = buttonState.label;
     runProcessingButton.title = buttonState.title;
   }
+}
+
+async function sendMessage<TResponse>(message: RuntimeMessage): Promise<TResponse> {
+  return chrome.runtime.sendMessage(message) as Promise<TResponse>;
 }
 
 async function load(): Promise<void> {
@@ -228,13 +474,35 @@ async function load(): Promise<void> {
   loadPromise = (async () => {
     do {
       loadQueued = false;
+
+      const previousBackendUrl = currentSettings?.backendUrl ?? null;
       const [settings, status] = await Promise.all([
         sendMessage<ExtensionSettings>({ type: "GET_SETTINGS" }),
         sendMessage<SyncStatus>({ type: "GET_STATUS" })
       ]);
+
       currentSettings = settings;
       currentStatus = status;
-      render(settings, status);
+
+      if (previousBackendUrl !== settings.backendUrl) {
+        currentSummary = null;
+      }
+
+      render(settings, status, currentSummary);
+
+      if (status.backendValidationError) {
+        currentSummary = null;
+        render(settings, status, currentSummary);
+        continue;
+      }
+
+      try {
+        currentSummary = await fetchDashboardSummary(settings);
+      } catch {
+        currentSummary = null;
+      }
+
+      render(settings, status, currentSummary);
     } while (loadQueued);
   })();
 
@@ -252,33 +520,28 @@ openDashboardButton?.addEventListener("click", () => {
 openQuickSearchButton?.addEventListener("click", async () => {
   const response = await sendMessage<{ ok: boolean; error?: string }>({ type: "OPEN_QUICK_SEARCH" });
   if (!response.ok) {
-    if (lastError) {
-      lastError.textContent = response.error ?? "Could not open quick search on the current page.";
-    }
+    setText(lastError, response.error ?? "Could not open quick search on the current page.");
     return;
   }
   window.close();
 });
 
 saveCurrentPageButton?.addEventListener("click", async () => {
-  if (captureStatus) {
-    captureStatus.textContent = "Saving current page…";
-  }
+  setText(captureStatus, "Saving current page…");
+
   const response = await sendMessage<SourceCaptureResponse>({
     type: "SAVE_CURRENT_PAGE_SOURCE",
     payload: {
       saveMode: "ai"
     }
   });
+
   if (!response.ok) {
-    if (captureStatus) {
-      captureStatus.textContent = response.error ?? "Could not save the current page.";
-    }
+    setText(captureStatus, response.error ?? "Could not save the current page.");
     return;
   }
-  if (captureStatus) {
-    captureStatus.textContent = `Saved ${response.title ?? "page"} to SaveMyContext.`;
-  }
+
+  setText(captureStatus, `Saved ${response.title ?? "page"} to SaveMyContext.`);
 });
 
 openOptionsButton?.addEventListener("click", () => {
@@ -287,8 +550,8 @@ openOptionsButton?.addEventListener("click", () => {
 
 runProcessingButton?.addEventListener("click", async () => {
   const response = await sendMessage<{ ok: boolean; error?: string }>({ type: "START_PROCESSING" });
-  if (!response.ok && lastError) {
-    lastError.textContent = response.error ?? "AI processing failed.";
+  if (!response.ok) {
+    setText(lastError, response.error ?? "AI processing failed.");
   }
   await load();
 });
@@ -300,11 +563,11 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
   if (changes["savemycontext.status"]?.newValue && currentSettings) {
     currentStatus = changes["savemycontext.status"].newValue as SyncStatus;
-    render(currentSettings, currentStatus);
+    render(currentSettings, currentStatus, currentSummary);
     return;
   }
 
-  if (changes["savemycontext.settings"] || changes["savemycontext.settings.cache"]) {
+  if (changes["savemycontext.settings"] || changes["savemycontext.settings.cache"] || changes["savemycontext.settings.secrets"]) {
     void load();
   }
 });

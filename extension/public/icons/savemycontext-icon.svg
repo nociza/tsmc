@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">SaveMyContext extension icon</title>
+  <desc id="desc">A C-shaped knowledge graph mark for context on a transparent background.</desc>
+  <path
+    d="M734 278C677 222 594 188 502 188C307 188 190 329 190 512C190 695 307 836 502 836C594 836 677 802 734 746"
+    fill="none"
+    stroke="#103847"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="92"
+  />
+  <path d="M270 512H530" fill="none" stroke="#1A5A6D" stroke-linecap="round" stroke-width="34" />
+  <path d="M530 512L734 278" fill="none" stroke="#1A5A6D" stroke-linecap="round" stroke-linejoin="round" stroke-width="34" />
+  <path d="M530 512L734 746" fill="none" stroke="#1A5A6D" stroke-linecap="round" stroke-linejoin="round" stroke-width="34" />
+  <circle cx="734" cy="278" r="84" fill="#23C16B" stroke="#103847" stroke-width="24" />
+  <circle cx="270" cy="512" r="76" fill="#EEF9FF" stroke="#103847" stroke-width="24" />
+  <circle cx="530" cy="512" r="92" fill="#103847" />
+  <circle cx="530" cy="512" r="30" fill="#B3F2C8" />
+  <circle cx="734" cy="746" r="84" fill="#8FE7F0" stroke="#103847" stroke-width="24" />
+</svg>

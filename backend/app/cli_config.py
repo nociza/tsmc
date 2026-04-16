@@ -5,6 +5,7 @@ import textwrap
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping
 
 from app.cli_paths import CLIPaths, default_cli_paths
 
@@ -14,6 +15,17 @@ DEFAULT_PORT = 18888
 DEFAULT_LLM_BACKEND = "auto"
 DEFAULT_SERVICE_NAME = "savemycontext"
 DEFAULT_BROWSER_TIMEOUT_SECONDS = 120.0
+DEFAULT_ENV_VALUES: dict[str, str] = {
+    "SAVEMYCONTEXT_EXPERIMENTAL_BROWSER_AUTOMATION": "false",
+    "SAVEMYCONTEXT_OPENAI_API_KEY": "",
+    "SAVEMYCONTEXT_OPENAI_BASE_URL": "https://openrouter.ai/api/v1",
+    "SAVEMYCONTEXT_OPENAI_MODEL": "openai/gpt-4.1-mini",
+    "SAVEMYCONTEXT_OPENAI_APP_NAME": "SaveMyContext",
+    "SAVEMYCONTEXT_OPENAI_SITE_URL": "",
+    "SAVEMYCONTEXT_GOOGLE_API_KEY": "",
+    "SAVEMYCONTEXT_GIT_VERSIONING_ENABLED": "true",
+    "SAVEMYCONTEXT_CORS_ORIGIN_REGEX": r"chrome-extension://[a-p]{32}",
+}
 
 
 @dataclass(frozen=True)
@@ -221,22 +233,7 @@ def ensure_env_file(env_path: Path | None = None, *, force: bool = False) -> Pat
         return candidate
 
     candidate.parent.mkdir(parents=True, exist_ok=True)
-    candidate.write_text(
-        textwrap.dedent(
-            """\
-            SAVEMYCONTEXT_EXPERIMENTAL_BROWSER_AUTOMATION=false
-            SAVEMYCONTEXT_OPENAI_API_KEY=
-            SAVEMYCONTEXT_OPENAI_BASE_URL=https://openrouter.ai/api/v1
-            SAVEMYCONTEXT_OPENAI_MODEL=openai/gpt-4.1-mini
-            SAVEMYCONTEXT_OPENAI_APP_NAME=SaveMyContext
-            SAVEMYCONTEXT_OPENAI_SITE_URL=
-            SAVEMYCONTEXT_GOOGLE_API_KEY=
-            SAVEMYCONTEXT_GIT_VERSIONING_ENABLED=true
-            SAVEMYCONTEXT_CORS_ORIGIN_REGEX=chrome-extension://[a-p]{32}
-            """
-        ),
-        encoding="utf-8",
-    )
+    candidate.write_text(render_env_file(), encoding="utf-8")
     return candidate
 
 
@@ -254,6 +251,47 @@ def load_env_file(env_path: Path) -> dict[str, str]:
         if key:
             values[key] = value.strip()
     return values
+
+
+def render_env_file(values: Mapping[str, str] | None = None) -> str:
+    rendered_values = dict(DEFAULT_ENV_VALUES)
+    if values is not None:
+        rendered_values.update({key: str(value) for key, value in values.items()})
+    return "\n".join(f"{key}={rendered_values[key]}" for key in rendered_values).rstrip() + "\n"
+
+
+def update_env_file(env_path: Path, updates: Mapping[str, str | None]) -> Path:
+    candidate = ensure_env_file(env_path)
+    existing_lines = candidate.read_text(encoding="utf-8").splitlines()
+    normalized_updates = {key: str(value) for key, value in updates.items() if value is not None}
+    pending_keys = set(normalized_updates)
+    next_lines: list[str] = []
+
+    for line in existing_lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in line:
+            next_lines.append(line)
+            continue
+
+        key, _value = line.split("=", 1)
+        normalized_key = key.strip()
+        if normalized_key in normalized_updates:
+            next_lines.append(f"{normalized_key}={normalized_updates[normalized_key]}")
+            pending_keys.discard(normalized_key)
+            continue
+
+        next_lines.append(line)
+
+    for key in DEFAULT_ENV_VALUES:
+        if key in pending_keys:
+            next_lines.append(f"{key}={normalized_updates[key]}")
+            pending_keys.discard(key)
+
+    for key in sorted(pending_keys):
+        next_lines.append(f"{key}={normalized_updates[key]}")
+
+    candidate.write_text("\n".join(next_lines).rstrip() + "\n", encoding="utf-8")
+    return candidate
 
 
 def apply_runtime_environment(config: CLIConfig, env_path: Path) -> None:

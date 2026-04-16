@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import socket
 import subprocess
@@ -128,9 +129,18 @@ def health_url(config: CLIConfig) -> str:
 def fetch_health(config: CLIConfig, *, timeout_seconds: float = 2.0) -> tuple[bool, int | None, str | None]:
     try:
         with urllib.request.urlopen(health_url(config), timeout=timeout_seconds) as response:
-            return 200 <= response.status < 300, response.status, None
+            payload = json.loads(response.read().decode("utf-8"))
+            if not isinstance(payload, dict):
+                return False, response.status, "unexpected health payload"
+            if payload.get("status") != "ok":
+                return False, response.status, "health endpoint did not report ok"
+            if "version" not in payload or "app" not in payload:
+                return False, response.status, "health payload does not look like SaveMyContext"
+            return True, response.status, None
     except urllib.error.HTTPError as error:
         return False, error.code, str(error)
+    except json.JSONDecodeError:
+        return False, None, "health endpoint returned invalid JSON"
     except OSError as error:
         return False, None, str(error)
 

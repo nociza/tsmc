@@ -99,6 +99,8 @@ This should be the documented happy path everywhere.
 - `savemycontext service logs`
 - `savemycontext run`
 - `savemycontext doctor`
+- `savemycontext config init`
+- `savemycontext config set`
 - `savemycontext config show`
 - `savemycontext config path`
 - `savemycontext version`

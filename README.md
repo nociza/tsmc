@@ -20,6 +20,13 @@ uv tool install savemycontext
 savemycontext service install --start
 ```
 
+If you want to bootstrap local config first, or run without `systemd`, use:
+
+```bash
+savemycontext config init --openai-api-key YOUR_KEY
+savemycontext run
+```
+
 If you want to run it from this repo instead:
 
 ```bash
@@ -89,7 +96,16 @@ SAVEMYCONTEXT_OPENAI_BASE_URL=https://openrouter.ai/api/v1
 SAVEMYCONTEXT_OPENAI_MODEL=openai/gpt-4.1-mini
 ```
 
-Put those in your backend env file, for example `~/.config/savemycontext/savemycontext.env` when using `savemycontext service install`, or export them before starting the server. Browser automation is experimental and disabled by default.
+Put those in your backend env file, for example `~/.config/savemycontext/savemycontext.env` when using `savemycontext service install`, or set them with:
+
+```bash
+savemycontext config set \
+  --openai-api-key your_openrouter_key \
+  --openai-base-url https://openrouter.ai/api/v1 \
+  --openai-model openai/gpt-4.1-mini
+```
+
+Browser automation is experimental and disabled by default.
 
 Git versioning is enabled by default for the vault. SaveMyContext initializes a local git repo inside the Obsidian vault and commits session-note, graph, dashboard, and shared to-do list changes automatically.
 
@@ -126,6 +142,8 @@ SaveMyContext/
 ## Useful Commands
 
 ```bash
+savemycontext config init
+savemycontext config set --markdown-dir ~/Obsidian/SaveMyContext
 savemycontext service status
 savemycontext service logs -f
 savemycontext config path

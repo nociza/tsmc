@@ -8,62 +8,124 @@
   </head>
   <body>
     <main class="popup">
-      <section class="card">
-        <p class="eyebrow">SaveMyContext</p>
-        <h1>Local Sync</h1>
-        <p class="summary">Watch AI chats, keep diffs, and mirror them into your local context store.</p>
+      <section class="surface hero">
+        <div class="hero-top">
+          <div class="hero-copy">
+            <p class="eyebrow">SaveMyContext</p>
+            <h1>Context control</h1>
+          </div>
+          <p id="connection-chip" class="status-chip tone-muted">Checking</p>
+        </div>
 
-        <div class="stack">
-          <div>
-            <p class="label">Backend</p>
-            <p id="backend-url" class="value">Loading…</p>
+        <div class="overview-grid">
+          <div class="overview-block">
+            <p class="meta-label">Backend</p>
+            <p id="backend-url" class="meta-value truncate-single">Loading…</p>
           </div>
-          <div>
-            <p class="label">Backend Status</p>
-            <p id="backend-status" class="value">Checking…</p>
+          <div class="overview-block">
+            <p class="meta-label">Status</p>
+            <p id="backend-status" class="meta-value truncate-double">Checking…</p>
           </div>
-          <div>
-            <p class="label">Last Success</p>
-            <p id="last-success" class="value">No sync yet</p>
+            <p class="metric-label">Last sync</p>
+            <p id="last-success" class="meta-value meta-strong">No sync yet</p>
           </div>
-          <div>
-            <p class="label">Last Sync</p>
-            <p id="last-session" class="value">n/a</p>
-          </div>
-          <div>
-            <p class="label">Auto History</p>
-            <p id="history-sync" class="value">Loading…</p>
-          </div>
-          <div>
-            <p class="label">AI Processing</p>
-            <p id="processing-status" class="value">Loading…</p>
-          </div>
-          <div>
-            <p class="label">Pending AI Jobs</p>
-            <p id="processing-pending" class="value">Loading…</p>
-          </div>
-          <div>
-            <p class="label">Providers</p>
-            <p id="providers" class="value">Loading…</p>
-          </div>
-          <div id="provider-drift-card" class="alert" hidden>
-            <p class="label">Provider Drift</p>
-            <p id="provider-drift" class="value">None</p>
-          </div>
-          <div class="error">
-            <p class="label">Last Error</p>
-            <p id="last-error" class="value">None</p>
+          <div class="overview-block">
+            <p class="metric-label">Latest session</p>
+            <p id="last-session" class="meta-value meta-strong truncate-single">n/a</p>
           </div>
         </div>
 
-        <div class="button-group">
-          <button id="run-processing" type="button" hidden>Run AI Processing</button>
-          <button id="save-current-page" type="button">Save This Page</button>
-          <button id="open-quick-search" type="button">Search &amp; Inject</button>
-          <button id="open-dashboard" class="secondary" type="button">Open Dashboard</button>
-          <button id="open-options" class="secondary" type="button">Open Settings</button>
-          <p id="capture-status" class="inline-status"></p>
+        <p id="corpus-status" class="section-note">Latest corpus sync: No data yet</p>
+
+        <div class="stats-grid">
+          <article class="metric-card">
+            <p class="metric-label">Sessions</p>
+            <p id="metric-sessions" class="metric-value">—</p>
+          </article>
+          <article class="metric-card">
+            <p class="metric-label">Messages</p>
+            <p id="metric-messages" class="metric-value">—</p>
+          </article>
+          <article class="metric-card">
+            <p class="metric-label">Facts</p>
+            <p id="metric-triplets" class="metric-value">—</p>
+          </article>
+          <article class="metric-card">
+            <p class="metric-label">Queued AI</p>
+            <p id="processing-pending" class="metric-value">0</p>
+          </article>
         </div>
+
+        <div id="category-list" class="category-strip" aria-label="Indexed session categories"></div>
+      </section>
+
+      <section class="surface action-surface">
+        <div class="action-grid">
+          <button id="save-current-page" class="action-primary" type="button">Save current page</button>
+          <button id="open-quick-search" class="action-secondary" type="button">Search context</button>
+          <button id="run-processing" class="action-secondary" type="button" hidden>Run AI queue</button>
+          <button id="open-dashboard" class="action-tertiary" type="button">Dashboard</button>
+          <button id="open-options" class="action-tertiary" type="button">Settings</button>
+        </div>
+        <p id="capture-status" class="inline-status" aria-live="polite"></p>
+      </section>
+
+      <section class="ops-grid">
+        <article class="surface status-panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-eyebrow">Capture</p>
+              <h2>History sync</h2>
+            </div>
+            <p id="history-badge" class="mini-badge tone-muted">Loading</p>
+          </div>
+
+          <p id="history-sync" class="panel-value">Loading…</p>
+
+          <div class="detail-grid">
+            <div class="detail-block">
+              <p class="detail-label">Providers</p>
+              <div id="providers" class="provider-list"></div>
+            </div>
+            <div class="detail-block">
+              <p class="detail-label">Last capture</p>
+              <p id="indexing-status" class="detail-value">No captures yet</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="surface status-panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-eyebrow">Processing</p>
+              <h2>AI queue</h2>
+            </div>
+            <p id="processing-badge" class="mini-badge tone-muted">Loading</p>
+          </div>
+
+          <p id="processing-status" class="panel-value">Loading…</p>
+
+          <div class="detail-grid">
+            <div class="detail-block">
+              <p class="detail-label">Mode</p>
+              <p id="processing-mode" class="detail-value">Checking…</p>
+            </div>
+            <div class="detail-block">
+              <p class="detail-label">Last issue</p>
+              <p id="last-error" class="detail-value">None</p>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section id="provider-drift-card" class="surface notice notice-warning" hidden>
+        <div class="notice-header">
+          <div>
+            <p class="section-eyebrow">Attention</p>
+            <h2>Provider drift</h2>
+          </div>
+        </div>
+        <p id="provider-drift" class="notice-text">None</p>
       </section>
     </main>
   </body>
