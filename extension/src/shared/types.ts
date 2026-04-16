@@ -228,6 +228,52 @@ export interface BackendGraphEdge {
   session_ids: string[];
 }
 
+export interface BackendSessionListItem {
+  id: string;
+  provider: ProviderName;
+  external_session_id: string;
+  title?: string | null;
+  category?: SessionCategoryName | null;
+  custom_tags: string[];
+  markdown_path?: string | null;
+  share_post?: string | null;
+  updated_at: string;
+  last_captured_at?: string | null;
+  last_processed_at?: string | null;
+}
+
+export interface BackendSessionMessage {
+  id: string;
+  external_message_id: string;
+  parent_external_message_id?: string | null;
+  role: MessageRole;
+  content: string;
+  sequence_index: number;
+  occurred_at?: string | null;
+  raw_payload?: unknown;
+  created_at: string;
+}
+
+export interface BackendSessionTriplet {
+  id: string;
+  subject: string;
+  predicate: string;
+  object: string;
+  confidence?: number | null;
+  created_at: string;
+}
+
+export interface BackendSessionRead extends BackendSessionListItem {
+  source_url?: string | null;
+  classification_reason?: string | null;
+  journal_entry?: string | null;
+  todo_summary?: string | null;
+  idea_summary?: Record<string, unknown> | null;
+  created_at: string;
+  messages: BackendSessionMessage[];
+  triplets: BackendSessionTriplet[];
+}
+
 export interface BackendSearchResult {
   kind: string;
   title: string;

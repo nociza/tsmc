@@ -323,6 +323,24 @@ h2 {
   padding: 10px 11px;
 }
 
+.metric-link {
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.metric-link:hover {
+  border-color: #bfd2cb;
+  background: #f3f8f6;
+}
+
+.metric-link:focus-visible,
+.category-item:focus-visible {
+  outline: 2px solid rgba(20, 128, 93, 0.28);
+  outline-offset: 2px;
+}
+
 .metric-value {
   margin-top: 3px;
   font-size: 21px;
@@ -341,11 +359,20 @@ h2 {
 .category-item {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 0;
   gap: 6px;
   padding: 7px 9px;
   border: 1px solid var(--category-border, rgba(23, 49, 60, 0.08));
   border-radius: 8px;
   background: var(--category-track, var(--surface-soft));
+  color: var(--ink);
+  text-align: left;
+}
+
+.category-item:hover {
+  border-color: color-mix(in srgb, var(--category-fill, var(--accent)) 22%, white);
 }
 
 .category-dot {

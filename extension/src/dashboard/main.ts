@@ -4,14 +4,19 @@ import {
   fetchDashboardSummary,
   fetchGraphEdges,
   fetchGraphNodes,
+  fetchSession,
+  fetchSessions,
   fetchSystemStatus
 } from "../background/backend";
 import type {
   BackendDashboardSummary,
   BackendGraphEdge,
   BackendGraphNode,
+  BackendSessionListItem,
+  BackendSessionRead,
   BackendSystemStatus,
   ExtensionSettings,
+  ProviderName,
   ProviderDriftAlert,
   RuntimeMessage,
   SessionCategoryName,
@@ -23,6 +28,12 @@ const percentFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigit
 const decimalFormatter = new Intl.NumberFormat(undefined, {
   minimumFractionDigits: 1,
   maximumFractionDigits: 1
+});
+const compactDateFormatter = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit"
 });
 
 const categoryPalette: Record<SessionCategoryName, { color: string; tone: string }> = {
@@ -39,6 +50,17 @@ const categoryLabels: Record<SessionCategoryName, string> = {
   journal: "Journal",
   todo: "To-Do"
 };
+const providerLabels: Record<ProviderName, string> = {
+  chatgpt: "ChatGPT",
+  gemini: "Gemini",
+  grok: "Grok"
+};
+
+type DashboardRouteState = {
+  category: SessionCategoryName | null;
+  view: "overview" | "notes" | "processing";
+  focus: "triplets" | null;
+};
 
 const backendAlert = document.querySelector<HTMLDivElement>("#backend-alert");
 const backendAlertMessage = document.querySelector<HTMLParagraphElement>("#backend-alert-message");
@@ -51,6 +73,9 @@ const metricSyncEvents = document.querySelector<HTMLParagraphElement>("#metric-s
 const metricTriplets = document.querySelector<HTMLParagraphElement>("#metric-triplets");
 const metricEntities = document.querySelector<HTMLParagraphElement>("#metric-entities");
 const metricEdges = document.querySelector<HTMLParagraphElement>("#metric-edges");
+const metricCardSessions = document.querySelector<HTMLElement>("#metric-card-sessions");
+const metricCardMessages = document.querySelector<HTMLElement>("#metric-card-messages");
+const metricCardTriplets = document.querySelector<HTMLElement>("#metric-card-triplets");
 
 const latestSyncAt = document.querySelector<HTMLParagraphElement>("#latest-sync-at");
 const healthBackendUrl = document.querySelector<HTMLParagraphElement>("#health-backend-url");
@@ -72,6 +97,16 @@ const categoryDonutTotal = document.querySelector<HTMLElement>("#category-donut-
 const categoryTotalLabel = document.querySelector<HTMLParagraphElement>("#category-total-label");
 const categoryList = document.querySelector<HTMLDivElement>("#category-list");
 const derivedMetrics = document.querySelector<HTMLDivElement>("#derived-metrics");
+const categoryExplorer = document.querySelector<HTMLDivElement>("#category-explorer");
+const explorerTitle = document.querySelector<HTMLHeadingElement>("#explorer-title");
+const explorerSubtitle = document.querySelector<HTMLParagraphElement>("#explorer-subtitle");
+const explorerClearButton = document.querySelector<HTMLButtonElement>("#explorer-clear");
+const noteMap = document.querySelector<HTMLDivElement>("#note-map");
+const explorerNoteTitle = document.querySelector<HTMLHeadingElement>("#explorer-note-title");
+const explorerNoteMeta = document.querySelector<HTMLParagraphElement>("#explorer-note-meta");
+const explorerNoteSummary = document.querySelector<HTMLParagraphElement>("#explorer-note-summary");
+const explorerOpenSource = document.querySelector<HTMLButtonElement>("#explorer-open-source");
+const explorerNoteList = document.querySelector<HTMLDivElement>("#explorer-note-list");
 
 const graphSummary = document.querySelector<HTMLParagraphElement>("#graph-summary");
 const topEntities = document.querySelector<HTMLDivElement>("#top-entities");
@@ -86,11 +121,123 @@ const systemPublicUrl = document.querySelector<HTMLParagraphElement>("#system-pu
 
 let currentSettings: ExtensionSettings | null = null;
 let currentStatus: SyncStatus | null = null;
+let currentSummary: BackendDashboardSummary | null = null;
+let currentSystem: BackendSystemStatus | null = null;
+let currentNodes: BackendGraphNode[] = [];
+let currentEdges: BackendGraphEdge[] = [];
 let loadPromise: Promise<void> | null = null;
 let loadQueued = false;
+let currentRouteState: DashboardRouteState = readRouteState();
+let selectedExplorerSessionId: string | null = null;
+let selectedExplorerDetail: BackendSessionRead | null = null;
+let explorerSyncToken = 0;
+const sessionListCache = new Map<string, BackendSessionListItem[]>();
+const sessionDetailCache = new Map<string, BackendSessionRead>();
 
 function formatNumber(value: number | undefined | null): string {
   return numberFormatter.format(value ?? 0);
+}
+
+function readRouteState(): DashboardRouteState {
+  const params = new URLSearchParams(window.location.search);
+  const rawCategory = params.get("category");
+  const rawView = params.get("view");
+  const rawFocus = params.get("focus");
+
+  const category = categoryOrder.includes(rawCategory as SessionCategoryName) ? (rawCategory as SessionCategoryName) : null;
+  const view =
+    rawView === "notes" || rawView === "processing" ? rawView : category ? "notes" : "overview";
+  const focus = rawFocus === "triplets" ? "triplets" : null;
+
+  return {
+    category,
+    view,
+    focus
+  };
+}
+
+function applyRouteState(nextState: Partial<DashboardRouteState>, push = true): void {
+  currentRouteState = {
+    ...currentRouteState,
+    ...nextState
+  };
+
+  if (currentRouteState.view !== "notes") {
+    currentRouteState.category = null;
+    currentRouteState.focus = null;
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.delete("category");
+  url.searchParams.delete("view");
+  url.searchParams.delete("focus");
+
+  if (currentRouteState.category) {
+    url.searchParams.set("category", currentRouteState.category);
+  }
+  if (currentRouteState.view !== "overview" || currentRouteState.category) {
+    url.searchParams.set("view", currentRouteState.view);
+  }
+  if (currentRouteState.focus) {
+    url.searchParams.set("focus", currentRouteState.focus);
+  }
+
+  if (push) {
+    window.history.pushState(null, "", url);
+  } else {
+    window.history.replaceState(null, "", url);
+  }
+
+  renderCategoryMix(currentSummary ?? undefined);
+  void syncExplorer();
+
+  if (currentRouteState.view !== "overview") {
+    requestAnimationFrame(() => {
+      categoryExplorer?.scrollIntoView({
+        behavior: push ? "smooth" : "auto",
+        block: "start"
+      });
+    });
+  }
+}
+
+function attachClickable(node: HTMLElement | null, onActivate: () => void): void {
+  if (!node) {
+    return;
+  }
+
+  node.addEventListener("click", onActivate);
+  node.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    onActivate();
+  });
+}
+
+function sessionCacheKey(category: SessionCategoryName | null): string {
+  return category ?? "*";
+}
+
+function resetExplorerSelection(): void {
+  selectedExplorerSessionId = null;
+  selectedExplorerDetail = null;
+}
+
+function sessionDisplayTitle(session: BackendSessionListItem | BackendSessionRead): string {
+  return session.title?.trim() || `${providerLabels[session.provider]} · ${session.external_session_id}`;
+}
+
+function formatRelativeSessionDate(value?: string | null): string {
+  if (!value) {
+    return "No timestamp";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return compactDateFormatter.format(date);
 }
 
 function formatDate(value?: string | null, fallback = "No data yet"): string {
@@ -319,6 +466,318 @@ function renderDerivedMetrics(summary?: BackendDashboardSummary): void {
   );
 }
 
+async function loadExplorerSessions(
+  settings: ExtensionSettings,
+  category: SessionCategoryName | null
+): Promise<BackendSessionListItem[]> {
+  const cacheKey = sessionCacheKey(category);
+  const cached = sessionListCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const sessions = await fetchSessions(settings, category ? { category } : undefined);
+  sessionListCache.set(cacheKey, sessions);
+  return sessions;
+}
+
+async function loadExplorerDetail(settings: ExtensionSettings, sessionId: string): Promise<BackendSessionRead> {
+  const cached = sessionDetailCache.get(sessionId);
+  if (cached) {
+    return cached;
+  }
+
+  const detail = await fetchSession(settings, sessionId);
+  sessionDetailCache.set(sessionId, detail);
+  return detail;
+}
+
+function sessionPreview(detail: BackendSessionRead | null, session: BackendSessionListItem): string {
+  if (detail?.classification_reason) {
+    return detail.classification_reason;
+  }
+  if (detail?.journal_entry) {
+    return detail.journal_entry.slice(0, 220);
+  }
+  if (detail?.todo_summary) {
+    return detail.todo_summary.slice(0, 220);
+  }
+  if (detail?.idea_summary && typeof detail.idea_summary["core_idea"] === "string") {
+    return String(detail.idea_summary["core_idea"]).slice(0, 220);
+  }
+  if (detail?.triplets.length) {
+    const triplet = detail.triplets[0];
+    return `${triplet.subject} -> ${triplet.predicate} -> ${triplet.object}`;
+  }
+  if (detail?.messages.length) {
+    return detail.messages[0].content.slice(0, 220);
+  }
+  if (session.share_post) {
+    return session.share_post.slice(0, 220);
+  }
+  return "No extracted note content yet.";
+}
+
+function renderExplorerDetail(session: BackendSessionListItem | null, detail: BackendSessionRead | null, pending = false): void {
+  if (!explorerNoteTitle || !explorerNoteMeta || !explorerNoteSummary || !explorerOpenSource) {
+    return;
+  }
+
+  if (!session) {
+    explorerNoteTitle.textContent = "Choose a note";
+    explorerNoteMeta.textContent = "Use the category map to inspect one session at a time.";
+    explorerNoteSummary.textContent = "Session summaries, paths, and extracted structure appear here.";
+    explorerOpenSource.hidden = true;
+    explorerOpenSource.onclick = null;
+    return;
+  }
+
+  explorerNoteTitle.textContent = sessionDisplayTitle(session);
+  const messageCount = detail?.messages.length;
+  const tripletCount = detail?.triplets.length;
+  const metaBits = [
+    providerLabels[session.provider],
+    formatRelativeSessionDate(session.updated_at),
+    typeof messageCount === "number" ? `${formatNumber(messageCount)} messages` : null,
+    typeof tripletCount === "number" ? `${formatNumber(tripletCount)} facts` : null
+  ].filter(Boolean);
+  explorerNoteMeta.textContent = metaBits.join(" · ");
+
+  if (pending) {
+    explorerNoteSummary.textContent = "Loading session detail…";
+  } else {
+    const preview = sessionPreview(detail, session);
+    const markdownPath = session.markdown_path ? `\n\nPath: ${session.markdown_path}` : "";
+    explorerNoteSummary.textContent = `${preview}${markdownPath}`;
+  }
+
+  if (detail?.source_url) {
+    explorerOpenSource.hidden = false;
+    explorerOpenSource.onclick = () => {
+      void chrome.tabs.create({ url: detail.source_url! });
+    };
+  } else {
+    explorerOpenSource.hidden = true;
+    explorerOpenSource.onclick = null;
+  }
+}
+
+function renderExplorerList(
+  sessions: BackendSessionListItem[],
+  selectedSessionId: string | null,
+  onSelect: (sessionId: string) => void,
+  emptyMessage = "No notes match this view yet."
+): void {
+  if (!explorerNoteList) {
+    return;
+  }
+
+  explorerNoteList.replaceChildren();
+  const visibleSessions = sessions.slice(0, 24);
+
+  if (!visibleSessions.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = emptyMessage;
+    explorerNoteList.append(empty);
+    return;
+  }
+
+  for (const session of visibleSessions) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "explorer-list-item";
+    item.dataset.active = String(session.id === selectedSessionId);
+    item.setAttribute("aria-pressed", String(session.id === selectedSessionId));
+
+    const title = document.createElement("span");
+    title.className = "explorer-list-title";
+    title.textContent = sessionDisplayTitle(session);
+
+    const meta = document.createElement("span");
+    meta.className = "explorer-list-meta";
+    meta.textContent = `${providerLabels[session.provider]} · ${formatRelativeSessionDate(session.updated_at)}`;
+
+    item.append(title, meta);
+    item.addEventListener("click", () => onSelect(session.id));
+    explorerNoteList.append(item);
+  }
+
+  if (sessions.length > visibleSessions.length) {
+    const more = document.createElement("p");
+    more.className = "empty-state";
+    more.textContent = `Showing ${formatNumber(visibleSessions.length)} of ${formatNumber(sessions.length)} notes in this view.`;
+    explorerNoteList.append(more);
+  }
+}
+
+function renderNoteMap(
+  sessions: BackendSessionListItem[],
+  selectedSessionId: string | null,
+  onSelect: (sessionId: string) => void,
+  emptyMessage = "No notes match this category yet."
+): void {
+  if (!noteMap) {
+    return;
+  }
+
+  noteMap.replaceChildren();
+
+  if (!sessions.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = emptyMessage;
+    noteMap.append(empty);
+    return;
+  }
+
+  const providers: ProviderName[] = ["chatgpt", "gemini", "grok"];
+
+  for (const provider of providers) {
+    const providerSessions = sessions
+      .filter((session) => session.provider === provider)
+      .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+
+    if (!providerSessions.length) {
+      continue;
+    }
+
+    const lane = document.createElement("section");
+    lane.className = "note-lane";
+
+    const heading = document.createElement("div");
+    heading.className = "note-lane-heading";
+
+    const label = document.createElement("span");
+    label.className = "note-lane-label";
+    label.textContent = providerLabels[provider];
+
+    const count = document.createElement("span");
+    count.className = "note-lane-count";
+    count.textContent = formatNumber(providerSessions.length);
+
+    heading.append(label, count);
+
+    const dots = document.createElement("div");
+    dots.className = "note-dot-grid";
+
+    for (const session of providerSessions) {
+      const dot = document.createElement("button");
+      dot.type = "button";
+      dot.className = "note-dot";
+      dot.dataset.provider = provider;
+      dot.dataset.active = String(session.id === selectedSessionId);
+      dot.setAttribute("aria-pressed", String(session.id === selectedSessionId));
+      dot.title = `${sessionDisplayTitle(session)} · ${formatRelativeSessionDate(session.updated_at)}`;
+      dot.setAttribute("aria-label", dot.title);
+      dot.addEventListener("click", () => onSelect(session.id));
+      dots.append(dot);
+    }
+
+    lane.append(heading, dots);
+    noteMap.append(lane);
+  }
+}
+
+async function syncExplorer(): Promise<void> {
+  if (!categoryExplorer || !explorerTitle || !explorerSubtitle) {
+    return;
+  }
+
+  const syncToken = ++explorerSyncToken;
+  const shouldShowExplorer = currentRouteState.view === "notes" || currentRouteState.view === "processing";
+  categoryExplorer.hidden = !shouldShowExplorer;
+  explorerClearButton && (explorerClearButton.hidden = !shouldShowExplorer);
+
+  if (!shouldShowExplorer) {
+    return;
+  }
+
+  if (currentRouteState.view === "processing") {
+    explorerTitle.textContent = "Processing Queue";
+    explorerSubtitle.textContent = "Queued AI jobs and processing health are shown in the capture panel above.";
+    renderNoteMap([], null, () => undefined, "Open the capture health section above to review processing state.");
+    renderExplorerList([], null, () => undefined, "No note list for processing mode.");
+    renderExplorerDetail(null, null);
+    return;
+  }
+
+  const category = currentRouteState.category;
+  explorerTitle.textContent = category ? `${categoryLabels[category]} Notes` : "All Indexed Notes";
+
+  if (!currentSettings || currentStatus?.backendValidationError) {
+    explorerSubtitle.textContent = currentStatus?.backendValidationError ?? "Waiting for backend data.";
+    renderNoteMap([], null, () => undefined, "Connect the backend to load indexed notes.");
+    renderExplorerList([], null, () => undefined, "Connect the backend to load indexed notes.");
+    renderExplorerDetail(null, null);
+    return;
+  }
+
+  explorerSubtitle.textContent =
+    currentRouteState.focus === "triplets" && category === "factual"
+      ? "Factual notes grouped by provider. Select a note to inspect extracted facts and session detail."
+      : category
+        ? `Every note classified as ${categoryLabels[category].toLowerCase()}, grouped by provider.`
+        : "All indexed notes grouped by provider. Select a category chip or stat to focus this map.";
+
+  let sessions: BackendSessionListItem[];
+  try {
+    sessions = await loadExplorerSessions(currentSettings, category);
+  } catch (error) {
+    if (syncToken !== explorerSyncToken) {
+      return;
+    }
+    const message = error instanceof Error ? error.message : "Could not load notes for this view.";
+    explorerSubtitle.textContent = message;
+    renderNoteMap([], null, () => undefined, "Could not load notes for this view.");
+    renderExplorerList([], null, () => undefined, "Could not load notes for this view.");
+    renderExplorerDetail(null, null);
+    return;
+  }
+
+  if (syncToken !== explorerSyncToken) {
+    return;
+  }
+
+  const sortedSessions = [...sessions].sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+
+  if (!sortedSessions.length) {
+    renderNoteMap([], null, () => undefined, "No indexed notes match this view yet.");
+    renderExplorerList([], null, () => undefined, "No indexed notes match this view yet.");
+    renderExplorerDetail(null, null);
+    return;
+  }
+
+  if (!selectedExplorerSessionId || !sortedSessions.some((session) => session.id === selectedExplorerSessionId)) {
+    selectedExplorerSessionId = sortedSessions[0].id;
+    selectedExplorerDetail = null;
+  }
+
+  const selectSession = (sessionId: string): void => {
+    resetExplorerSelection();
+    selectedExplorerSessionId = sessionId;
+    void syncExplorer();
+  };
+
+  renderNoteMap(sortedSessions, selectedExplorerSessionId, selectSession);
+  renderExplorerList(sortedSessions, selectedExplorerSessionId, selectSession);
+
+  const selectedSession = sortedSessions.find((session) => session.id === selectedExplorerSessionId) ?? sortedSessions[0];
+  renderExplorerDetail(selectedSession, selectedExplorerDetail, true);
+
+  try {
+    selectedExplorerDetail = await loadExplorerDetail(currentSettings, selectedSession.id);
+  } catch {
+    selectedExplorerDetail = null;
+  }
+
+  if (syncToken !== explorerSyncToken) {
+    return;
+  }
+
+  renderExplorerDetail(selectedSession, selectedExplorerDetail, false);
+}
+
 function renderCategoryMix(summary?: BackendDashboardSummary): void {
   const counts = summary ? categoryCounts(summary) : new Map<SessionCategoryName, number>();
   const total = summary ? totalIndexedSessions(summary) : 0;
@@ -358,8 +817,16 @@ function renderCategoryMix(summary?: BackendDashboardSummary): void {
     const count = counts.get(category) ?? 0;
     const ratio = total ? count / total : 0;
 
-    const item = document.createElement("div");
-    item.className = "category-item";
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "category-item category-link";
+    item.dataset.active = String(currentRouteState.view === "notes" && currentRouteState.category === category);
+    item.setAttribute("aria-pressed", item.dataset.active);
+    item.style.setProperty("--category-accent", categoryPalette[category].color);
+    item.addEventListener("click", () => {
+      resetExplorerSelection();
+      applyRouteState({ view: "notes", category, focus: null });
+    });
 
     const heading = document.createElement("div");
     heading.className = "category-heading";
@@ -488,6 +955,7 @@ async function load(): Promise<void> {
       loadQueued = false;
       refreshDashboardButton?.setAttribute("disabled", "true");
       renderAlert(null);
+      const previousBackendUrl = currentSettings?.backendUrl ?? null;
 
       const [settings, status] = await Promise.all([
         sendMessage<ExtensionSettings>({ type: "GET_SETTINGS" }),
@@ -495,13 +963,39 @@ async function load(): Promise<void> {
       ]);
       currentSettings = settings;
       currentStatus = status;
-      renderHealth(settings, status);
-      renderMetrics();
-      renderCategoryMix();
-      renderGraph([], []);
-      renderSystem();
+      const backendChanged = previousBackendUrl !== settings.backendUrl;
+
+      if (backendChanged) {
+        currentSummary = null;
+        currentSystem = null;
+        currentNodes = [];
+        currentEdges = [];
+        sessionListCache.clear();
+        sessionDetailCache.clear();
+        resetExplorerSelection();
+      }
+
+      renderHealth(settings, status, currentSummary ?? undefined, currentNodes, currentEdges);
+      renderMetrics(currentSummary ?? undefined, currentNodes, currentEdges);
+      renderCategoryMix(currentSummary ?? undefined);
+      renderGraph(currentNodes, currentEdges);
+      renderSystem(currentSystem ?? undefined);
+      void syncExplorer();
 
       if (status.backendValidationError) {
+        currentSummary = null;
+        currentSystem = null;
+        currentNodes = [];
+        currentEdges = [];
+        sessionListCache.clear();
+        sessionDetailCache.clear();
+        resetExplorerSelection();
+        renderHealth(settings, status);
+        renderMetrics();
+        renderCategoryMix();
+        renderGraph([], []);
+        renderSystem();
+        void syncExplorer();
         renderAlert(status.backendValidationError);
         continue;
       }
@@ -513,11 +1007,16 @@ async function load(): Promise<void> {
           fetchGraphNodes(settings),
           fetchGraphEdges(settings)
         ]);
+        currentSummary = summary;
+        currentSystem = system;
+        currentNodes = nodes;
+        currentEdges = edges;
         renderHealth(settings, status, summary, nodes, edges);
         renderMetrics(summary, nodes, edges);
         renderCategoryMix(summary);
         renderGraph(nodes, edges);
         renderSystem(system);
+        await syncExplorer();
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         renderAlert(message);
@@ -543,6 +1042,26 @@ openOptionsButton?.addEventListener("click", () => {
   void chrome.runtime.openOptionsPage();
 });
 
+attachClickable(metricCardSessions, () => {
+  resetExplorerSelection();
+  applyRouteState({ view: "notes", category: null, focus: null });
+});
+
+attachClickable(metricCardMessages, () => {
+  resetExplorerSelection();
+  applyRouteState({ view: "notes", category: null, focus: null });
+});
+
+attachClickable(metricCardTriplets, () => {
+  resetExplorerSelection();
+  applyRouteState({ view: "notes", category: "factual", focus: "triplets" });
+});
+
+explorerClearButton?.addEventListener("click", () => {
+  resetExplorerSelection();
+  applyRouteState({ view: "overview", category: null, focus: null });
+});
+
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local" && areaName !== "sync") {
     return;
@@ -550,12 +1069,20 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
   if (changes["savemycontext.status"]?.newValue && currentSettings) {
     currentStatus = changes["savemycontext.status"].newValue as SyncStatus;
-    renderHealth(currentSettings, currentStatus);
+    renderHealth(currentSettings, currentStatus, currentSummary ?? undefined, currentNodes, currentEdges);
+    void syncExplorer();
   }
 
   if (changes["savemycontext.settings"] || changes["savemycontext.settings.cache"] || changes["savemycontext.settings.secrets"]) {
     void load();
   }
+});
+
+window.addEventListener("popstate", () => {
+  currentRouteState = readRouteState();
+  resetExplorerSelection();
+  renderCategoryMix(currentSummary ?? undefined);
+  void syncExplorer();
 });
 
 void load();

@@ -5,11 +5,14 @@ import type {
   BackendGraphNode,
   BackendProcessingStatus,
   BackendSearchResponse,
+  BackendSessionListItem,
+  BackendSessionRead,
   BackendStorageSettings,
   BackendSystemStatus,
   ExtensionSettings,
   ProcessingCompleteResponse,
   ProcessingTaskResponse,
+  ProviderName,
   SourceCapturePayload,
   SourceCaptureResponse
 } from "../shared/types";
@@ -219,6 +222,33 @@ export async function fetchGraphEdges(
   capabilities?: BackendCapabilities
 ): Promise<BackendGraphEdge[]> {
   return fetchBackendJson<BackendGraphEdge[]>(settings, "/graph/edges", capabilities);
+}
+
+export async function fetchSessions(
+  settings: ExtensionSettings,
+  filters?: {
+    provider?: ProviderName;
+    category?: string;
+  },
+  capabilities?: BackendCapabilities
+): Promise<BackendSessionListItem[]> {
+  const search = new URLSearchParams();
+  if (filters?.provider) {
+    search.set("provider", filters.provider);
+  }
+  if (filters?.category) {
+    search.set("category", filters.category);
+  }
+  const query = search.toString();
+  return fetchBackendJson<BackendSessionListItem[]>(settings, `/sessions${query ? `?${query}` : ""}`, capabilities);
+}
+
+export async function fetchSession(
+  settings: ExtensionSettings,
+  sessionId: string,
+  capabilities?: BackendCapabilities
+): Promise<BackendSessionRead> {
+  return fetchBackendJson<BackendSessionRead>(settings, `/sessions/${encodeURIComponent(sessionId)}`, capabilities);
 }
 
 export async function fetchKnowledgeSearch(

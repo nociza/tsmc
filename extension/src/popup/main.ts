@@ -50,6 +50,10 @@ const corpusStatus = document.querySelector<HTMLParagraphElement>("#corpus-statu
 const metricSessions = document.querySelector<HTMLParagraphElement>("#metric-sessions");
 const metricMessages = document.querySelector<HTMLParagraphElement>("#metric-messages");
 const metricTriplets = document.querySelector<HTMLParagraphElement>("#metric-triplets");
+const metricCardSessions = document.querySelector<HTMLElement>("#metric-card-sessions");
+const metricCardMessages = document.querySelector<HTMLElement>("#metric-card-messages");
+const metricCardTriplets = document.querySelector<HTMLElement>("#metric-card-triplets");
+const metricCardProcessing = document.querySelector<HTMLElement>("#metric-card-processing");
 const historySync = document.querySelector<HTMLParagraphElement>("#history-sync");
 const historyBadge = document.querySelector<HTMLParagraphElement>("#history-badge");
 const processingStatus = document.querySelector<HTMLParagraphElement>("#processing-status");
@@ -76,8 +80,48 @@ let currentSummary: BackendDashboardSummary | null = null;
 let loadPromise: Promise<void> | null = null;
 let loadQueued = false;
 
+type DashboardRouteState = {
+  category?: SessionCategoryName | null;
+  view?: "notes" | "processing" | null;
+  focus?: "triplets" | null;
+};
+
 function formatNumber(value: number | undefined | null): string {
   return numberFormatter.format(value ?? 0);
+}
+
+function dashboardUrl(state: DashboardRouteState = {}): string {
+  const url = new URL(chrome.runtime.getURL("dashboard.html"));
+  if (state.category) {
+    url.searchParams.set("category", state.category);
+  }
+  if (state.view) {
+    url.searchParams.set("view", state.view);
+  }
+  if (state.focus) {
+    url.searchParams.set("focus", state.focus);
+  }
+  return url.toString();
+}
+
+function openDashboard(state: DashboardRouteState = {}): void {
+  void chrome.tabs.create({ url: dashboardUrl(state) });
+  window.close();
+}
+
+function attachClickable(node: HTMLElement | null, onActivate: () => void): void {
+  if (!node) {
+    return;
+  }
+
+  node.addEventListener("click", onActivate);
+  node.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    onActivate();
+  });
 }
 
 function setText(node: HTMLElement | null, text: string): void {
@@ -376,7 +420,8 @@ function renderCategoryMix(summary?: BackendDashboardSummary | null): void {
     const count = counts.get(category) ?? 0;
     const ratio = total ? count / total : 0;
 
-    const item = document.createElement("div");
+    const item = document.createElement("button");
+    item.type = "button";
     item.className = "category-item";
     item.style.setProperty("--category-fill", categoryPalette[category].fill);
     item.style.setProperty("--category-track", categoryPalette[category].track);
@@ -396,6 +441,7 @@ function renderCategoryMix(summary?: BackendDashboardSummary | null): void {
     item.title = `${categoryLabels[category]} · ${formatNumber(count)} · ${percentFormatter.format(ratio * 100)}%`;
 
     item.append(dot, name, value);
+    item.addEventListener("click", () => openDashboard({ category, view: "notes" }));
     categoryList.append(item);
   }
 }
@@ -508,7 +554,7 @@ async function load(): Promise<void> {
 }
 
 openDashboardButton?.addEventListener("click", () => {
-  void chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") });
+  openDashboard();
 });
 
 openQuickSearchButton?.addEventListener("click", async () => {
@@ -565,5 +611,10 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     void load();
   }
 });
+
+attachClickable(metricCardSessions, () => openDashboard({ view: "notes" }));
+attachClickable(metricCardMessages, () => openDashboard({ view: "notes" }));
+attachClickable(metricCardTriplets, () => openDashboard({ category: "factual", view: "notes", focus: "triplets" }));
+attachClickable(metricCardProcessing, () => openDashboard({ view: "processing" }));
 
 void load();

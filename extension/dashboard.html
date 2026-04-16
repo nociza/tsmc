@@ -28,12 +28,12 @@
       </section>
 
       <section class="metrics-grid">
-        <article class="metric-card">
+        <article id="metric-card-sessions" class="metric-card metric-link" role="button" tabindex="0">
           <p class="section-label">Sessions</p>
           <p id="metric-sessions" class="metric-value">0</p>
           <p class="metric-detail">Indexed conversations</p>
         </article>
-        <article class="metric-card">
+        <article id="metric-card-messages" class="metric-card metric-link" role="button" tabindex="0">
           <p class="section-label">Messages</p>
           <p id="metric-messages" class="metric-value">0</p>
           <p class="metric-detail">Normalized messages stored</p>
@@ -43,7 +43,7 @@
           <p id="metric-sync-events" class="metric-value">0</p>
           <p class="metric-detail">Captured diffs and snapshots</p>
         </article>
-        <article class="metric-card">
+        <article id="metric-card-triplets" class="metric-card metric-link" role="button" tabindex="0">
           <p class="section-label">Fact Triplets</p>
           <p id="metric-triplets" class="metric-value">0</p>
           <p class="metric-detail">Structured knowledge edges</p>
@@ -139,6 +139,37 @@
             <div id="category-list" class="category-list"></div>
           </div>
           <div id="derived-metrics" class="derived-grid"></div>
+        </article>
+
+        <article id="category-explorer" class="panel explorer-panel" hidden>
+          <div class="panel-header">
+            <div>
+              <p class="section-label">Category Explorer</p>
+              <h2 id="explorer-title">Notes</h2>
+            </div>
+            <button id="explorer-clear" class="secondary" type="button" hidden>Show Overview</button>
+          </div>
+          <p id="explorer-subtitle" class="panel-meta explorer-subtitle">Select a category to inspect its notes.</p>
+          <div class="explorer-layout">
+            <section class="explorer-map-panel">
+              <div id="note-map" class="note-map"></div>
+            </section>
+            <aside class="explorer-side">
+              <section class="explorer-detail">
+                <p class="section-label">Selected Note</p>
+                <h3 id="explorer-note-title">Choose a note</h3>
+                <p id="explorer-note-meta" class="detail-value">Use the category map to inspect one session at a time.</p>
+                <p id="explorer-note-summary" class="detail-value">Session summaries, paths, and extracted structure appear here.</p>
+                <div class="explorer-actions">
+                  <button id="explorer-open-source" class="secondary" type="button" hidden>Open Source</button>
+                </div>
+              </section>
+              <section class="explorer-list-panel">
+                <p class="section-label">Recent Notes</p>
+                <div id="explorer-note-list" class="explorer-note-list"></div>
+              </section>
+            </aside>
+          </div>
         </article>
 
         <article class="panel">
