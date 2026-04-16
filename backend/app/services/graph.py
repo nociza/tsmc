@@ -9,16 +9,16 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.models import FactTriplet
 from app.schemas.graph import GraphEdge, GraphNode
-from app.services.markdown import slugify
+from app.services.markdown import stable_note_token
 
 
 def entity_id(value: str) -> str:
-    return slugify(value)
+    return stable_note_token(value, fallback="entity")
 
 
 def entity_note_path(label: str) -> str:
     settings = get_settings()
-    return str(settings.resolved_vault_root / "Graph" / "Entities" / f"{slugify(label)}.md")
+    return str(settings.resolved_vault_root / "Graph" / "Entities" / f"{stable_note_token(label, fallback='entity')}.md")
 
 
 class GraphService:

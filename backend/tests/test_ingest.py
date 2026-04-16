@@ -82,6 +82,75 @@ async def test_full_snapshot_updates_existing_messages(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_full_snapshot_removes_messages_missing_from_the_latest_provider_snapshot(tmp_path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-full-snapshot-reconcile.db'}")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as session:
+        service = IngestService(session)
+        service.exporter.base_dir = tmp_path / "markdown"
+
+        await service.ingest(
+            IngestDiffRequest(
+                provider=ProviderName.GEMINI,
+                external_session_id="session-reconcile",
+                sync_mode="full_snapshot",
+                source_url="https://gemini.google.com/app/session-reconcile",
+                captured_at=datetime(2026, 4, 1, 12, 0, tzinfo=timezone.utc),
+                messages=[
+                    IngestMessage(external_message_id="msg-1", role=MessageRole.USER, content="First prompt"),
+                    IngestMessage(external_message_id="msg-2", role=MessageRole.ASSISTANT, content="First reply"),
+                    IngestMessage(external_message_id="msg-3", role=MessageRole.USER, content="Second prompt"),
+                ],
+                raw_capture={"source": "test"},
+            )
+        )
+
+        await service.ingest(
+            IngestDiffRequest(
+                provider=ProviderName.GEMINI,
+                external_session_id="session-reconcile",
+                sync_mode="full_snapshot",
+                source_url="https://gemini.google.com/app/session-reconcile",
+                captured_at=datetime(2026, 4, 1, 12, 5, tzinfo=timezone.utc),
+                messages=[
+                    IngestMessage(external_message_id="msg-1", role=MessageRole.USER, content="First prompt, edited"),
+                    IngestMessage(external_message_id="msg-3", role=MessageRole.USER, content="Second prompt"),
+                ],
+                raw_capture={"source": "test"},
+            )
+        )
+
+        result = await session.execute(select(ChatMessage).order_by(ChatMessage.sequence_index))
+        messages = result.scalars().all()
+
+        assert [message.external_message_id for message in messages] == ["msg-1", "msg-3"]
+        assert [message.sequence_index for message in messages] == [1, 2]
+        assert messages[0].content == "First prompt, edited"
+
+    await engine.dispose()
+
+
+def test_ingest_payload_rejects_duplicate_external_message_ids() -> None:
+    with pytest.raises(ValueError, match="Duplicate external_message_id values are not allowed"):
+        IngestDiffRequest(
+            provider=ProviderName.GEMINI,
+            external_session_id="duplicate-session",
+            sync_mode="full_snapshot",
+            source_url="https://gemini.google.com/app/duplicate-session",
+            captured_at=datetime(2026, 4, 1, 12, 0, tzinfo=timezone.utc),
+            messages=[
+                IngestMessage(external_message_id="msg-1", role=MessageRole.USER, content="One"),
+                IngestMessage(external_message_id="msg-1", role=MessageRole.ASSISTANT, content="Two"),
+            ],
+            raw_capture={"source": "test"},
+        )
+
+
+@pytest.mark.asyncio
 async def test_ingest_accepts_long_titles(tmp_path) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-long-title.db'}")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -176,9 +245,9 @@ async def test_ingest_writes_markdown_when_related_sessions_have_mixed_datetime_
             stored_session, _ = await service.ingest(second_payload)
 
             assert stored_session.markdown_path is not None
-            entity_note = service.exporter.vault_root / "Graph" / "Entities" / "fastapi.md"
-            assert entity_note.exists()
-            entity_markdown = entity_note.read_text(encoding="utf-8")
+            entity_notes = sorted((service.exporter.vault_root / "Graph" / "Entities").glob("fastapi--*.md"))
+            assert len(entity_notes) == 1
+            entity_markdown = entity_notes[0].read_text(encoding="utf-8")
             assert "Facts 1" in entity_markdown
             assert "Facts 2" in entity_markdown
     finally:

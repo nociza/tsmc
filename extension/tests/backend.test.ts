@@ -91,7 +91,130 @@ describe("backend validation helpers", () => {
           grok: true
         }
       })
-    ).rejects.toThrow("A backend app token is required for remote sync.");
+    ).rejects.toThrow("A backend app token with ingest and read scopes is required.");
+  });
+
+  it("requires a token for local backends once the server is in token mode", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          product: "savemycontext",
+          version: "0.2.0",
+          api_prefix: "/api/v1",
+          server_time: "2026-04-02T00:00:00Z",
+          auth: {
+            mode: "app_token",
+            token_verify_path: "/api/v1/auth/token/verify",
+            local_unauthenticated_access: false,
+            remote_requires_token: true
+          },
+          extension: {
+            min_version: "0.1.0",
+            auth_mode: "app_token"
+          },
+          features: {
+            ingest: true,
+            search: true,
+            graph: true,
+            obsidian_vault: true,
+            knowledge_graph_files: true,
+            agent_api: true,
+            browser_proxy: false,
+            openai_compatible_api: false
+          },
+          storage: {
+            markdown_root: "/srv/savemycontext/markdown",
+            vault_root: "/srv/savemycontext/markdown/SaveMyContext"
+          }
+        })
+      }))
+    );
+
+    const { validateBackendConfiguration } = await import("../src/background/backend");
+    await expect(
+      validateBackendConfiguration({
+        backendUrl: "http://127.0.0.1:18888",
+        backendToken: "",
+        autoSyncHistory: true,
+        indexingMode: "all",
+        triggerWords: ["lorem"],
+        blacklistWords: [],
+        selectionCaptureEnabled: false,
+        enabledProviders: {
+          chatgpt: true,
+          gemini: true,
+          grok: true
+        }
+      })
+    ).rejects.toThrow("A backend app token with ingest and read scopes is required.");
+  });
+
+  it("rejects tokens that are missing required extension scopes", async () => {
+    const fetchMock = vi.fn(async (input: string) => {
+      if (input.endsWith("/api/v1/meta/capabilities")) {
+        return {
+          ok: true,
+          json: async () => ({
+            product: "savemycontext",
+            version: "0.2.0",
+            api_prefix: "/api/v1",
+            server_time: "2026-04-02T00:00:00Z",
+            auth: {
+              mode: "app_token",
+              token_verify_path: "/api/v1/auth/token/verify",
+              local_unauthenticated_access: false,
+              remote_requires_token: true
+            },
+            extension: {
+              min_version: "0.1.0",
+              auth_mode: "app_token"
+            },
+            features: {
+              ingest: true,
+              search: true,
+              graph: true,
+              obsidian_vault: true,
+              knowledge_graph_files: true,
+              agent_api: true,
+              browser_proxy: false,
+              openai_compatible_api: false
+            },
+            storage: {
+              markdown_root: "/srv/savemycontext/markdown",
+              vault_root: "/srv/savemycontext/markdown/SaveMyContext"
+            }
+          })
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          valid: true,
+          scopes: ["read"]
+        })
+      };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { validateBackendConfiguration } = await import("../src/background/backend");
+    await expect(
+      validateBackendConfiguration({
+        backendUrl: "https://notes.example.com",
+        backendToken: "savemycontext_pat_test",
+        autoSyncHistory: true,
+        indexingMode: "all",
+        triggerWords: ["lorem"],
+        blacklistWords: [],
+        selectionCaptureEnabled: false,
+        enabledProviders: {
+          chatgpt: true,
+          gemini: true,
+          grok: true
+        }
+      })
+    ).rejects.toThrow("The backend token is missing required scopes: ingest.");
   });
 
   it("fetches dashboard summary with backend auth headers", async () => {

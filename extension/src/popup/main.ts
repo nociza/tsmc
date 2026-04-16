@@ -23,10 +23,10 @@ const compactDateFormatter = new Intl.DateTimeFormat(undefined, {
 
 const categoryOrder: SessionCategoryName[] = ["factual", "ideas", "journal", "todo"];
 const categoryPalette: Record<SessionCategoryName, { fill: string; track: string }> = {
-  factual: { fill: "#1e9f6b", track: "rgba(30, 159, 107, 0.16)" },
-  ideas: { fill: "#d48a1b", track: "rgba(212, 138, 27, 0.16)" },
-  journal: { fill: "#44b8d9", track: "rgba(68, 184, 217, 0.16)" },
-  todo: { fill: "#b6573d", track: "rgba(182, 87, 61, 0.16)" }
+  factual: { fill: "#17805d", track: "#e7f4ee" },
+  ideas: { fill: "#ba7a21", track: "#f8efe2" },
+  journal: { fill: "#1b89ae", track: "#e8f4fa" },
+  todo: { fill: "#bf5d42", track: "#faece7" }
 };
 const categoryLabels: Record<SessionCategoryName, string> = {
   factual: "Factual",
@@ -60,6 +60,7 @@ const providers = document.querySelector<HTMLDivElement>("#providers");
 const indexingStatus = document.querySelector<HTMLParagraphElement>("#indexing-status");
 const lastError = document.querySelector<HTMLParagraphElement>("#last-error");
 const categoryList = document.querySelector<HTMLDivElement>("#category-list");
+const actionGrid = document.querySelector<HTMLDivElement>(".action-grid");
 const providerDriftCard = document.querySelector<HTMLDivElement>("#provider-drift-card");
 const providerDrift = document.querySelector<HTMLParagraphElement>("#provider-drift");
 const runProcessingButton = document.querySelector<HTMLButtonElement>("#run-processing");
@@ -377,6 +378,9 @@ function renderCategoryMix(summary?: BackendDashboardSummary | null): void {
 
     const item = document.createElement("div");
     item.className = "category-item";
+    item.style.setProperty("--category-fill", categoryPalette[category].fill);
+    item.style.setProperty("--category-track", categoryPalette[category].track);
+    item.style.setProperty("--category-border", categoryPalette[category].track);
 
     const dot = document.createElement("span");
     dot.className = "category-dot";
@@ -447,6 +451,8 @@ function render(settings: ExtensionSettings, status: SyncStatus, summary: Backen
     runProcessingButton.textContent = buttonState.label;
     runProcessingButton.title = buttonState.title;
   }
+
+  actionGrid?.classList.toggle("without-processing", runProcessingButton?.hidden ?? true);
 }
 
 async function sendMessage<TResponse>(message: RuntimeMessage): Promise<TResponse> {

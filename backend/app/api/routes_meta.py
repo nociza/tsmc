@@ -27,6 +27,7 @@ async def capabilities(db: AsyncSession = Depends(get_db_session)) -> Capability
         )
     )
     auth_mode = "app_token" if active_tokens else "bootstrap_local"
+    local_unauthenticated_access = auth_mode == "bootstrap_local"
     return CapabilityResponse(
         product="savemycontext",
         version=get_app_version(),
@@ -35,7 +36,7 @@ async def capabilities(db: AsyncSession = Depends(get_db_session)) -> Capability
         auth=CapabilityAuth(
             mode=auth_mode,
             token_verify_path=f"{settings.api_v1_prefix}/auth/token/verify",
-            local_unauthenticated_access=True,
+            local_unauthenticated_access=local_unauthenticated_access,
         ),
         extension=CapabilityExtension(
             min_version=settings.minimum_extension_version,

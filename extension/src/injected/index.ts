@@ -1,4 +1,15 @@
-import type { CapturedBody, CapturedNetworkEvent, HistorySyncUpdate, ProviderName } from "../shared/types";
+import type {
+  BridgeToExtensionMessage,
+  BridgeToPageMessage,
+  CapturedBody,
+  CapturedNetworkEvent,
+  HistorySyncControlPayload,
+  HistorySyncUpdate,
+  MainWorldControlPayload,
+  ProviderName,
+  ProxyPromptResult
+} from "../shared/types";
+import { BRIDGE_CONNECT_SOURCE, MAIN_WORLD_READY_ATTRIBUTE } from "../shared/bridge";
 
 import { maybeUpdateGeminiRuntimeContext, runGeminiHistorySync } from "./gemini-history";
 import { runGrokHistorySync } from "./grok-history";
@@ -6,21 +17,18 @@ import { runProxyPrompt, observeProxyCapture } from "./proxy-runner";
 import {
   dedupeIds,
   normalizeHistorySessionIds,
-  runWithConcurrency,
-  type HistorySyncControlPayload
+  runWithConcurrency
 } from "./history-shared";
 
 const OBSERVER_FLAG = "__SAVEMYCONTEXT_NETWORK_OBSERVER__";
-const CONTROL_SOURCE = "savemycontext-history-control";
-const CONTROL_READY_SOURCE = "savemycontext-history-control-ready";
-const PROXY_RESULT_SOURCE = "savemycontext-proxy-result";
-const MAIN_WORLD_READY_ATTRIBUTE = "data-savemycontext-main-world-ready";
 const INTERESTING_PATH =
   /backend-api|conversation|conversations|BardFrontendService|StreamGenerate|batchexecute|app-chat|grok|chat/i;
 const CHATGPT_HISTORY_PAGE_LIMIT = 100;
 const CHATGPT_HISTORY_MAX_OFFSET = 5_000;
 const CHATGPT_HISTORY_DETAIL_CONCURRENCY = 4;
 const nativeFetch = window.fetch.bind(window);
+let bridgePort: MessagePort | null = null;
+const pendingBridgeMessages: BridgeToExtensionMessage[] = [];
 
 interface TrackedXHR extends XMLHttpRequest {
   __savemycontextMethod?: string;
@@ -35,15 +43,6 @@ interface HistoryCandidates {
 }
 
 type JsonRecord = Record<string, unknown>;
-type MainWorldControlPayload =
-  | HistorySyncControlPayload
-  | {
-      type: "RUN_PROXY_PROMPT";
-      requestId: string;
-      promptText: string;
-      preferFastMode?: boolean;
-      requireCompleteJson?: boolean;
-    };
 
 const activeHistorySyncs = new Set<ProviderName>();
 
@@ -95,29 +94,102 @@ function shouldCapture(url: string): boolean {
   }
 }
 
+function flushPendingBridgeMessages(): void {
+  if (!bridgePort || !pendingBridgeMessages.length) {
+    return;
+  }
+  while (pendingBridgeMessages.length) {
+    bridgePort.postMessage(pendingBridgeMessages.shift()!);
+  }
+}
+
+function postToExtension(message: BridgeToExtensionMessage): void {
+  if (!bridgePort) {
+    pendingBridgeMessages.push(message);
+    return;
+  }
+  bridgePort.postMessage(message);
+}
+
+function handleControlPayload(payload: MainWorldControlPayload): void {
+  if (payload.type === "START_HISTORY_SYNC") {
+    void runHistorySync(payload);
+    return;
+  }
+
+  const provider = currentProvider();
+  if (!provider) {
+    postToExtension({
+      type: "PROXY_RESULT",
+      payload: {
+        requestId: payload.requestId,
+        ok: false,
+        error: "SaveMyContext proxy prompt can only run on a supported provider page."
+      }
+    });
+    return;
+  }
+
+  void runProxyPrompt(provider, payload.promptText, {
+    preferFastMode: payload.preferFastMode ?? false,
+    requireCompleteJson: payload.requireCompleteJson ?? false
+  })
+    .then((result) => {
+      postToExtension({
+        type: "PROXY_RESULT",
+        payload: {
+          requestId: payload.requestId,
+          ok: true,
+          provider: result.provider,
+          responseText: result.responseText,
+          pageUrl: result.pageUrl,
+          title: result.title
+        }
+      });
+    })
+    .catch((error) => {
+      postToExtension({
+        type: "PROXY_RESULT",
+        payload: {
+          requestId: payload.requestId,
+          ok: false,
+          error: error instanceof Error ? error.message : String(error)
+        }
+      });
+    });
+}
+
+function attachBridgePort(port: MessagePort): void {
+  bridgePort = port;
+  bridgePort.onmessage = (event: MessageEvent<BridgeToPageMessage>) => {
+    if (event.data?.type !== "CONTROL") {
+      return;
+    }
+    handleControlPayload(event.data.payload);
+  };
+  bridgePort.start();
+  document.documentElement?.setAttribute(MAIN_WORLD_READY_ATTRIBUTE, "1");
+  bridgePort.postMessage({ type: "BRIDGE_READY" });
+  flushPendingBridgeMessages();
+}
+
 function postCapture(capture: Omit<CapturedNetworkEvent, "source">): void {
   const payload = {
     ...capture,
     source: "savemycontext-network-observer"
   } satisfies CapturedNetworkEvent;
   observeProxyCapture(payload);
-  window.postMessage(
-    {
-      source: "savemycontext-network-observer",
-      payload
-    },
-    window.location.origin
-  );
+  postToExtension({
+    type: "NETWORK_CAPTURE",
+    payload
+  });
 }
 
 function postHistorySyncStatus(update: HistorySyncUpdate): void {
-  window.postMessage(
-    {
-      source: "savemycontext-history-sync",
-      payload: update
-    },
-    window.location.origin
-  );
+  postToExtension({
+    type: "HISTORY_SYNC_STATUS",
+    payload: update
+  });
 }
 
 function postHistorySyncProgress(
@@ -569,71 +641,22 @@ async function runHistorySync(control?: HistorySyncControlPayload): Promise<void
   }
 }
 
-window.addEventListener("message", (event: MessageEvent<{ source?: string; payload?: MainWorldControlPayload }>) => {
+window.addEventListener("message", (event: MessageEvent<{ source?: string }>) => {
   if (event.source !== window) {
     return;
   }
-  const payload = event.data?.payload;
-  if (event.data?.source !== CONTROL_SOURCE || !payload) {
+  if (event.data?.source !== BRIDGE_CONNECT_SOURCE) {
     return;
   }
-
-  if (payload.type === "START_HISTORY_SYNC") {
-    void runHistorySync(payload);
+  const [port] = event.ports;
+  if (!port) {
     return;
   }
-
-  if (payload.type === "RUN_PROXY_PROMPT") {
-    const provider = currentProvider();
-    if (!provider) {
-      window.postMessage(
-        {
-          source: PROXY_RESULT_SOURCE,
-          payload: {
-            requestId: payload.requestId,
-            ok: false,
-            error: "SaveMyContext proxy prompt can only run on a supported provider page."
-          }
-        },
-        window.location.origin
-      );
-      return;
-    }
-
-    void runProxyPrompt(provider, payload.promptText, {
-      preferFastMode: payload.preferFastMode ?? false,
-      requireCompleteJson: payload.requireCompleteJson ?? false
-    })
-      .then((result) => {
-        window.postMessage(
-          {
-            source: PROXY_RESULT_SOURCE,
-            payload: {
-              requestId: payload.requestId,
-              ok: true,
-              provider: result.provider,
-              responseText: result.responseText,
-              pageUrl: result.pageUrl,
-              title: result.title
-            }
-          },
-          window.location.origin
-        );
-      })
-      .catch((error) => {
-        window.postMessage(
-          {
-            source: PROXY_RESULT_SOURCE,
-            payload: {
-              requestId: payload.requestId,
-              ok: false,
-              error: error instanceof Error ? error.message : String(error)
-            }
-          },
-          window.location.origin
-        );
-      });
+  if (bridgePort) {
+    port.close();
+    return;
   }
+  attachBridgePort(port);
 });
 
 const windowFlags = window as unknown as Record<string, unknown>;
@@ -643,11 +666,3 @@ if (!windowFlags[OBSERVER_FLAG]) {
   patchFetch();
   patchXHR();
 }
-
-document.documentElement?.setAttribute(MAIN_WORLD_READY_ATTRIBUTE, "1");
-window.postMessage(
-  {
-    source: CONTROL_READY_SOURCE
-  },
-  window.location.origin
-);

@@ -14,6 +14,8 @@ import type {
   SourceCaptureResponse
 } from "../shared/types";
 
+const REQUIRED_EXTENSION_SCOPES = ["ingest", "read"] as const;
+
 function normalizeBackendUrl(rawUrl: string): string {
   return rawUrl.trim().replace(/\/$/, "");
 }
@@ -41,6 +43,10 @@ function authorizationHeader(token?: string): Record<string, string> {
     return {};
   }
   return { Authorization: `Bearer ${token}` };
+}
+
+function hasScope(scopes: string[], requiredScope: (typeof REQUIRED_EXTENSION_SCOPES)[number]): boolean {
+  return scopes.includes("*") || scopes.includes(requiredScope);
 }
 
 function apiPrefix(capabilities?: BackendCapabilities): string {
@@ -106,8 +112,8 @@ export async function validateBackendConfiguration(settings: ExtensionSettings):
     throw new Error("Remote SaveMyContext backends must be provisioned with an app token first.");
   }
 
-  if (!isLocal && !settings.backendToken) {
-    throw new Error("A backend app token is required for remote sync.");
+  if (capabilities.auth.mode === "app_token" && !settings.backendToken) {
+    throw new Error("A backend app token with ingest and read scopes is required.");
   }
 
   if (settings.backendToken) {
@@ -117,9 +123,14 @@ export async function validateBackendConfiguration(settings: ExtensionSettings):
     if (!verifyResponse.ok) {
       throw new Error("The backend token is invalid or missing required access.");
     }
-    const verification = (await verifyResponse.json()) as { valid?: boolean };
+    const verification = (await verifyResponse.json()) as { valid?: boolean; scopes?: string[] };
     if (!verification.valid) {
       throw new Error("The backend token is invalid.");
+    }
+    const scopes = Array.isArray(verification.scopes) ? verification.scopes : [];
+    const missingScopes = REQUIRED_EXTENSION_SCOPES.filter((scope) => !hasScope(scopes, scope));
+    if (missingScopes.length) {
+      throw new Error(`The backend token is missing required scopes: ${missingScopes.join(", ")}.`);
     }
   }
 

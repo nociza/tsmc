@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.enums import MessageRole, ProviderName, SessionCategory
 
@@ -27,6 +27,20 @@ class IngestDiffRequest(BaseModel):
     custom_tags: list[str] = Field(default_factory=list)
     messages: list[IngestMessage] = Field(default_factory=list)
     raw_capture: dict[str, Any] | list[Any] | None = None
+
+    @model_validator(mode="after")
+    def validate_unique_message_ids(self) -> "IngestDiffRequest":
+        seen: set[str] = set()
+        duplicates: set[str] = set()
+        for message in self.messages:
+            if message.external_message_id in seen:
+                duplicates.add(message.external_message_id)
+                continue
+            seen.add(message.external_message_id)
+        if duplicates:
+            duplicate_list = ", ".join(sorted(duplicates))
+            raise ValueError(f"Duplicate external_message_id values are not allowed: {duplicate_list}")
+        return self
 
 
 class IngestResponse(BaseModel):

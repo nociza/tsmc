@@ -65,7 +65,7 @@ savemycontext init-admin --username admin
 savemycontext token create --name chrome-extension --scope ingest --scope read
 ```
 
-Paste that token into the extension settings. The extension validates the backend before saving it.
+Paste that token into the extension settings. The extension validates the backend before saving it and checks that the token has `ingest` plus `read`.
 
 Optional indexing gate:
 
@@ -184,7 +184,8 @@ pnpm test:e2e
 
 ## Notes
 
-- Local backends work without a token.
+- Fresh loopback-only backends work without a token until the first app token is created.
+- Once any app token exists, all protected API access, including `http://127.0.0.1` and `http://localhost`, requires that token.
 - Remote backends must use `https://`.
 - OpenRouter or another OpenAI-compatible key should be configured on the backend for processing.
 - Browser-based AI processing is experimental and disabled by default.

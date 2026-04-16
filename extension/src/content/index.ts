@@ -1,21 +1,22 @@
 import type {
-  CapturedNetworkEvent,
+  BridgeToExtensionMessage,
   HistorySyncTriggerPayload,
-  HistorySyncUpdate,
+  MainWorldControlPayload,
   PingProviderTabResponse,
+  ProxyPromptResult,
   RunProviderPromptResponse,
   RuntimeMessage
 } from "../shared/types";
+import { BRIDGE_CONNECT_SOURCE, MAIN_WORLD_READY_ATTRIBUTE } from "../shared/bridge";
 import { createQuickSearchPalette } from "./quick-search";
 import { createSelectionCaptureController } from "./selection-capture";
 
-const CONTROL_SOURCE = "savemycontext-history-control";
-const CONTROL_READY_SOURCE = "savemycontext-history-control-ready";
-const PROXY_RESULT_SOURCE = "savemycontext-proxy-result";
-const MAIN_WORLD_READY_ATTRIBUTE = "data-savemycontext-main-world-ready";
+const BRIDGE_CONNECT_TIMEOUT_MS = 5_000;
+const BRIDGE_CONNECT_ATTEMPT_TIMEOUT_MS = 400;
+const BRIDGE_CONNECT_RETRY_INTERVAL_MS = 50;
 
-let injectedReady = false;
-let pendingControlPayload: MainWorldControlPayload | null = null;
+let bridgePort: MessagePort | null = null;
+let bridgeReadyPromise: Promise<void> | null = null;
 let proxyPromptInProgress = false;
 let runtimeDispatchQueue = Promise.resolve();
 const quickSearchPalette = createQuickSearchPalette(async <TResponse>(message: RuntimeMessage) => {
@@ -31,31 +32,6 @@ const pendingProxyRequests = new Map<
     reject: (reason?: unknown) => void;
   }
 >();
-
-type HistorySyncControlPayload = {
-  type: "START_HISTORY_SYNC";
-  syncedSessionIds?: string[];
-  previousTopSessionId?: string;
-  previousTopSessionIds?: string[];
-  refreshSessionIds?: string[];
-};
-type ProxyPromptControlPayload = {
-  type: "RUN_PROXY_PROMPT";
-  requestId: string;
-  promptText: string;
-  preferFastMode?: boolean;
-  requireCompleteJson?: boolean;
-};
-type MainWorldControlPayload = HistorySyncControlPayload | ProxyPromptControlPayload;
-type ProxyPromptResult = {
-  requestId: string;
-  ok: boolean;
-  provider?: "chatgpt" | "gemini" | "grok";
-  responseText?: string;
-  pageUrl?: string;
-  title?: string;
-  error?: string;
-};
 
 function enqueueRuntimeMessage(message: RuntimeMessage): void {
   const dispatch = async (): Promise<void> => {
@@ -87,78 +63,129 @@ function detectProviderFromUrl(url: string): "chatgpt" | "gemini" | "grok" | nul
   return null;
 }
 
-function isMainWorldReady(): boolean {
-  return document.documentElement?.getAttribute(MAIN_WORLD_READY_ATTRIBUTE) === "1";
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
-window.addEventListener(
-  "message",
-  (event: MessageEvent<{ source?: string; payload?: CapturedNetworkEvent | HistorySyncUpdate | ProxyPromptResult }>) => {
-    if (event.source !== window) {
-      return;
-    }
+function isMainWorldReady(): boolean {
+  return bridgePort !== null || document.documentElement?.getAttribute(MAIN_WORLD_READY_ATTRIBUTE) === "1";
+}
 
-    if (event.data?.source === CONTROL_READY_SOURCE) {
-      injectedReady = true;
-      if (pendingControlPayload) {
-        const payload = pendingControlPayload;
-        pendingControlPayload = null;
-        postControlMessage(payload);
-      }
-      return;
-    }
-
-    if (!event.data?.payload) {
-      return;
-    }
-
-    if (event.data.source === "savemycontext-network-observer") {
-      enqueueRuntimeMessage({
-        type: "NETWORK_CAPTURE",
-        payload: event.data.payload as CapturedNetworkEvent
-      });
-    }
-
-    if (event.data.source === "savemycontext-history-sync") {
-      enqueueRuntimeMessage({
-        type: "HISTORY_SYNC_STATUS",
-        payload: event.data.payload as HistorySyncUpdate
-      });
-    }
-
-    if (event.data.source === PROXY_RESULT_SOURCE) {
-      const payload = event.data.payload as ProxyPromptResult;
-      if (!payload?.requestId) {
-        return;
-      }
-      const pending = pendingProxyRequests.get(payload.requestId);
-      if (!pending) {
-        return;
-      }
-      pendingProxyRequests.delete(payload.requestId);
-      if (!payload.ok || !payload.responseText || !payload.pageUrl) {
-        pending.reject(new Error(payload.error ?? "The provider page did not return a proxy response."));
-        return;
-      }
-      pending.resolve(payload);
-    }
-  }
-);
-
-function postControlMessage(payload: MainWorldControlPayload): void {
-  injectedReady ||= isMainWorldReady();
-  if (!injectedReady) {
-    pendingControlPayload = payload;
+function handleBridgeMessage(message: BridgeToExtensionMessage): void {
+  if (message.type === "NETWORK_CAPTURE") {
+    enqueueRuntimeMessage({
+      type: "NETWORK_CAPTURE",
+      payload: message.payload
+    });
     return;
   }
 
-  window.postMessage(
-    {
-      source: CONTROL_SOURCE,
-      payload
-    },
-    window.location.origin
-  );
+  if (message.type === "HISTORY_SYNC_STATUS") {
+    enqueueRuntimeMessage({
+      type: "HISTORY_SYNC_STATUS",
+      payload: message.payload
+    });
+    return;
+  }
+
+  if (message.type === "PROXY_RESULT") {
+    const payload = message.payload;
+    if (!payload?.requestId) {
+      return;
+    }
+    const pending = pendingProxyRequests.get(payload.requestId);
+    if (!pending) {
+      return;
+    }
+    pendingProxyRequests.delete(payload.requestId);
+    if (!payload.ok || !payload.responseText || !payload.pageUrl) {
+      pending.reject(new Error(payload.error ?? "The provider page did not return a proxy response."));
+      return;
+    }
+    pending.resolve(payload);
+  }
+}
+
+function attachBridgePort(port: MessagePort): void {
+  bridgePort = port;
+  bridgePort.onmessage = (event: MessageEvent<BridgeToExtensionMessage>) => {
+    if (!event.data) {
+      return;
+    }
+    handleBridgeMessage(event.data);
+  };
+  bridgePort.start();
+}
+
+async function connectMainWorldBridgeOnce(): Promise<void> {
+  return await new Promise<void>((resolve, reject) => {
+    const channel = new MessageChannel();
+    const timeout = window.setTimeout(() => {
+      channel.port1.close();
+      reject(new Error("Timed out connecting to the main-world bridge."));
+    }, BRIDGE_CONNECT_ATTEMPT_TIMEOUT_MS);
+
+    channel.port1.onmessage = (event: MessageEvent<BridgeToExtensionMessage>) => {
+      if (event.data?.type !== "BRIDGE_READY") {
+        return;
+      }
+      window.clearTimeout(timeout);
+      attachBridgePort(channel.port1);
+      resolve();
+    };
+    channel.port1.start();
+
+    window.postMessage(
+      {
+        source: BRIDGE_CONNECT_SOURCE
+      },
+      window.location.origin,
+      [channel.port2]
+    );
+  });
+}
+
+async function ensureBridgeReady(): Promise<void> {
+  if (bridgePort) {
+    return;
+  }
+  if (bridgeReadyPromise) {
+    return await bridgeReadyPromise;
+  }
+
+  bridgeReadyPromise = (async () => {
+    const deadline = Date.now() + BRIDGE_CONNECT_TIMEOUT_MS;
+    let lastError: Error | null = null;
+
+    while (!bridgePort && Date.now() < deadline) {
+      try {
+        await connectMainWorldBridgeOnce();
+        return;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (Date.now() >= deadline) {
+          break;
+        }
+        await sleep(BRIDGE_CONNECT_RETRY_INTERVAL_MS);
+      }
+    }
+
+    throw lastError ?? new Error("Could not connect to the main-world bridge.");
+  })().finally(() => {
+    bridgeReadyPromise = null;
+  });
+
+  return await bridgeReadyPromise;
+}
+
+async function postControlMessage(payload: MainWorldControlPayload): Promise<void> {
+  await ensureBridgeReady();
+  bridgePort?.postMessage({
+    type: "CONTROL",
+    payload
+  });
 }
 
 async function requestProxyPrompt(
@@ -170,7 +197,7 @@ async function requestProxyPrompt(
   const promise = new Promise<ProxyPromptResult>((resolve, reject) => {
     pendingProxyRequests.set(requestId, { resolve, reject });
   });
-  postControlMessage({
+  await postControlMessage({
     type: "RUN_PROXY_PROMPT",
     requestId,
     promptText,
@@ -236,15 +263,23 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
   }
   if (message.type === "TRIGGER_HISTORY_SYNC") {
     const payload: HistorySyncTriggerPayload = message.payload;
-    postControlMessage({
+    void postControlMessage({
       type: "START_HISTORY_SYNC",
       syncedSessionIds: payload.syncedSessionIds,
       previousTopSessionId: payload.previousTopSessionId,
       previousTopSessionIds: payload.previousTopSessionIds,
       refreshSessionIds: payload.refreshSessionIds
-    });
-    sendResponse({ ok: true });
-    return false;
+    })
+      .then(() => {
+        sendResponse({ ok: true });
+      })
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+    return true;
   }
   if (message.type === "RUN_PROVIDER_PROMPT") {
     if (proxyPromptInProgress) {
@@ -286,7 +321,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
       ok: true,
       provider: detectProviderFromUrl(window.location.href) ?? undefined,
       pageUrl: window.location.href,
-      mainWorldReady: injectedReady || isMainWorldReady()
+      mainWorldReady: isMainWorldReady()
     } satisfies PingProviderTabResponse);
     return false;
   }
@@ -298,8 +333,10 @@ window.addEventListener("beforeunload", () => {
     pendingProxyRequests.delete(requestId);
     pending.reject(new Error("The provider page was closed before the response completed."));
   }
+  bridgePort?.close();
+  bridgePort = null;
 });
 
-injectedReady = isMainWorldReady();
+void ensureBridgeReady().catch(() => undefined);
 installNavigationObserver();
 notifyPageVisit();

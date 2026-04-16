@@ -180,19 +180,19 @@ async def test_markdown_export_handles_mixed_naive_and_aware_session_timestamps(
         exporter.base_dir = tmp_path / "markdown"
 
         output_path = await exporter.write_session(aware_session)
-        entity_note = exporter.vault_root / "Graph" / "Entities" / "fastapi.md"
+        entity_notes = sorted((exporter.vault_root / "Graph" / "Entities").glob("fastapi--*.md"))
         home_dashboard = exporter.vault_root / "Dashboards" / "Home.md"
         readme = exporter.vault_root / "README.md"
         agents = exporter.vault_root / "AGENTS.md"
         manifest = exporter.vault_root / "manifest.json"
 
         assert output_path.exists()
-        assert entity_note.exists()
+        assert len(entity_notes) == 1
         assert home_dashboard.exists()
         assert readme.exists()
         assert agents.exists()
         assert manifest.exists()
-        entity_markdown = entity_note.read_text(encoding="utf-8")
+        entity_markdown = entity_notes[0].read_text(encoding="utf-8")
         home_markdown = home_dashboard.read_text(encoding="utf-8")
         agents_markdown = agents.read_text(encoding="utf-8")
         manifest_json = manifest.read_text(encoding="utf-8")

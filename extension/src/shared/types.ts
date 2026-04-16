@@ -318,6 +318,14 @@ export interface HistorySyncTriggerPayload {
   refreshSessionIds?: string[];
 }
 
+export interface HistorySyncControlPayload {
+  type: "START_HISTORY_SYNC";
+  syncedSessionIds?: string[];
+  previousTopSessionId?: string;
+  previousTopSessionIds?: string[];
+  refreshSessionIds?: string[];
+}
+
 export interface HistorySyncUpdate {
   provider: ProviderName;
   phase: "started" | "completed" | "failed" | "unsupported";
@@ -332,6 +340,37 @@ export interface HistorySyncUpdate {
   message?: string;
   providerDriftAlert?: ProviderDriftAlert | null;
 }
+
+export interface ProxyPromptControlPayload {
+  type: "RUN_PROXY_PROMPT";
+  requestId: string;
+  promptText: string;
+  preferFastMode?: boolean;
+  requireCompleteJson?: boolean;
+}
+
+export type MainWorldControlPayload = HistorySyncControlPayload | ProxyPromptControlPayload;
+
+export interface ProxyPromptResult {
+  requestId: string;
+  ok: boolean;
+  provider?: ProviderName;
+  responseText?: string;
+  pageUrl?: string;
+  title?: string;
+  error?: string;
+}
+
+export type BridgeToPageMessage = {
+  type: "CONTROL";
+  payload: MainWorldControlPayload;
+};
+
+export type BridgeToExtensionMessage =
+  | { type: "BRIDGE_READY" }
+  | { type: "NETWORK_CAPTURE"; payload: CapturedNetworkEvent }
+  | { type: "HISTORY_SYNC_STATUS"; payload: HistorySyncUpdate }
+  | { type: "PROXY_RESULT"; payload: ProxyPromptResult };
 
 export interface BackendIngestMessage {
   external_message_id: string;

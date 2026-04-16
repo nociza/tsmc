@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -73,15 +73,15 @@ class IngestService:
 
     async def _ingest_full_snapshot(self, session_id: str, payload: IngestDiffRequest) -> int:
         existing_messages = await self._existing_messages(session_id)
-        next_index = await self._next_sequence_index(session_id)
         new_message_count = 0
 
-        for message in payload.messages:
-            existing = existing_messages.get(message.external_message_id)
+        for sequence_index, message in enumerate(payload.messages, start=1):
+            existing = existing_messages.pop(message.external_message_id, None)
             if existing is not None:
                 existing.parent_external_message_id = message.parent_external_message_id
                 existing.role = message.role
                 existing.content = message.content
+                existing.sequence_index = sequence_index
                 existing.occurred_at = message.occurred_at
                 existing.raw_payload = message.raw_payload
                 continue
@@ -93,13 +93,16 @@ class IngestService:
                     parent_external_message_id=message.parent_external_message_id,
                     role=message.role,
                     content=message.content,
-                    sequence_index=next_index,
+                    sequence_index=sequence_index,
                     occurred_at=message.occurred_at,
                     raw_payload=message.raw_payload,
                 )
             )
-            next_index += 1
             new_message_count += 1
+
+        if existing_messages:
+            stale_ids = [message.id for message in existing_messages.values()]
+            await self.db.execute(delete(ChatMessage).where(ChatMessage.id.in_(stale_ids)))
 
         return new_message_count
 

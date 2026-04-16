@@ -32,6 +32,15 @@ def slugify(value: str) -> str:
     return normalized or hashlib.sha1(value.encode("utf-8")).hexdigest()[:10]
 
 
+def stable_note_token(value: str, *, fallback: str = "item", max_slug_length: int = 48) -> str:
+    slug = slugify(value) or fallback
+    if len(slug) > max_slug_length:
+        slug = slug[:max_slug_length].rstrip("-") or fallback
+    normalized = re.sub(r"\s+", " ", value).strip().casefold()
+    digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:10]
+    return f"{slug}--{digest}"
+
+
 def yaml_scalar(value: object) -> str:
     if value is None:
         return "null"
@@ -334,12 +343,13 @@ class MarkdownExporter:
 
         for entity, entity_triplets in by_entity.items():
             note_path = self._entity_note_path(entity)
+            entity_token = stable_note_token(entity, fallback="entity")
             related_sessions = {
                 triplet.session for triplet in entity_triplets if triplet.session is not None
             }
             lines = [
                 "---",
-                f"id: {yaml_scalar(f'savemycontext-entity-{slugify(entity)}')}",
+                f"id: {yaml_scalar(f'savemycontext-entity-{entity_token}')}",
                 f"type: {yaml_scalar('entity')}",
                 f"entity: {yaml_scalar(entity)}",
                 "---",
@@ -525,7 +535,7 @@ class MarkdownExporter:
         return self.vault_root / category_dir / filename
 
     def _entity_note_path(self, entity: str) -> Path:
-        return self.vault_root / "Graph" / "Entities" / f"{slugify(entity)}.md"
+        return self.vault_root / "Graph" / "Entities" / f"{stable_note_token(entity, fallback='entity')}.md"
 
     def _source_note_path(self, session: ChatSession) -> Path:
         filename = f"{session.provider.value}--{slugify(session.external_session_id)}--source.md"

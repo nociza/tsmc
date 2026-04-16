@@ -25,15 +25,22 @@ class AuthContext:
     token_name: str | None
     username: str | None
     scopes: frozenset[str]
-    local_request: bool = False
+    bootstrap_request: bool = False
 
     def has_scope(self, scope: str) -> bool:
-        return self.local_request or scope in self.scopes or "*" in self.scopes
+        return self.bootstrap_request or scope in self.scopes or "*" in self.scopes
 
 
-def is_local_request(request: Request) -> bool:
-    host = request.client.host if request.client else None
-    return host in LOCAL_CLIENT_HOSTS
+def _normalize_host(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return value.removeprefix("[").removesuffix("]").lower()
+
+
+def is_trusted_loopback_request(request: Request) -> bool:
+    client_host = _normalize_host(request.client.host if request.client else None)
+    request_host = _normalize_host(request.url.hostname)
+    return client_host in LOCAL_CLIENT_HOSTS and request_host in LOCAL_CLIENT_HOSTS
 
 
 async def _active_token_count(db: AsyncSession) -> int:
@@ -80,7 +87,7 @@ async def authenticate_bearer_token(
             token_name=token.name,
             username=token.user.username if token.user else None,
             scopes=frozenset(token.scopes),
-            local_request=is_local_request(request),
+            bootstrap_request=False,
         )
     return None
 
@@ -105,17 +112,13 @@ async def resolve_auth_context(
     if token_context is not None:
         return token_context
 
-    local_request = is_local_request(request)
     active_token_count = await _active_token_count(db)
-    if local_request and active_token_count == 0:
-        return AuthContext(token_id=None, token_name=None, username=None, scopes=frozenset({"*"}), local_request=True)
-
-    if local_request and active_token_count > 0:
-        return AuthContext(token_id=None, token_name=None, username=None, scopes=frozenset({"*"}), local_request=True)
+    if active_token_count == 0 and is_trusted_loopback_request(request):
+        return AuthContext(token_id=None, token_name=None, username=None, scopes=frozenset({"*"}), bootstrap_request=True)
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="A SaveMyContext app token is required for non-local access.",
+        detail="A SaveMyContext app token is required.",
     )
 
 
