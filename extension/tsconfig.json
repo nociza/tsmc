@@ -4,6 +4,7 @@
     "useDefineForClassFields": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
     "strict": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
@@ -12,7 +13,19 @@
     "skipLibCheck": true,
     "noEmit": true,
     "lib": ["ESNext", "DOM", "DOM.Iterable", "ESNext.Disposable"],
-    "types": ["chrome", "vite/client", "node"]
+    "types": ["chrome", "vite/client", "node", "react", "react-dom"]
   },
-  "include": ["src", "tests", "e2e", "vite.config.ts", "playwright.config.ts", "options.html", "popup.html"]
+  "include": [
+    "src",
+    "tests",
+    "e2e",
+    "vite.config.ts",
+    "vite.injected.config.ts",
+    "playwright.config.ts",
+    "options.html",
+    "popup.html",
+    "dashboard.html",
+    "category.html",
+    "note.html"
+  ]
 }

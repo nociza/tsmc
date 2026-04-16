@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from sqlalchemy import or_, select
+from sqlalchemy import Text, cast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import ChatMessage, ChatSession, FactTriplet, SessionCategory, SourceCapture
+from app.models import ChatMessage, ChatSession, FactTriplet, ProviderName, SessionCategory, SourceCapture
 from app.schemas.search import SearchResult, SearchResponse
 from app.services.graph import entity_note_path
 from app.services.todo import TODO_TITLE, TodoListService
@@ -28,63 +28,75 @@ class SearchService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def search(self, query: str, *, limit: int = 25) -> SearchResponse:
+    async def search(
+        self,
+        query: str,
+        *,
+        limit: int = 25,
+        category: SessionCategory | None = None,
+        provider: ProviderName | None = None,
+        kinds: set[str] | None = None,
+    ) -> SearchResponse:
         pattern = f"%{query}%"
-        session_statement = (
-            select(ChatSession)
-            .options(selectinload(ChatSession.messages))
-            .where(
-                or_(
-                    ChatSession.title.ilike(pattern),
-                    ChatSession.classification_reason.ilike(pattern),
-                    ChatSession.journal_entry.ilike(pattern),
-                    ChatSession.todo_summary.ilike(pattern),
-                    ChatSession.share_post.ilike(pattern),
-                    ChatSession.messages.any(ChatMessage.content.ilike(pattern)),
-                )
+        session_statement = select(ChatSession).options(selectinload(ChatSession.messages)).where(
+            or_(
+                ChatSession.title.ilike(pattern),
+                ChatSession.classification_reason.ilike(pattern),
+                ChatSession.journal_entry.ilike(pattern),
+                ChatSession.todo_summary.ilike(pattern),
+                cast(ChatSession.idea_summary, Text).ilike(pattern),
+                ChatSession.share_post.ilike(pattern),
+                ChatSession.messages.any(ChatMessage.content.ilike(pattern)),
             )
-            .order_by(ChatSession.updated_at.desc())
-            .limit(limit)
         )
+        if category:
+            session_statement = session_statement.where(ChatSession.category == category)
+        if provider:
+            session_statement = session_statement.where(ChatSession.provider == provider)
+        session_statement = session_statement.order_by(ChatSession.updated_at.desc()).limit(limit)
         session_rows = (await self.db.execute(session_statement)).scalars().all()
 
-        triplet_statement = (
-            select(FactTriplet)
-            .options(selectinload(FactTriplet.session))
-            .where(
-                or_(
-                    FactTriplet.subject.ilike(pattern),
-                    FactTriplet.predicate.ilike(pattern),
-                    FactTriplet.object.ilike(pattern),
-                )
+        triplet_statement = select(FactTriplet).options(selectinload(FactTriplet.session)).join(FactTriplet.session).where(
+            or_(
+                FactTriplet.subject.ilike(pattern),
+                FactTriplet.predicate.ilike(pattern),
+                FactTriplet.object.ilike(pattern),
             )
-            .limit(limit)
         )
+        if category:
+            triplet_statement = triplet_statement.where(ChatSession.category == category)
+        if provider:
+            triplet_statement = triplet_statement.where(ChatSession.provider == provider)
+        triplet_statement = triplet_statement.limit(limit)
         triplet_rows = (await self.db.execute(triplet_statement)).scalars().all()
-        source_statement = (
-            select(SourceCapture)
-            .where(
-                or_(
-                    SourceCapture.title.ilike(pattern),
-                    SourceCapture.page_title.ilike(pattern),
-                    SourceCapture.source_url.ilike(pattern),
-                    SourceCapture.summary.ilike(pattern),
-                    SourceCapture.classification_reason.ilike(pattern),
-                    SourceCapture.cleaned_markdown.ilike(pattern),
-                    SourceCapture.source_text.ilike(pattern),
-                )
+        source_statement = select(SourceCapture).where(
+            or_(
+                SourceCapture.title.ilike(pattern),
+                SourceCapture.page_title.ilike(pattern),
+                SourceCapture.source_url.ilike(pattern),
+                SourceCapture.summary.ilike(pattern),
+                SourceCapture.classification_reason.ilike(pattern),
+                SourceCapture.cleaned_markdown.ilike(pattern),
+                SourceCapture.source_text.ilike(pattern),
             )
-            .order_by(SourceCapture.updated_at.desc())
-            .limit(limit)
         )
-        source_rows = (await self.db.execute(source_statement)).scalars().all()
+        if category:
+            source_statement = source_statement.where(SourceCapture.category == category)
+        if provider:
+            source_rows = []
+        else:
+            source_statement = source_statement.order_by(SourceCapture.updated_at.desc()).limit(limit)
+            source_rows = (await self.db.execute(source_statement)).scalars().all()
 
         results: list[SearchResult] = []
         seen_session_ids: set[str] = set()
         seen_entities: set[str] = set()
         seen_source_ids: set[str] = set()
+        allowed_kinds = kinds or {"session", "entity", "source_capture", "todo_list"}
 
         for session in session_rows:
+            if "session" not in allowed_kinds:
+                continue
             seen_session_ids.add(session.id)
             results.append(
                 SearchResult(
@@ -110,6 +122,8 @@ class SearchService:
             )
 
         for triplet in triplet_rows:
+            if "entity" not in allowed_kinds:
+                continue
             for entity in (triplet.subject, triplet.object):
                 entity_key = entity.lower()
                 if entity_key in seen_entities:
@@ -130,6 +144,8 @@ class SearchService:
                 )
 
         for source_capture in source_rows:
+            if "source_capture" not in allowed_kinds:
+                continue
             if source_capture.id in seen_source_ids:
                 continue
             seen_source_ids.add(source_capture.id)
@@ -156,7 +172,12 @@ class SearchService:
 
         todo_service = TodoListService()
         todo_markdown = todo_service.read_markdown()
-        if query.lower() in todo_markdown.lower():
+        if (
+            "todo_list" in allowed_kinds
+            and provider is None
+            and category in {None, SessionCategory.TODO}
+            and query.lower() in todo_markdown.lower()
+        ):
             results.append(
                 SearchResult(
                     kind="todo_list",

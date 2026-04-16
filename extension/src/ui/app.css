@@ -1,0 +1,80 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+@import "@xyflow/react/dist/style.css";
+
+@theme {
+  --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  html,
+  body {
+    margin: 0;
+  }
+
+  html[data-page="popup"],
+  body[data-page="popup"] {
+    width: 560px;
+    min-width: 560px;
+    max-width: 560px;
+    overflow-x: hidden;
+  }
+
+  #root[data-page="popup"] {
+    width: 560px;
+    min-width: 560px;
+    max-width: 560px;
+  }
+
+  body {
+    background: #f3f6f4;
+    color: #111827;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  * {
+    box-sizing: border-box;
+    min-width: 0;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+}
+
+@layer components {
+  .panel-surface {
+    @apply rounded-lg border border-zinc-200/80 bg-white shadow-[0_1px_2px_rgba(17,24,39,0.04)];
+  }
+
+  .note-prose {
+    @apply prose prose-zinc max-w-none prose-headings:mb-3 prose-headings:font-semibold prose-p:text-zinc-700 prose-li:text-zinc-700 prose-pre:rounded-lg prose-pre:border prose-pre:border-zinc-200 prose-pre:bg-zinc-950 prose-pre:text-zinc-50 prose-code:rounded prose-code:bg-zinc-100 prose-code:px-1 prose-code:py-0.5 prose-code:text-zinc-900 prose-code:before:content-[''] prose-code:after:content-[''];
+  }
+
+  .react-flow__controls {
+    @apply overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm;
+  }
+
+  .react-flow__controls-button {
+    @apply !h-9 !w-9 !border-zinc-200 !bg-white !text-zinc-700 hover:!bg-zinc-50;
+  }
+
+  .react-flow__minimap {
+    @apply overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm;
+  }
+
+  .react-flow__panel {
+    @apply rounded-lg border border-zinc-200 bg-white/95 px-3 py-2 text-xs text-zinc-600 shadow-sm backdrop-blur;
+  }
+}

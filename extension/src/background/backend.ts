@@ -1,11 +1,16 @@
 import type {
   BackendCapabilities,
+  BackendCategoryGraph,
+  BackendCategoryStats,
   BackendDashboardSummary,
+  BackendExplorerGraphEdge,
+  BackendExplorerGraphNode,
   BackendGraphEdge,
   BackendGraphNode,
   BackendProcessingStatus,
   BackendSearchResponse,
   BackendSessionListItem,
+  BackendSessionNoteRead,
   BackendSessionRead,
   BackendStorageSettings,
   BackendSystemStatus,
@@ -13,6 +18,7 @@ import type {
   ProcessingCompleteResponse,
   ProcessingTaskResponse,
   ProviderName,
+  SessionCategoryName,
   SourceCapturePayload,
   SourceCaptureResponse
 } from "../shared/types";
@@ -249,6 +255,89 @@ export async function fetchSession(
   capabilities?: BackendCapabilities
 ): Promise<BackendSessionRead> {
   return fetchBackendJson<BackendSessionRead>(settings, `/sessions/${encodeURIComponent(sessionId)}`, capabilities);
+}
+
+export async function fetchSessionNote(
+  settings: ExtensionSettings,
+  sessionId: string,
+  capabilities?: BackendCapabilities
+): Promise<BackendSessionNoteRead> {
+  return fetchBackendJson<BackendSessionNoteRead>(settings, `/notes/${encodeURIComponent(sessionId)}`, capabilities);
+}
+
+export async function fetchCategoryStats(
+  settings: ExtensionSettings,
+  category: SessionCategoryName,
+  filters?: {
+    provider?: ProviderName;
+    sessionIds?: string[];
+  },
+  capabilities?: BackendCapabilities
+): Promise<BackendCategoryStats> {
+  const search = new URLSearchParams();
+  if (filters?.provider) {
+    search.set("provider", filters.provider);
+  }
+  for (const sessionId of filters?.sessionIds ?? []) {
+    search.append("session_id", sessionId);
+  }
+  const query = search.toString();
+  return fetchBackendJson<BackendCategoryStats>(
+    settings,
+    `/categories/${encodeURIComponent(category)}/stats${query ? `?${query}` : ""}`,
+    capabilities
+  );
+}
+
+export async function fetchCategoryGraph(
+  settings: ExtensionSettings,
+  category: SessionCategoryName,
+  filters?: {
+    provider?: ProviderName;
+    sessionIds?: string[];
+  },
+  capabilities?: BackendCapabilities
+): Promise<BackendCategoryGraph> {
+  const search = new URLSearchParams();
+  if (filters?.provider) {
+    search.set("provider", filters.provider);
+  }
+  for (const sessionId of filters?.sessionIds ?? []) {
+    search.append("session_id", sessionId);
+  }
+  const query = search.toString();
+  return fetchBackendJson<BackendCategoryGraph>(
+    settings,
+    `/categories/${encodeURIComponent(category)}/graph${query ? `?${query}` : ""}`,
+    capabilities
+  );
+}
+
+export async function fetchExplorerSearch(
+  settings: ExtensionSettings,
+  query: string,
+  options?: {
+    limit?: number;
+    category?: SessionCategoryName;
+    provider?: ProviderName;
+    kinds?: string[];
+  },
+  capabilities?: BackendCapabilities
+): Promise<BackendSearchResponse> {
+  const search = new URLSearchParams({
+    q: query.trim(),
+    limit: String(options?.limit ?? 25)
+  });
+  if (options?.category) {
+    search.set("category", options.category);
+  }
+  if (options?.provider) {
+    search.set("provider", options.provider);
+  }
+  for (const kind of options?.kinds ?? []) {
+    search.append("kind", kind);
+  }
+  return fetchBackendJson<BackendSearchResponse>(settings, `/search?${search.toString()}`, capabilities);
 }
 
 export async function fetchKnowledgeSearch(

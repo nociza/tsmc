@@ -8,12 +8,14 @@ from app.api.dependencies import AuthContext, require_scope
 from app.db.session import get_db_session
 from app.core.config import get_settings
 from app.core.version import get_app_version
-from app.models import APIToken, ChatMessage, ChatSession, FactTriplet, SessionCategory, SyncEvent
+from app.models import APIToken, ChatMessage, ChatSession, FactTriplet, ProviderName, SessionCategory, SyncEvent
 from app.models.base import utcnow
 from app.schemas.dashboard import CategoryCount, DashboardSummary
+from app.schemas.explorer import CategoryGraph, CategoryStats
 from app.schemas.graph import GraphEdge, GraphNode
 from app.schemas.search import SearchResponse
 from app.schemas.system import StorageSettingsResponse, StorageSettingsUpdate, SystemStatus
+from app.services.explorer import ExplorerService
 from app.services.git_versioning import GitVersioningService
 from app.services.graph import GraphService
 from app.services.search import SearchService
@@ -67,10 +69,41 @@ async def dashboard_summary(
 async def search(
     q: str = Query(min_length=2),
     limit: int = Query(default=25, ge=1, le=100),
+    category: SessionCategory | None = Query(default=None),
+    provider: ProviderName | None = Query(default=None),
+    kind: list[str] | None = Query(default=None),
     _: AuthContext = Depends(require_scope("read")),
     db: AsyncSession = Depends(get_db_session),
 ) -> SearchResponse:
-    return await SearchService(db).search(q, limit=limit)
+    return await SearchService(db).search(
+        q,
+        limit=limit,
+        category=category,
+        provider=provider,
+        kinds=set(kind) if kind else None,
+    )
+
+
+@router.get("/categories/{category}/stats", response_model=CategoryStats)
+async def category_stats(
+    category: SessionCategory,
+    provider: ProviderName | None = Query(default=None),
+    session_id: list[str] | None = Query(default=None),
+    _: AuthContext = Depends(require_scope("read")),
+    db: AsyncSession = Depends(get_db_session),
+) -> CategoryStats:
+    return await ExplorerService(db).category_stats(category, session_ids=session_id, provider=provider)
+
+
+@router.get("/categories/{category}/graph", response_model=CategoryGraph)
+async def category_graph(
+    category: SessionCategory,
+    provider: ProviderName | None = Query(default=None),
+    session_id: list[str] | None = Query(default=None),
+    _: AuthContext = Depends(require_scope("read")),
+    db: AsyncSession = Depends(get_db_session),
+) -> CategoryGraph:
+    return await ExplorerService(db).category_graph(category, session_ids=session_id, provider=provider)
 
 
 @router.get("/graph/nodes", response_model=list[GraphNode])

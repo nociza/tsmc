@@ -274,6 +274,75 @@ export interface BackendSessionRead extends BackendSessionListItem {
   triplets: BackendSessionTriplet[];
 }
 
+export interface BackendLabelCount {
+  label: string;
+  count: number;
+}
+
+export interface BackendProviderCount {
+  provider: ProviderName;
+  count: number;
+}
+
+export interface BackendActivityBucket {
+  bucket: string;
+  count: number;
+}
+
+export interface BackendCategoryStats {
+  category: SessionCategoryName;
+  total_sessions: number;
+  total_messages: number;
+  total_triplets: number;
+  latest_updated_at?: string | null;
+  avg_messages_per_session: number;
+  avg_triplets_per_session: number;
+  notes_with_share_post: number;
+  notes_with_idea_summary: number;
+  notes_with_journal_entry: number;
+  notes_with_todo_summary: number;
+  provider_counts: BackendProviderCount[];
+  activity: BackendActivityBucket[];
+  top_tags: BackendLabelCount[];
+  top_entities: BackendLabelCount[];
+  top_predicates: BackendLabelCount[];
+}
+
+export interface BackendExplorerGraphNode {
+  id: string;
+  label: string;
+  kind: string;
+  size: number;
+  session_ids: string[];
+  provider?: ProviderName | null;
+  category?: SessionCategoryName | null;
+  updated_at?: string | null;
+  note_path?: string | null;
+}
+
+export interface BackendExplorerGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  label?: string | null;
+  weight: number;
+  session_ids: string[];
+}
+
+export interface BackendCategoryGraph {
+  category: SessionCategoryName;
+  node_count: number;
+  edge_count: number;
+  nodes: BackendExplorerGraphNode[];
+  edges: BackendExplorerGraphEdge[];
+}
+
+export interface BackendSessionNoteRead extends BackendSessionRead {
+  raw_markdown?: string | null;
+  related_entities: string[];
+  word_count: number;
+}
+
 export interface BackendSearchResult {
   kind: string;
   title: string;
