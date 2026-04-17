@@ -17,6 +17,7 @@ import { runGrokHistorySync } from "./grok-history";
 import { runProxyPrompt, observeProxyCapture } from "./proxy-runner";
 import { buildProviderDriftAlert, createProviderDriftError, isProviderDriftError } from "./drift";
 import {
+  countRetryableHistoryFailures,
   dedupeIds,
   normalizeHistorySessionIds,
   runWithConcurrency
@@ -627,6 +628,7 @@ async function runChatGPTHistorySync(control?: HistorySyncControlPayload): Promi
       });
 
       const attemptedConversationCount = pendingSessionIds.length;
+      const retryableFailureCount = countRetryableHistoryFailures(attemptedConversationCount, syncedConversationCount);
       let providerDriftAlert: ProviderDriftAlert | null = null;
       if (
         firstDriftFailure &&
@@ -647,6 +649,7 @@ async function runChatGPTHistorySync(control?: HistorySyncControlPayload): Promi
         phase: "completed",
         runId,
         conversationCount: syncedConversationCount,
+        retryableFailureCount,
         processedCount: totalCount,
         totalCount,
         skippedCount,

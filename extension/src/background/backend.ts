@@ -16,6 +16,7 @@ import type {
   BackendSystemStatus,
   BackendTodoListRead,
   BackendTodoListUpdate,
+  BackendUserCategorySummary,
   ExtensionSettings,
   ProcessingCompleteResponse,
   ProcessingTaskResponse,
@@ -261,6 +262,7 @@ export async function fetchSessions(
   filters?: {
     provider?: ProviderName;
     category?: string;
+    userCategory?: string;
   },
   capabilities?: BackendCapabilities
 ): Promise<BackendSessionListItem[]> {
@@ -270,6 +272,9 @@ export async function fetchSessions(
   }
   if (filters?.category) {
     search.set("category", filters.category);
+  }
+  if (filters?.userCategory) {
+    search.set("user_category", filters.userCategory);
   }
   const query = search.toString();
   return fetchBackendJson<BackendSessionListItem[]>(settings, `/sessions${query ? `?${query}` : ""}`, capabilities);
@@ -315,6 +320,30 @@ export async function fetchCategoryStats(
   );
 }
 
+export async function fetchCustomCategoryStats(
+  settings: ExtensionSettings,
+  name: string,
+  filters?: {
+    provider?: ProviderName;
+    sessionIds?: string[];
+  },
+  capabilities?: BackendCapabilities
+): Promise<BackendCategoryStats> {
+  const search = new URLSearchParams();
+  if (filters?.provider) {
+    search.set("provider", filters.provider);
+  }
+  for (const sessionId of filters?.sessionIds ?? []) {
+    search.append("session_id", sessionId);
+  }
+  const query = search.toString();
+  return fetchBackendJson<BackendCategoryStats>(
+    settings,
+    `/custom-categories/${encodeURIComponent(name)}/stats${query ? `?${query}` : ""}`,
+    capabilities
+  );
+}
+
 export async function fetchCategoryGraph(
   settings: ExtensionSettings,
   category: SessionCategoryName,
@@ -339,6 +368,30 @@ export async function fetchCategoryGraph(
   );
 }
 
+export async function fetchCustomCategoryGraph(
+  settings: ExtensionSettings,
+  name: string,
+  filters?: {
+    provider?: ProviderName;
+    sessionIds?: string[];
+  },
+  capabilities?: BackendCapabilities
+): Promise<BackendCategoryGraph> {
+  const search = new URLSearchParams();
+  if (filters?.provider) {
+    search.set("provider", filters.provider);
+  }
+  for (const sessionId of filters?.sessionIds ?? []) {
+    search.append("session_id", sessionId);
+  }
+  const query = search.toString();
+  return fetchBackendJson<BackendCategoryGraph>(
+    settings,
+    `/custom-categories/${encodeURIComponent(name)}/graph${query ? `?${query}` : ""}`,
+    capabilities
+  );
+}
+
 export async function fetchExplorerSearch(
   settings: ExtensionSettings,
   query: string,
@@ -346,6 +399,7 @@ export async function fetchExplorerSearch(
     limit?: number;
     category?: SessionCategoryName;
     provider?: ProviderName;
+    userCategory?: string;
     kinds?: string[];
   },
   capabilities?: BackendCapabilities
@@ -360,10 +414,56 @@ export async function fetchExplorerSearch(
   if (options?.provider) {
     search.set("provider", options.provider);
   }
+  if (options?.userCategory) {
+    search.set("user_category", options.userCategory);
+  }
   for (const kind of options?.kinds ?? []) {
     search.append("kind", kind);
   }
   return fetchBackendJson<BackendSearchResponse>(settings, `/search?${search.toString()}`, capabilities);
+}
+
+export async function fetchUserCategories(
+  settings: ExtensionSettings,
+  filters?: {
+    provider?: ProviderName;
+    category?: SessionCategoryName;
+  },
+  capabilities?: BackendCapabilities
+): Promise<BackendUserCategorySummary[]> {
+  const search = new URLSearchParams();
+  if (filters?.provider) {
+    search.set("provider", filters.provider);
+  }
+  if (filters?.category) {
+    search.set("category", filters.category);
+  }
+  const query = search.toString();
+  return fetchBackendJson<BackendUserCategorySummary[]>(
+    settings,
+    `/user-categories${query ? `?${query}` : ""}`,
+    capabilities
+  );
+}
+
+export async function updateSessionUserCategories(
+  settings: ExtensionSettings,
+  sessionId: string,
+  userCategories: string[],
+  capabilities?: BackendCapabilities
+): Promise<BackendSessionListItem> {
+  const response = await fetch(backendApiUrl(settings, `/sessions/${encodeURIComponent(sessionId)}/user-categories`, capabilities), {
+    method: "PUT",
+    headers: buildBackendHeaders(settings),
+    body: JSON.stringify({
+      user_categories: userCategories
+    })
+  });
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Session categories update failed with ${response.status}: ${details.slice(0, 300)}`);
+  }
+  return (await response.json()) as BackendSessionListItem;
 }
 
 export async function fetchKnowledgeSearch(

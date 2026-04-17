@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -25,6 +26,9 @@ class ActivityBucket(BaseModel):
 
 class CategoryStats(BaseModel):
     category: SessionCategory
+    scope_kind: Literal["default", "custom"] = "default"
+    scope_label: str
+    dominant_category: SessionCategory
     total_sessions: int
     total_messages: int
     total_triplets: int
@@ -35,11 +39,17 @@ class CategoryStats(BaseModel):
     notes_with_idea_summary: int
     notes_with_journal_entry: int
     notes_with_todo_summary: int
+    system_category_counts: list["CategorySystemCount"]
     provider_counts: list[ProviderCount]
     activity: list[ActivityBucket]
     top_tags: list[LabelCount]
     top_entities: list[LabelCount]
     top_predicates: list[LabelCount]
+
+
+class CategorySystemCount(BaseModel):
+    category: SessionCategory
+    count: int
 
 
 class ExplorerGraphNode(BaseModel):
@@ -65,6 +75,9 @@ class ExplorerGraphEdge(BaseModel):
 
 class CategoryGraph(BaseModel):
     category: SessionCategory
+    scope_kind: Literal["default", "custom"] = "default"
+    scope_label: str
+    dominant_category: SessionCategory
     node_count: int
     edge_count: int
     nodes: list[ExplorerGraphNode]

@@ -175,3 +175,190 @@ async def test_category_routes_expose_stats_graph_search_and_note_content(tmp_pa
         get_settings.cache_clear()
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_custom_category_routes_allow_user_defined_groupings(tmp_path, monkeypatch) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-custom-categories.db'}")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    markdown_root = tmp_path / "markdown"
+    vault_root = markdown_root / "SaveMyContext"
+    monkeypatch.setenv("SAVEMYCONTEXT_MARKDOWN_DIR", str(markdown_root))
+    get_settings.cache_clear()
+
+    try:
+        factual_note_path = vault_root / "Factual" / "architecture-evidence.md"
+        factual_note_path.parent.mkdir(parents=True, exist_ok=True)
+        factual_note_path.write_text(
+            "# Architecture Evidence\n\n## Fact Triplets\n\n- Context graph | supports | architecture reviews\n",
+            encoding="utf-8",
+        )
+
+        async with session_factory() as session:
+            factual_primary = ChatSession(
+                provider=ProviderName.CHATGPT,
+                external_session_id="custom-factual-1",
+                title="Architecture evidence",
+                category=SessionCategory.FACTUAL,
+                markdown_path=str(factual_note_path),
+                share_post="Architecture reviews need evidence connected back to the context graph.",
+                custom_tags=["systems", "category:Architecture Review"],
+                last_captured_at=datetime(2026, 4, 16, 18, 0, tzinfo=timezone.utc),
+                updated_at=datetime(2026, 4, 16, 18, 0, tzinfo=timezone.utc),
+            )
+            factual_support = ChatSession(
+                provider=ProviderName.GEMINI,
+                external_session_id="custom-factual-2",
+                title="Platform topology",
+                category=SessionCategory.FACTUAL,
+                share_post="Platform topology should stay searchable during architecture reviews.",
+                custom_tags=["topology", "category:Architecture Review"],
+                last_captured_at=datetime(2026, 4, 15, 18, 0, tzinfo=timezone.utc),
+                updated_at=datetime(2026, 4, 15, 18, 0, tzinfo=timezone.utc),
+            )
+            idea_session = ChatSession(
+                provider=ProviderName.GROK,
+                external_session_id="custom-idea-1",
+                title="Architecture review workflow",
+                category=SessionCategory.IDEAS,
+                share_post="Prototype a review workflow that groups related notes under Architecture Review.",
+                custom_tags=["workflow", "category:Architecture Review"],
+                idea_summary={
+                    "core_idea": "Use user-defined categories to group architecture review sessions.",
+                    "pros": ["Lets teams review related notes together"],
+                    "cons": ["Needs clean taxonomy rules"],
+                    "next_steps": ["Ship custom category browsing"],
+                },
+                last_captured_at=datetime(2026, 4, 14, 18, 0, tzinfo=timezone.utc),
+                updated_at=datetime(2026, 4, 14, 18, 0, tzinfo=timezone.utc),
+            )
+            launch_session = ChatSession(
+                provider=ProviderName.CHATGPT,
+                external_session_id="custom-todo-1",
+                title="Launch board",
+                category=SessionCategory.TODO,
+                share_post="Launch notes stay in a separate custom category.",
+                todo_summary="Track launch blockers and approvals.",
+                custom_tags=["release", "category:Launch"],
+                last_captured_at=datetime(2026, 4, 13, 18, 0, tzinfo=timezone.utc),
+                updated_at=datetime(2026, 4, 13, 18, 0, tzinfo=timezone.utc),
+            )
+            session.add_all([factual_primary, factual_support, idea_session, launch_session])
+            await session.flush()
+            session.add_all(
+                [
+                    ChatMessage(
+                        session_id=factual_primary.id,
+                        external_message_id="custom-msg-1",
+                        role=MessageRole.USER,
+                        content="How do we structure the architecture review corpus?",
+                        sequence_index=1,
+                    ),
+                    ChatMessage(
+                        session_id=idea_session.id,
+                        external_message_id="custom-msg-2",
+                        role=MessageRole.ASSISTANT,
+                        content="Group the review sessions under a shared custom category.",
+                        sequence_index=1,
+                    ),
+                    FactTriplet(
+                        session_id=factual_primary.id,
+                        subject="Context graph",
+                        predicate="supports",
+                        object="architecture reviews",
+                        confidence=0.92,
+                    ),
+                    FactTriplet(
+                        session_id=factual_support.id,
+                        subject="Platform topology",
+                        predicate="stays_searchable_for",
+                        object="architecture reviews",
+                        confidence=0.87,
+                    ),
+                ]
+            )
+            await session.commit()
+
+            factual_primary_id = factual_primary.id
+
+        app = FastAPI()
+        app.include_router(dashboard_router, prefix="/api/v1")
+        app.include_router(sessions_router, prefix="/api/v1")
+
+        async def override_db_session():
+            async with session_factory() as session:
+                yield session
+
+        app.dependency_overrides[get_db_session] = override_db_session
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://127.0.0.1:18888") as client:
+            categories_response = await client.get("/api/v1/user-categories")
+            factual_categories_response = await client.get("/api/v1/user-categories", params={"category": "factual"})
+            sessions_response = await client.get("/api/v1/sessions", params={"user_category": "Architecture Review"})
+            stats_response = await client.get("/api/v1/custom-categories/Architecture%20Review/stats")
+            graph_response = await client.get("/api/v1/custom-categories/Architecture%20Review/graph")
+            search_response = await client.get("/api/v1/search", params={"q": "architecture", "user_category": "Architecture Review"})
+            update_response = await client.put(
+                f"/api/v1/sessions/{factual_primary_id}/user-categories",
+                json={"user_categories": ["Architecture Review", "Platform Work"]},
+            )
+            reserved_response = await client.put(
+                f"/api/v1/sessions/{factual_primary_id}/user-categories",
+                json={"user_categories": ["todo"]},
+            )
+
+        assert categories_response.status_code == 200
+        category_payload = categories_response.json()
+        assert category_payload[0] == {"name": "Architecture Review", "count": 3}
+        assert {"name": "Launch", "count": 1} in category_payload
+
+        assert factual_categories_response.status_code == 200
+        assert factual_categories_response.json() == [{"name": "Architecture Review", "count": 2}]
+
+        assert sessions_response.status_code == 200
+        session_payload = sessions_response.json()
+        assert len(session_payload) == 3
+        assert all("Architecture Review" in item["user_categories"] for item in session_payload)
+        assert all("category:Architecture Review" not in item["custom_tags"] for item in session_payload)
+
+        assert stats_response.status_code == 200
+        stats_payload = stats_response.json()
+        assert stats_payload["scope_kind"] == "custom"
+        assert stats_payload["scope_label"] == "Architecture Review"
+        assert stats_payload["dominant_category"] == "factual"
+        assert stats_payload["total_sessions"] == 3
+        assert stats_payload["total_messages"] == 2
+        assert stats_payload["total_triplets"] == 2
+        assert {item["category"]: item["count"] for item in stats_payload["system_category_counts"]} == {
+            "factual": 2,
+            "ideas": 1,
+        }
+
+        assert graph_response.status_code == 200
+        graph_payload = graph_response.json()
+        assert graph_payload["scope_kind"] == "custom"
+        assert graph_payload["scope_label"] == "Architecture Review"
+        assert graph_payload["dominant_category"] == "factual"
+        assert graph_payload["node_count"] >= 3
+        assert all(node["kind"] == "session" for node in graph_payload["nodes"])
+
+        assert search_response.status_code == 200
+        search_payload = search_response.json()
+        assert search_payload["count"] >= 1
+        assert all("Architecture Review" in result["user_categories"] for result in search_payload["results"])
+
+        assert update_response.status_code == 200
+        updated_session = update_response.json()
+        assert updated_session["user_categories"] == ["Architecture Review", "Platform Work"]
+        assert updated_session["custom_tags"] == ["systems"]
+
+        assert reserved_response.status_code == 422
+        assert "reserved" in reserved_response.text
+    finally:
+        get_settings.cache_clear()
+
+    await engine.dispose()

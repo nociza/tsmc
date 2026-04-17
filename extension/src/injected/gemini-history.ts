@@ -3,7 +3,12 @@ import type { CapturedBody, CapturedNetworkEvent, HistorySyncUpdate, ProviderDri
 import { decodeGeminiConversationBlocks, formatGeminiDecodeDiagnostics } from "./gemini-decoder";
 import { buildProviderDriftAlert, createProviderDriftError, isProviderDriftError } from "./drift";
 import type { HistorySyncControlPayload } from "./history-shared";
-import { dedupeIds, normalizeHistorySessionIds, runWithConcurrency } from "./history-shared";
+import {
+  countRetryableHistoryFailures,
+  dedupeIds,
+  normalizeHistorySessionIds,
+  runWithConcurrency
+} from "./history-shared";
 
 const GEMINI_BATCH_PATH = "/_/BardChatUi/data/batchexecute";
 const GEMINI_LIST_RPC_ID = "MaZiqc";
@@ -1105,7 +1110,7 @@ export async function runGeminiHistorySync(
 
     const attemptedConversationCount = pendingEntries.length;
     const syncedConversationCount = outcomes.filter((outcome) => outcome.status === "captured").length;
-    const retryableFailureCount = outcomes.length - syncedConversationCount;
+    const retryableFailureCount = countRetryableHistoryFailures(attemptedConversationCount, syncedConversationCount);
     const driftFailures = outcomes.filter((outcome): outcome is Extract<GeminiConversationSyncOutcome, { status: "provider_drift" }> => {
       return outcome.status === "provider_drift";
     });

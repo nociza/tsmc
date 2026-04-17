@@ -32,6 +32,7 @@ type NoteRouteState = {
   q: string;
   provider: ProviderName | null;
   sort: CategorySortMode;
+  userCategory: string;
 };
 
 function readRouteState(): NoteRouteState {
@@ -41,7 +42,8 @@ function readRouteState(): NoteRouteState {
     category: params.get("category") ? parseCategory(params.get("category")) : null,
     q: params.get("q")?.trim() ?? "",
     provider: parseProvider(params.get("provider")),
-    sort: parseSortMode(params.get("sort"))
+    sort: parseSortMode(params.get("sort")),
+    userCategory: params.get("userCategory")?.trim() ?? ""
   };
 }
 
@@ -55,7 +57,8 @@ function backUrl(route: NoteRouteState): string {
     q: route.q,
     provider: route.provider,
     sort: route.sort,
-    note: route.id
+    note: route.id,
+    userCategory: route.userCategory || null
   });
 }
 

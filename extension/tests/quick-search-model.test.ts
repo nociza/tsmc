@@ -9,23 +9,27 @@ describe("quick search model", () => {
         kind: "session",
         title: "Journal note",
         snippet: "Personal reflection",
-        category: "journal"
+        category: "journal",
+        user_categories: []
       },
       {
         kind: "todo_list",
         title: "To-Do List",
-        snippet: "Buy milk"
+        snippet: "Buy milk",
+        user_categories: []
       },
       {
         kind: "session",
         title: "Rust session",
         snippet: "Rust uses ownership",
-        category: "factual"
+        category: "factual",
+        user_categories: []
       },
       {
         kind: "entity",
         title: "Rust",
-        snippet: "Rust | uses | ownership"
+        snippet: "Rust | uses | ownership",
+        user_categories: []
       }
     ]);
 
@@ -37,7 +41,8 @@ describe("quick search model", () => {
       buildInsertionText({
         kind: "entity",
         title: "Rust",
-        snippet: "Rust | uses | ownership"
+        snippet: "Rust | uses | ownership",
+        user_categories: []
       })
     ).toBe("Rust | uses | ownership");
 
@@ -45,7 +50,8 @@ describe("quick search model", () => {
       buildInsertionText({
         kind: "session",
         title: "Rust session",
-        snippet: "Rust uses ownership to manage memory safely."
+        snippet: "Rust uses ownership to manage memory safely.",
+        user_categories: []
       })
     ).toBe("Rust session: Rust uses ownership to manage memory safely.");
   });
@@ -56,14 +62,16 @@ describe("quick search model", () => {
         kind: "session",
         title: "Fact note",
         snippet: "Rust uses ownership.",
-        category: "factual"
+        category: "factual",
+        user_categories: []
       })
     ).toBe("Fact");
     expect(
       resultKindLabel({
         kind: "entity",
         title: "Rust",
-        snippet: "Rust | uses | ownership"
+        snippet: "Rust | uses | ownership",
+        user_categories: []
       })
     ).toBe("Entity");
   });

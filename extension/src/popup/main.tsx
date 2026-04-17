@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, BrainCircuit, Database, LoaderCircle, Search, Settings2, Sparkles, Workflow } from "lucide-react";
+import { BookOpen, BrainCircuit, Database, LoaderCircle, MessageSquare, Search, Settings2, Sparkles } from "lucide-react";
 import { Cell, Pie, PieChart, Tooltip } from "recharts";
 
 import { fetchDashboardSummary, fetchSessions } from "../background/backend";
-import { categoryLabels, categoryOrder, categoryPageUrl, providerLabels, titleFromSession } from "../shared/explorer";
+import { categoryLabels, categoryOrder, categoryPageUrl, notePageUrl, providerLabels, titleFromSession } from "../shared/explorer";
 import type {
   BackendDashboardSummary,
+  BackendSessionListItem,
   ExtensionSettings,
   SessionCategoryName,
   SourceCaptureResponse,
@@ -16,21 +17,17 @@ import type {
 import { mountApp } from "../ui/boot";
 import { Badge } from "../ui/components/badge";
 import { Button } from "../ui/components/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/components/card";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/components/card";
 import {
   connectionTone,
-  enabledProviderLabels,
   formatBackendLabel,
   formatBackendStatus,
   formatCompactDate,
   formatHistorySync,
-  formatIndexingStatus,
   formatNumber,
   formatProcessing,
-  formatProcessingMode,
   formatProviderDriftAlert,
   historyTone,
-  nextActionText,
   processingButtonState,
   processingTone
 } from "../ui/lib/format";
@@ -73,6 +70,13 @@ function openCategory(category: SessionCategoryName): void {
   window.close();
 }
 
+function openNote(session: BackendSessionListItem): void {
+  void chrome.tabs.create({
+    url: notePageUrl({ id: session.id, category: session.category ?? "factual" })
+  });
+  window.close();
+}
+
 function summaryOrNull(summary: BackendDashboardSummary | undefined, status: SyncStatus | null): BackendDashboardSummary | null {
   if (!summary || status?.backendValidationError) {
     return null;
@@ -88,6 +92,7 @@ function PopupApp() {
   const { settings, status, loading, error, reload } = useExtensionBootstrap();
   const [captureStatus, setCaptureStatus] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [hoveredCategory, setHoveredCategory] = useState<SessionCategoryName | null>(null);
 
   const summaryQuery = useQuery({
     queryKey: ["popup-summary", settings?.backendUrl, settings?.backendToken],
@@ -102,8 +107,8 @@ function PopupApp() {
   });
 
   const summary = summaryOrNull(summaryQuery.data, status);
-  const latestSession = useMemo(
-    () => [...(sessionsQuery.data ?? [])].sort((left, right) => right.updated_at.localeCompare(left.updated_at))[0] ?? null,
+  const recentSessions = useMemo(
+    () => [...(sessionsQuery.data ?? [])].sort((left, right) => right.updated_at.localeCompare(left.updated_at)).slice(0, 4),
     [sessionsQuery.data]
   );
   const connection = status ? connectionTone(status) : { label: "Checking", tone: "neutral" as const };
@@ -125,6 +130,9 @@ function PopupApp() {
       };
     });
   }, [summary]);
+  const featuredCategory = hoveredCategory ?? categoryData.find((item) => item.count > 0)?.category ?? "factual";
+  const featuredCategoryData = categoryData.find((item) => item.category === featuredCategory) ?? categoryData[0];
+  const lastErrorText = status?.lastError ?? status?.historySyncLastError ?? status?.processingLastError ?? "None";
 
   async function handleSaveCurrentPage(): Promise<void> {
     setCaptureStatus("Saving current page…");
@@ -173,123 +181,72 @@ function PopupApp() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[640px] flex-col gap-3 p-3" data-testid="popup-root">
-      <div id="last-session" className="sr-only">
-        {status?.lastSessionKey ?? ""}
+    <div className="mx-auto grid h-[560px] w-full max-w-[640px] grid-rows-[auto_auto_auto_1fr_auto_auto] gap-2 overflow-hidden p-3" data-testid="popup-root">
+      <div className="sr-only">
+        <span id="last-session">{status?.lastSessionKey ?? ""}</span>
+        <span id="last-error">{lastErrorText}</span>
       </div>
-      <Card className="p-4">
-        <CardHeader className="items-start">
-          <div className="space-y-1">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">SaveMyContext</div>
-            <CardTitle className="text-[26px] leading-none">Context Workspace</CardTitle>
-            <CardDescription>
-              {summary
-                ? `Corpus sync · ${formatCompactDate(summary.latest_sync_at, "No data yet")}`
-                : "Context capture, search, and processing in one view."}
-            </CardDescription>
-          </div>
+
+      <header className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold text-zinc-500">SaveMyContext</div>
+          <h1 className="mt-0.5 text-2xl font-semibold leading-none text-zinc-950">Context Workspace</h1>
+        </div>
+        <div className="flex items-center gap-2">
+          {summaryQuery.isFetching || sessionsQuery.isFetching ? <LoaderCircle className="h-4 w-4 animate-spin text-zinc-400" /> : null}
           <Badge tone={connection.tone}>{connection.label}</Badge>
-        </CardHeader>
+        </div>
+      </header>
 
-        <CardContent className="mt-4 grid grid-cols-[1.45fr_1fr] gap-3">
-          <div className="space-y-3">
-            <div className="rounded-[8px] border border-zinc-200 bg-zinc-50 p-4">
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Next action</div>
-              <p className="text-sm leading-6 text-zinc-900">
-                {settings && status ? nextActionText(settings, status, summary) : "Loading extension status…"}
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-[8px] border border-zinc-200 bg-white p-3">
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Backend</div>
-                <div className="text-sm font-medium text-zinc-900">
-                  {settings ? formatBackendLabel(settings) : loading ? "Loading" : "Unavailable"}
-                </div>
-                <div className="mt-1 text-xs leading-5 text-zinc-500">
-                  {status ? formatBackendStatus(status) : error ?? "Checking configuration"}
-                </div>
-              </div>
-
-              <div className="rounded-[8px] border border-zinc-200 bg-white p-3">
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Latest note</div>
-                <div className="truncate text-sm font-medium text-zinc-900">
-                  {latestSession ? titleFromSession(latestSession) : "No saved notes yet"}
-                </div>
-                <div className="mt-1 text-xs leading-5 text-zinc-500">
-                  {latestSession
-                    ? `${providerLabels[latestSession.provider]} · ${formatCompactDate(latestSession.updated_at)}`
-                    : `Last sync · ${formatCompactDate(status?.lastSuccessAt, "No sync yet")}`}
-                </div>
-              </div>
-            </div>
+      <div className="panel-surface grid h-[58px] grid-cols-[1.35fr_1fr_1fr] overflow-hidden rounded-[8px]">
+        <div className="border-r border-zinc-200 px-3 py-2">
+          <div className="text-[11px] font-semibold text-zinc-500">Backend</div>
+          <div className="mt-0.5 truncate text-sm font-medium text-zinc-950">
+            {settings ? formatBackendLabel(settings) : loading ? "Loading" : "Unavailable"}
           </div>
-
-          <div className="rounded-[8px] border border-zinc-200 bg-zinc-50 p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Corpus mix</div>
-                <div className="text-sm font-medium text-zinc-900">
-                  {summary ? `${formatNumber(summary.total_sessions)} indexed sessions` : "Waiting for corpus data"}
-                </div>
-              </div>
-              {summaryQuery.isFetching ? <LoaderCircle className="h-4 w-4 animate-spin text-zinc-400" /> : null}
-            </div>
-
-            <div className="flex h-[136px] items-center justify-center">
-              <PieChart width={190} height={136}>
-                <Pie
-                  data={categoryData}
-                  dataKey="count"
-                  nameKey="label"
-                  innerRadius={36}
-                  outerRadius={52}
-                  paddingAngle={3}
-                  strokeWidth={0}
-                  cx={95}
-                  cy={68}
-                >
-                  {categoryData.map((item) => (
-                    <Cell key={item.category} fill={item.color} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  formatter={(value, _name, payload) => [
-                    `${formatTooltipNumber(value)} notes`,
-                    payload?.payload?.label ?? "Category"
-                  ]}
-                />
-              </PieChart>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <Badge tone={history.tone}>{history.label}</Badge>
-              <Badge tone={processing.tone}>{processing.label}</Badge>
-              <div className="col-span-2 text-xs leading-5 text-zinc-500">
-                {status ? formatProcessing(status) : "Loading pipeline state"}
-              </div>
-            </div>
+          <div className="truncate text-xs text-zinc-500">{status ? formatBackendStatus(status) : error ?? "Checking configuration"}</div>
+        </div>
+        <div className="border-r border-zinc-200 px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[11px] font-semibold text-zinc-500">History</div>
+            <Badge tone={history.tone} className="px-2 py-0.5 text-[10px]">
+              {history.label}
+            </Badge>
           </div>
-        </CardContent>
-      </Card>
+          <div id="history-sync" className="mt-1 truncate text-xs text-zinc-700">
+            {settings && status ? formatHistorySync(settings, status) : "Loading"}
+          </div>
+        </div>
+        <div className="px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[11px] font-semibold text-zinc-500">Processing</div>
+            <Badge tone={processing.tone} className="px-2 py-0.5 text-[10px]">
+              {processing.label}
+            </Badge>
+          </div>
+          <div id="processing-status" className="mt-1 truncate text-xs text-zinc-700">
+            {status ? formatProcessing(status) : "Loading"}
+          </div>
+        </div>
+      </div>
 
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid h-[58px] grid-cols-4 gap-2">
         {[
           {
             label: "Sessions",
-            value: summary ? formatNumber(summary.total_sessions) : "—",
+            value: formatNumber(summary?.total_sessions),
             icon: Database,
             onClick: () => openDashboard({ view: "notes" })
           },
           {
             label: "Messages",
-            value: summary ? formatNumber(summary.total_messages) : "—",
-            icon: Workflow,
+            value: formatNumber(summary?.total_messages),
+            icon: MessageSquare,
             onClick: () => openDashboard({ view: "notes" })
           },
           {
             label: "Facts",
-            value: summary ? formatNumber(summary.total_triplets) : "—",
+            value: formatNumber(summary?.total_triplets),
             icon: BrainCircuit,
             onClick: () => openCategory("factual")
           },
@@ -304,149 +261,193 @@ function PopupApp() {
             key={metric.label}
             type="button"
             onClick={metric.onClick}
-            className="panel-surface flex h-[90px] flex-col items-start justify-between rounded-[8px] p-3 text-left transition hover:border-zinc-300 hover:bg-zinc-50"
+            className="panel-surface grid grid-cols-[auto_1fr] items-center gap-2 rounded-[8px] px-3 py-2 text-left transition hover:border-zinc-300 hover:bg-zinc-50"
           >
             <metric.icon className="h-4 w-4 text-zinc-400" />
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-500">{metric.label}</div>
-              <div className="mt-1 text-2xl font-semibold leading-none text-zinc-950">{metric.value}</div>
+              <div className="text-[11px] font-semibold text-zinc-500">{metric.label}</div>
+              <div
+                id={metric.label === "Queued AI" ? "processing-pending" : undefined}
+                className="mt-0.5 text-xl font-semibold leading-none text-zinc-950"
+              >
+                {metric.value}
+              </div>
             </div>
           </button>
         ))}
       </div>
 
-      <div className="grid grid-cols-[1.4fr_1fr] gap-3">
-        <Card className="p-4">
-          <CardHeader>
+      <div className="grid min-h-0 grid-cols-[1.08fr_0.92fr] gap-2">
+        <Card className="min-h-0 p-3">
+          <CardHeader className="items-center">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Collections</div>
-              <CardTitle className="mt-1 text-lg">Jump into a category</CardTitle>
+              <div className="text-[11px] font-semibold text-zinc-500">Corpus mix</div>
+              <CardTitle className="mt-0.5 text-base">Choose a collection</CardTitle>
             </div>
-            <div className="text-xs text-zinc-500">{summary ? "Click to open explorer" : "No indexed notes yet"}</div>
+            <div className="text-xs text-zinc-500">{summary ? `${formatNumber(summary.total_sessions)} indexed` : "No data yet"}</div>
           </CardHeader>
 
-          <CardContent className="mt-4 grid gap-2">
-            {categoryData.map((item) => (
-              <button
-                key={item.category}
-                type="button"
-                onClick={() => openCategory(item.category)}
-                className="rounded-[8px] border border-zinc-200 bg-white p-3 text-left transition hover:border-zinc-300 hover:bg-zinc-50"
-                data-testid={`popup-category-${item.category}`}
-              >
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
-                    <span className="text-sm font-medium text-zinc-900">{item.label}</span>
-                  </div>
-                  <span className="text-sm font-semibold text-zinc-950">{formatNumber(item.count)}</span>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-zinc-100">
-                  <div
-                    className="h-full rounded-full"
-                    style={{ width: `${Math.max(item.share, item.count ? 10 : 0)}%`, backgroundColor: item.color }}
-                  />
-                </div>
-                <div className="mt-2 text-xs text-zinc-500">{item.share.toFixed(0)}% of indexed context</div>
-              </button>
-            ))}
+          <CardContent className="mt-2 grid min-h-0 grid-cols-[150px_1fr] gap-3">
+            <button
+              type="button"
+              onClick={() => openCategory(featuredCategory)}
+              className="relative flex h-[168px] items-center justify-center rounded-[8px] border border-zinc-200 bg-zinc-50 transition hover:border-zinc-300 hover:bg-white"
+              aria-label={`Open ${featuredCategoryData.label}`}
+            >
+              <PieChart width={142} height={142}>
+                <Pie
+                  data={categoryData}
+                  dataKey="count"
+                  nameKey="label"
+                  innerRadius={38}
+                  outerRadius={58}
+                  paddingAngle={3}
+                  strokeWidth={0}
+                  cx={71}
+                  cy={71}
+                  isAnimationActive={false}
+                >
+                  {categoryData.map((item) => (
+                    <Cell
+                      key={item.category}
+                      fill={item.color}
+                      opacity={featuredCategory === item.category ? 1 : 0.48}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openCategory(item.category);
+                      }}
+                      onMouseEnter={() => setHoveredCategory(item.category)}
+                      onMouseLeave={() => setHoveredCategory(null)}
+                      style={{ cursor: "pointer" }}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip
+                  formatter={(value, _name, payload) => [
+                    `${formatTooltipNumber(value)} notes`,
+                    payload?.payload?.label ?? "Category"
+                  ]}
+                />
+              </PieChart>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+                <div className="text-lg font-semibold leading-none text-zinc-950">{formatNumber(featuredCategoryData.count)}</div>
+                <div className="mt-1 text-[11px] font-medium text-zinc-500">{featuredCategoryData.share.toFixed(0)}%</div>
+              </div>
+            </button>
+
+            <div className="grid min-h-0 grid-rows-4 gap-2">
+              {categoryData.map((item) => (
+                <button
+                  key={item.category}
+                  type="button"
+                  onClick={() => openCategory(item.category)}
+                  onMouseEnter={() => setHoveredCategory(item.category)}
+                  onMouseLeave={() => setHoveredCategory(null)}
+                  className={`flex items-center justify-between gap-2 rounded-[8px] border px-2 py-1.5 text-left transition hover:border-zinc-300 ${
+                    featuredCategory === item.category ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-200 bg-white text-zinc-900"
+                  }`}
+                  data-testid={`popup-category-${item.category}`}
+                >
+                  <span className="flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold">
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
+                    {item.label}
+                  </span>
+                  <span className="text-sm font-semibold">{formatNumber(item.count)}</span>
+                </button>
+              ))}
+            </div>
           </CardContent>
         </Card>
 
-        <div className="grid gap-3">
-          <Card className="p-4">
-            <CardHeader>
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Actions</div>
-                <CardTitle className="mt-1 text-lg">Work from here</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="mt-4 grid grid-cols-2 gap-2">
-              <Button variant="primary" className="col-span-2" onClick={() => void handleSaveCurrentPage()}>
-                <BookOpen className="h-4 w-4" />
-                Save page
-              </Button>
-              <Button variant="secondary" onClick={() => void handleQuickSearch()}>
-                <Search className="h-4 w-4" />
-                Search page
-              </Button>
-              <Button variant="secondary" onClick={() => openDashboard()}>
-                <Database className="h-4 w-4" />
-                Dashboard
-              </Button>
-              <Button variant="secondary" onClick={() => void chrome.runtime.openOptionsPage()}>
-                <Settings2 className="h-4 w-4" />
-                Settings
-              </Button>
-              {status?.processingMode === "extension_browser" ? (
-                <Button
-                  variant="subtle"
-                  className="col-span-2"
-                  disabled={runQueueState.disabled}
-                  title={runQueueState.title}
-                  onClick={() => void handleRunQueue()}
+        <Card className="min-h-0 p-3">
+          <CardHeader className="items-center">
+            <div>
+              <div className="text-[11px] font-semibold text-zinc-500">Recent notes</div>
+              <CardTitle className="mt-0.5 text-base">Rolling history</CardTitle>
+            </div>
+            <button type="button" className="text-xs font-medium text-zinc-600 hover:text-zinc-950" onClick={() => openDashboard({ view: "notes" })}>
+              View all
+            </button>
+          </CardHeader>
+          <CardContent className="mt-2 grid gap-2">
+            {recentSessions.map((session) => {
+              const category = session.category ?? "factual";
+              return (
+                <button
+                  key={session.id}
+                  type="button"
+                  onClick={() => openNote(session)}
+                  className="grid h-[35px] grid-cols-[auto_1fr] items-center gap-2 rounded-[8px] border border-zinc-200 bg-white px-2 text-left transition hover:border-zinc-300 hover:bg-zinc-50"
                 >
-                  <Sparkles className="h-4 w-4" />
-                  {runQueueState.label}
-                </Button>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          <Card className="p-4">
-            <CardHeader>
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Pipeline</div>
-                <CardTitle className="mt-1 text-lg">Capture health</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="mt-4 space-y-3">
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">History sync</div>
-                <div id="history-sync" className="mt-1 text-sm text-zinc-900">
-                  {settings && status ? formatHistorySync(settings, status) : "Loading"}
-                </div>
-              </div>
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Processing mode</div>
-                <div className="mt-1 text-sm text-zinc-900">{status ? formatProcessingMode(status) : "Loading"}</div>
-              </div>
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Providers</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {settings
-                    ? enabledProviderLabels(settings).map((label) => (
-                        <Badge key={label} tone="neutral">
-                          {label}
-                        </Badge>
-                      ))
-                    : null}
-                </div>
-              </div>
-              <div className="text-xs leading-5 text-zinc-500">
-                Last capture · {status ? formatIndexingStatus(status) : "Loading"}
-              </div>
-              {status?.providerDriftAlert ? (
-                <div
-                  id="provider-drift-card"
-                  className="rounded-[8px] border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800"
-                >
-                  <span id="provider-drift" className="sr-only">
-                    {status.providerDriftAlert.provider}: {status.providerDriftAlert.message}
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: categoryColors[category] }} />
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs font-semibold text-zinc-950">{titleFromSession(session)}</span>
+                    <span className="block truncate text-[11px] text-zinc-500">
+                      {categoryLabels[category]} · {providerLabels[session.provider]} · {formatCompactDate(session.updated_at)}
+                    </span>
                   </span>
-                  <span>{formatProviderDriftAlert(status.providerDriftAlert)}</span>
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
-        </div>
+                </button>
+              );
+            })}
+            {!recentSessions.length ? (
+              <div className="flex h-[164px] items-center justify-center rounded-[8px] border border-dashed border-zinc-200 bg-zinc-50 px-4 text-center text-sm text-zinc-500">
+                Saved notes will appear here after capture.
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
       </div>
 
-      {captureStatus || actionError || summaryQuery.error ? (
-        <div className="rounded-[8px] border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-600">
-          {captureStatus || actionError || (summaryQuery.error instanceof Error ? summaryQuery.error.message : "Could not load dashboard summary.")}
-        </div>
-      ) : null}
+      <div className={`grid gap-2 ${status?.processingMode === "extension_browser" ? "grid-cols-5" : "grid-cols-4"}`}>
+        <Button size="sm" variant="primary" onClick={() => void handleSaveCurrentPage()}>
+          <BookOpen className="h-4 w-4" />
+          Save
+        </Button>
+        <Button size="sm" variant="secondary" onClick={() => void handleQuickSearch()}>
+          <Search className="h-4 w-4" />
+          Search
+        </Button>
+        <Button id="open-dashboard" size="sm" variant="secondary" onClick={() => openDashboard()}>
+          <Database className="h-4 w-4" />
+          Dashboard
+        </Button>
+        <Button size="sm" variant="secondary" onClick={() => void chrome.runtime.openOptionsPage()}>
+          <Settings2 className="h-4 w-4" />
+          Settings
+        </Button>
+        {status?.processingMode === "extension_browser" ? (
+          <Button
+            id="run-processing"
+            size="sm"
+            variant="subtle"
+            disabled={runQueueState.disabled}
+            title={runQueueState.title}
+            onClick={() => void handleRunQueue()}
+          >
+            <Sparkles className="h-4 w-4" />
+            {runQueueState.label}
+          </Button>
+        ) : null}
+      </div>
+
+      <div className="min-h-[28px]">
+        {status?.providerDriftAlert ? (
+          <div id="provider-drift-card" className="truncate rounded-[8px] border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
+            <span id="provider-drift" className="sr-only">
+              {status.providerDriftAlert.provider}: {status.providerDriftAlert.message}
+            </span>
+            {formatProviderDriftAlert(status.providerDriftAlert)}
+          </div>
+        ) : captureStatus || actionError || summaryQuery.error ? (
+          <div className="truncate rounded-[8px] border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-600">
+            {captureStatus || actionError || (summaryQuery.error instanceof Error ? summaryQuery.error.message : "Could not load dashboard summary.")}
+          </div>
+        ) : (
+          <div className="truncate px-1 py-1.5 text-xs text-zinc-500">
+            Last sync · {formatCompactDate(summary?.latest_sync_at ?? status?.lastSuccessAt, "No sync yet")}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

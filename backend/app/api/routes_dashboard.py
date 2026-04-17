@@ -10,7 +10,7 @@ from app.core.config import get_settings
 from app.core.version import get_app_version
 from app.models import APIToken, ChatMessage, ChatSession, FactTriplet, ProviderName, SessionCategory, SyncEvent
 from app.models.base import utcnow
-from app.schemas.dashboard import CategoryCount, DashboardSummary
+from app.schemas.dashboard import CategoryCount, CustomCategoryCount, DashboardSummary
 from app.schemas.explorer import CategoryGraph, CategoryStats
 from app.schemas.graph import GraphEdge, GraphNode
 from app.schemas.search import SearchResponse
@@ -21,6 +21,7 @@ from app.services.graph import GraphService
 from app.services.search import SearchService
 from app.services.storage_config import StorageConfigService
 from app.services.todo import TodoListService
+from app.services.user_categories import summarize_user_categories
 
 
 router = APIRouter()
@@ -54,6 +55,7 @@ async def dashboard_summary(
         for category, count in category_rows
         if category in {SessionCategory.JOURNAL, SessionCategory.FACTUAL, SessionCategory.IDEAS, SessionCategory.TODO}
     ]
+    session_tags = (await db.execute(select(ChatSession.custom_tags))).scalars().all()
     return DashboardSummary(
         total_sessions=total_sessions,
         total_messages=total_messages,
@@ -62,6 +64,7 @@ async def dashboard_summary(
         active_tokens=active_tokens,
         latest_sync_at=latest_sync_at,
         categories=categories,
+        custom_categories=[CustomCategoryCount(name=name, count=count) for name, count in summarize_user_categories(session_tags)],
     )
 
 
@@ -71,6 +74,7 @@ async def search(
     limit: int = Query(default=25, ge=1, le=100),
     category: SessionCategory | None = Query(default=None),
     provider: ProviderName | None = Query(default=None),
+    user_category: str | None = Query(default=None),
     kind: list[str] | None = Query(default=None),
     _: AuthContext = Depends(require_scope("read")),
     db: AsyncSession = Depends(get_db_session),
@@ -80,6 +84,7 @@ async def search(
         limit=limit,
         category=category,
         provider=provider,
+        user_category=user_category,
         kinds=set(kind) if kind else None,
     )
 
@@ -104,6 +109,28 @@ async def category_graph(
     db: AsyncSession = Depends(get_db_session),
 ) -> CategoryGraph:
     return await ExplorerService(db).category_graph(category, session_ids=session_id, provider=provider)
+
+
+@router.get("/custom-categories/{name}/stats", response_model=CategoryStats)
+async def custom_category_stats(
+    name: str,
+    provider: ProviderName | None = Query(default=None),
+    session_id: list[str] | None = Query(default=None),
+    _: AuthContext = Depends(require_scope("read")),
+    db: AsyncSession = Depends(get_db_session),
+) -> CategoryStats:
+    return await ExplorerService(db).custom_category_stats(name, session_ids=session_id, provider=provider)
+
+
+@router.get("/custom-categories/{name}/graph", response_model=CategoryGraph)
+async def custom_category_graph(
+    name: str,
+    provider: ProviderName | None = Query(default=None),
+    session_id: list[str] | None = Query(default=None),
+    _: AuthContext = Depends(require_scope("read")),
+    db: AsyncSession = Depends(get_db_session),
+) -> CategoryGraph:
+    return await ExplorerService(db).custom_category_graph(name, session_ids=session_id, provider=provider)
 
 
 @router.get("/graph/nodes", response_model=list[GraphNode])

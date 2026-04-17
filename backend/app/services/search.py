@@ -8,6 +8,7 @@ from app.models import ChatMessage, ChatSession, FactTriplet, ProviderName, Sess
 from app.schemas.search import SearchResult, SearchResponse
 from app.services.graph import entity_note_path
 from app.services.todo import TODO_TITLE, TodoListService
+from app.services.user_categories import extract_user_categories, has_user_category
 
 
 def _snippet(text: str | None, query: str) -> str:
@@ -35,9 +36,11 @@ class SearchService:
         limit: int = 25,
         category: SessionCategory | None = None,
         provider: ProviderName | None = None,
+        user_category: str | None = None,
         kinds: set[str] | None = None,
     ) -> SearchResponse:
         pattern = f"%{query}%"
+        fetch_limit = limit * 4 if user_category else limit
         session_statement = select(ChatSession).options(selectinload(ChatSession.messages)).where(
             or_(
                 ChatSession.title.ilike(pattern),
@@ -53,8 +56,10 @@ class SearchService:
             session_statement = session_statement.where(ChatSession.category == category)
         if provider:
             session_statement = session_statement.where(ChatSession.provider == provider)
-        session_statement = session_statement.order_by(ChatSession.updated_at.desc()).limit(limit)
+        session_statement = session_statement.order_by(ChatSession.updated_at.desc()).limit(fetch_limit)
         session_rows = (await self.db.execute(session_statement)).scalars().all()
+        if user_category:
+            session_rows = [session for session in session_rows if has_user_category(session.custom_tags, user_category)]
 
         triplet_statement = select(FactTriplet).options(selectinload(FactTriplet.session)).join(FactTriplet.session).where(
             or_(
@@ -67,8 +72,10 @@ class SearchService:
             triplet_statement = triplet_statement.where(ChatSession.category == category)
         if provider:
             triplet_statement = triplet_statement.where(ChatSession.provider == provider)
-        triplet_statement = triplet_statement.limit(limit)
+        triplet_statement = triplet_statement.limit(fetch_limit)
         triplet_rows = (await self.db.execute(triplet_statement)).scalars().all()
+        if user_category:
+            triplet_rows = [triplet for triplet in triplet_rows if triplet.session and has_user_category(triplet.session.custom_tags, user_category)]
         source_statement = select(SourceCapture).where(
             or_(
                 SourceCapture.title.ilike(pattern),
@@ -117,6 +124,7 @@ class SearchService:
                     session_id=session.id,
                     category=session.category,
                     provider=session.provider,
+                    user_categories=extract_user_categories(session.custom_tags),
                     markdown_path=session.markdown_path,
                 )
             )
@@ -139,6 +147,7 @@ class SearchService:
                         entity_id=entity,
                         category=session.category if session else None,
                         provider=session.provider if session else None,
+                        user_categories=extract_user_categories(session.custom_tags) if session else [],
                         markdown_path=entity_note_path(entity),
                     )
                 )

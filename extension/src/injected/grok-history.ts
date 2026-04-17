@@ -2,7 +2,7 @@ import type { CapturedNetworkEvent, HistorySyncUpdate, ProviderDriftAlert } from
 
 import { buildProviderDriftAlert, createProviderDriftError, isProviderDriftError } from "./drift";
 import type { HistorySyncControlPayload } from "./history-shared";
-import { normalizeHistorySessionIds, runWithConcurrency } from "./history-shared";
+import { countRetryableHistoryFailures, normalizeHistorySessionIds, runWithConcurrency } from "./history-shared";
 
 const GROK_HISTORY_PAGE_SIZE = 100;
 const GROK_HISTORY_DETAIL_CONCURRENCY = 4;
@@ -521,6 +521,7 @@ export async function runGrokHistorySync(
     });
 
     const attemptedConversationCount = pendingEntries.length;
+    const retryableFailureCount = countRetryableHistoryFailures(attemptedConversationCount, syncedConversationCount);
     let providerDriftAlert: ProviderDriftAlert | null = null;
     if (
       firstDriftFailure &&
@@ -541,6 +542,7 @@ export async function runGrokHistorySync(
       phase: "completed",
       runId: hooks.runId,
       conversationCount: syncedConversationCount,
+      retryableFailureCount,
       processedCount: totalCount,
       totalCount,
       skippedCount,

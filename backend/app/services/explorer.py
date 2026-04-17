@@ -14,6 +14,7 @@ from app.models import ChatSession, ProviderName, SessionCategory
 from app.schemas.explorer import (
     ActivityBucket,
     CategoryGraph,
+    CategorySystemCount,
     CategoryStats,
     ExplorerGraphEdge,
     ExplorerGraphNode,
@@ -21,6 +22,7 @@ from app.schemas.explorer import (
     ProviderCount,
 )
 from app.services.graph import entity_id, entity_note_path
+from app.services.user_categories import has_user_category, summarize_user_categories, visible_custom_tags
 
 
 STOPWORDS = {
@@ -172,58 +174,17 @@ class ExplorerService:
         provider: ProviderName | None = None,
     ) -> CategoryStats:
         sessions = await self._sessions(category, session_ids=session_ids, provider=provider)
-        total_sessions = len(sessions)
-        total_messages = sum(len(session.messages) for session in sessions)
-        total_triplets = sum(len(session.triplets) for session in sessions)
-        latest_updated_at = max((session.updated_at for session in sessions), default=None)
+        return self._build_stats("default", category.value, sessions, fallback_category=category)
 
-        provider_counts = [
-            ProviderCount(provider=provider, count=count)
-            for provider, count in sorted(Counter(session.provider for session in sessions).items(), key=lambda item: item[0].value)
-        ]
-
-        activity = self._activity_buckets(sessions, latest_updated_at)
-        top_tags = self._label_counts(
-            tag
-            for session in sessions
-            for tag in session.custom_tags
-            if tag and tag.strip() and tag.strip().lower() != "savemycontext"
-        )
-        top_entities = self._label_counts(
-            entity
-            for session in sessions
-            for triplet in session.triplets
-            for entity in (triplet.subject.strip(), triplet.object.strip())
-            if entity
-        )
-        top_predicates = self._label_counts(
-            triplet.predicate.strip()
-            for session in sessions
-            for triplet in session.triplets
-            if triplet.predicate.strip()
-        )
-
-        avg_messages_per_session = (total_messages / total_sessions) if total_sessions else 0.0
-        avg_triplets_per_session = (total_triplets / total_sessions) if total_sessions else 0.0
-
-        return CategoryStats(
-            category=category,
-            total_sessions=total_sessions,
-            total_messages=total_messages,
-            total_triplets=total_triplets,
-            latest_updated_at=latest_updated_at,
-            avg_messages_per_session=avg_messages_per_session,
-            avg_triplets_per_session=avg_triplets_per_session,
-            notes_with_share_post=sum(1 for session in sessions if (session.share_post or "").strip()),
-            notes_with_idea_summary=sum(1 for session in sessions if session.idea_summary),
-            notes_with_journal_entry=sum(1 for session in sessions if (session.journal_entry or "").strip()),
-            notes_with_todo_summary=sum(1 for session in sessions if (session.todo_summary or "").strip()),
-            provider_counts=provider_counts,
-            activity=activity,
-            top_tags=top_tags,
-            top_entities=top_entities,
-            top_predicates=top_predicates,
-        )
+    async def custom_category_stats(
+        self,
+        name: str,
+        *,
+        session_ids: list[str] | None = None,
+        provider: ProviderName | None = None,
+    ) -> CategoryStats:
+        sessions = await self._sessions_for_user_category(name, session_ids=session_ids, provider=provider)
+        return self._build_stats("custom", name, sessions, fallback_category=self._dominant_category(sessions))
 
     async def category_graph(
         self,
@@ -233,19 +194,17 @@ class ExplorerService:
         provider: ProviderName | None = None,
     ) -> CategoryGraph:
         sessions = await self._sessions(category, session_ids=session_ids, provider=provider)
+        return self._build_graph("default", category.value, sessions, fallback_category=category)
 
-        if category == SessionCategory.FACTUAL:
-            nodes, edges = self._factual_graph(category, sessions)
-        else:
-            nodes, edges = self._similarity_graph(category, sessions)
-
-        return CategoryGraph(
-            category=category,
-            node_count=len(nodes),
-            edge_count=len(edges),
-            nodes=nodes,
-            edges=edges,
-        )
+    async def custom_category_graph(
+        self,
+        name: str,
+        *,
+        session_ids: list[str] | None = None,
+        provider: ProviderName | None = None,
+    ) -> CategoryGraph:
+        sessions = await self._sessions_for_user_category(name, session_ids=session_ids, provider=provider)
+        return self._build_graph("custom", name, sessions, fallback_category=self._dominant_category(sessions))
 
     async def _sessions(
         self,
@@ -270,6 +229,142 @@ class ExplorerService:
 
         result = await self.db.execute(statement)
         return list(result.scalars().unique().all())
+
+    async def _sessions_for_user_category(
+        self,
+        name: str,
+        *,
+        session_ids: list[str] | None = None,
+        provider: ProviderName | None = None,
+    ) -> list[ChatSession]:
+        statement = (
+            select(ChatSession)
+            .options(
+                selectinload(ChatSession.messages),
+                selectinload(ChatSession.triplets),
+            )
+            .order_by(ChatSession.updated_at.desc())
+        )
+        if session_ids:
+            statement = statement.where(ChatSession.id.in_(session_ids))
+        if provider:
+            statement = statement.where(ChatSession.provider == provider)
+
+        result = await self.db.execute(statement)
+        sessions = list(result.scalars().unique().all())
+        return [session for session in sessions if has_user_category(session.custom_tags, name)]
+
+    def user_category_summaries(self, sessions: list[ChatSession]) -> list[tuple[str, int]]:
+        return summarize_user_categories([session.custom_tags for session in sessions])
+
+    def _build_stats(
+        self,
+        scope_kind: str,
+        scope_label: str,
+        sessions: list[ChatSession],
+        *,
+        fallback_category: SessionCategory | None,
+    ) -> CategoryStats:
+        dominant_category = self._dominant_category(sessions, fallback=fallback_category)
+        total_sessions = len(sessions)
+        total_messages = sum(len(session.messages) for session in sessions)
+        total_triplets = sum(len(session.triplets) for session in sessions)
+        latest_updated_at = max((session.updated_at for session in sessions), default=None)
+
+        provider_counts = [
+            ProviderCount(provider=provider, count=count)
+            for provider, count in sorted(Counter(session.provider for session in sessions).items(), key=lambda item: item[0].value)
+        ]
+        system_category_counts = [
+            CategorySystemCount(category=category, count=count)
+            for category, count in sorted(
+                Counter(session.category for session in sessions if session.category is not None).items(),
+                key=lambda item: item[0].value,
+            )
+        ]
+
+        activity = self._activity_buckets(sessions, latest_updated_at)
+        top_tags = self._label_counts(
+            tag
+            for session in sessions
+            for tag in visible_custom_tags(session.custom_tags)
+            if tag and tag.strip() and tag.strip().lower() != "savemycontext"
+        )
+        top_entities = self._label_counts(
+            entity
+            for session in sessions
+            for triplet in session.triplets
+            for entity in (triplet.subject.strip(), triplet.object.strip())
+            if entity
+        )
+        top_predicates = self._label_counts(
+            triplet.predicate.strip()
+            for session in sessions
+            for triplet in session.triplets
+            if triplet.predicate.strip()
+        )
+
+        avg_messages_per_session = (total_messages / total_sessions) if total_sessions else 0.0
+        avg_triplets_per_session = (total_triplets / total_sessions) if total_sessions else 0.0
+
+        return CategoryStats(
+            category=dominant_category,
+            scope_kind="custom" if scope_kind == "custom" else "default",
+            scope_label=scope_label,
+            dominant_category=dominant_category,
+            total_sessions=total_sessions,
+            total_messages=total_messages,
+            total_triplets=total_triplets,
+            latest_updated_at=latest_updated_at,
+            avg_messages_per_session=avg_messages_per_session,
+            avg_triplets_per_session=avg_triplets_per_session,
+            notes_with_share_post=sum(1 for session in sessions if (session.share_post or "").strip()),
+            notes_with_idea_summary=sum(1 for session in sessions if session.idea_summary),
+            notes_with_journal_entry=sum(1 for session in sessions if (session.journal_entry or "").strip()),
+            notes_with_todo_summary=sum(1 for session in sessions if (session.todo_summary or "").strip()),
+            system_category_counts=system_category_counts,
+            provider_counts=provider_counts,
+            activity=activity,
+            top_tags=top_tags,
+            top_entities=top_entities,
+            top_predicates=top_predicates,
+        )
+
+    def _build_graph(
+        self,
+        scope_kind: str,
+        scope_label: str,
+        sessions: list[ChatSession],
+        *,
+        fallback_category: SessionCategory | None,
+    ) -> CategoryGraph:
+        dominant_category = self._dominant_category(sessions, fallback=fallback_category)
+        if dominant_category == SessionCategory.FACTUAL and all((session.category == SessionCategory.FACTUAL) for session in sessions):
+            nodes, edges = self._factual_graph(dominant_category, sessions)
+        else:
+            nodes, edges = self._similarity_graph(dominant_category, sessions)
+
+        return CategoryGraph(
+            category=dominant_category,
+            scope_kind="custom" if scope_kind == "custom" else "default",
+            scope_label=scope_label,
+            dominant_category=dominant_category,
+            node_count=len(nodes),
+            edge_count=len(edges),
+            nodes=nodes,
+            edges=edges,
+        )
+
+    def _dominant_category(
+        self,
+        sessions: list[ChatSession],
+        *,
+        fallback: SessionCategory | None = None,
+    ) -> SessionCategory:
+        counts = Counter(session.category for session in sessions if session.category is not None)
+        if counts:
+            return counts.most_common(1)[0][0]
+        return fallback or SessionCategory.FACTUAL
 
     def _activity_buckets(
         self,

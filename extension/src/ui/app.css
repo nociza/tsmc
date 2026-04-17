@@ -21,15 +21,22 @@
   html[data-page="popup"],
   body[data-page="popup"] {
     width: 640px;
+    height: 560px;
     min-width: 640px;
+    min-height: 560px;
     max-width: 640px;
-    overflow-x: hidden;
+    max-height: 560px;
+    overflow: hidden;
   }
 
   #root[data-page="popup"] {
     width: 640px;
+    height: 560px;
     min-width: 640px;
+    min-height: 560px;
     max-width: 640px;
+    max-height: 560px;
+    overflow: hidden;
   }
 
   body {

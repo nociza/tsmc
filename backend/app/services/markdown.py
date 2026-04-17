@@ -17,6 +17,7 @@ from app.models import ChatMessage, ChatSession, FactTriplet, SessionCategory, S
 from app.services.git_versioning import GitVersioningService
 from app.services.text import take_sentences
 from app.services.todo import TodoListService, TODO_TITLE
+from app.services.user_categories import extract_user_categories, visible_custom_tags
 
 
 CATEGORY_LABELS = {
@@ -476,6 +477,8 @@ class MarkdownExporter:
         )
 
     def _session_front_matter(self, session: ChatSession) -> list[str]:
+        user_categories = extract_user_categories(session.custom_tags)
+        visible_tags = visible_custom_tags(session.custom_tags)
         lines = [
             f"id: {yaml_scalar(session.id)}",
             f"type: {yaml_scalar('session')}",
@@ -485,12 +488,14 @@ class MarkdownExporter:
             f"source_url: {yaml_scalar(session.source_url or '')}",
             f"captured_at: {yaml_scalar(session.last_captured_at)}",
             f"updated_at: {yaml_scalar(session.updated_at)}",
-            "tags:",
-            "  - savemycontext",
         ]
+        if user_categories:
+            lines.append("user_categories:")
+            lines.extend(f"  - {yaml_scalar(category)}" for category in user_categories)
+        lines.extend(["tags:", "  - savemycontext"])
         if session.category:
             lines.append(f"  - {session.category.value}")
-        for tag in session.custom_tags or []:
+        for tag in visible_tags:
             lines.append(f"  - {tag}")
         return lines
 

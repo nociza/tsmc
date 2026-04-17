@@ -11,6 +11,7 @@ const sessions: BackendSessionListItem[] = [
     title: "Neural nets",
     category: "factual",
     custom_tags: [],
+    user_categories: [],
     updated_at: "2026-04-14T11:00:00Z"
   },
   {
@@ -20,6 +21,7 @@ const sessions: BackendSessionListItem[] = [
     title: "Optimizers",
     category: "factual",
     custom_tags: [],
+    user_categories: [],
     updated_at: "2026-04-15T11:00:00Z"
   },
   {
@@ -29,12 +31,16 @@ const sessions: BackendSessionListItem[] = [
     title: "Detached note",
     category: "factual",
     custom_tags: [],
+    user_categories: [],
     updated_at: "2026-04-16T11:00:00Z"
   }
 ];
 
 const graph: BackendCategoryGraph = {
   category: "factual",
+  scope_kind: "default",
+  scope_label: "Factual",
+  dominant_category: "factual",
   node_count: 3,
   edge_count: 1,
   nodes: [

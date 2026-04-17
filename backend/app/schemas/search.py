@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.enums import SessionCategory, ProviderName
 
@@ -14,6 +14,7 @@ class SearchResult(BaseModel):
     entity_id: str | None = None
     category: SessionCategory | None = None
     provider: ProviderName | None = None
+    user_categories: list[str] = Field(default_factory=list)
     markdown_path: str | None = None
 
 

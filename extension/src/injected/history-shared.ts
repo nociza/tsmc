@@ -74,3 +74,7 @@ export async function runWithConcurrency<T>(
     })
   );
 }
+
+export function countRetryableHistoryFailures(attemptedCount: number, syncedCount: number): number {
+  return Math.max(0, attemptedCount - syncedCount);
+}

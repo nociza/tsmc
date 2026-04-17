@@ -175,6 +175,11 @@ export interface DashboardCategoryCount {
   count: number;
 }
 
+export interface DashboardCustomCategoryCount {
+  name: string;
+  count: number;
+}
+
 export interface BackendDashboardSummary {
   total_sessions: number;
   total_messages: number;
@@ -183,6 +188,7 @@ export interface BackendDashboardSummary {
   active_tokens: number;
   latest_sync_at?: string | null;
   categories: DashboardCategoryCount[];
+  custom_categories: DashboardCustomCategoryCount[];
 }
 
 export interface BackendSystemStatus {
@@ -235,6 +241,7 @@ export interface BackendSessionListItem {
   title?: string | null;
   category?: SessionCategoryName | null;
   custom_tags: string[];
+  user_categories: string[];
   markdown_path?: string | null;
   share_post?: string | null;
   updated_at: string;
@@ -291,6 +298,9 @@ export interface BackendActivityBucket {
 
 export interface BackendCategoryStats {
   category: SessionCategoryName;
+  scope_kind: "default" | "custom";
+  scope_label: string;
+  dominant_category: SessionCategoryName;
   total_sessions: number;
   total_messages: number;
   total_triplets: number;
@@ -301,6 +311,7 @@ export interface BackendCategoryStats {
   notes_with_idea_summary: number;
   notes_with_journal_entry: number;
   notes_with_todo_summary: number;
+  system_category_counts: DashboardCategoryCount[];
   provider_counts: BackendProviderCount[];
   activity: BackendActivityBucket[];
   top_tags: BackendLabelCount[];
@@ -331,6 +342,9 @@ export interface BackendExplorerGraphEdge {
 
 export interface BackendCategoryGraph {
   category: SessionCategoryName;
+  scope_kind: "default" | "custom";
+  scope_label: string;
+  dominant_category: SessionCategoryName;
   node_count: number;
   edge_count: number;
   nodes: BackendExplorerGraphNode[];
@@ -383,7 +397,13 @@ export interface BackendSearchResult {
   entity_id?: string | null;
   category?: SessionCategoryName | null;
   provider?: ProviderName | null;
+  user_categories: string[];
   markdown_path?: string | null;
+}
+
+export interface BackendUserCategorySummary {
+  name: string;
+  count: number;
 }
 
 export interface BackendSearchResponse {

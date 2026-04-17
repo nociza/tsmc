@@ -13,6 +13,7 @@ const sessions = [
     title: "Context engineering notes",
     category: "factual",
     custom_tags: ["context"],
+    user_categories: ["Architecture Review"],
     markdown_path: "factual/context-engineering-notes.md",
     share_post: "Working notes on persistent context surfaces and retrieval boundaries.",
     updated_at: "2026-04-11T17:30:00Z",
@@ -26,6 +27,7 @@ const sessions = [
     title: "Knowledge graph management",
     category: "factual",
     custom_tags: ["graph"],
+    user_categories: ["Architecture Review", "Knowledge Ops"],
     markdown_path: "factual/knowledge-graph-management.md",
     share_post: "Design notes on graph coverage, provenance, and maintenance loops.",
     updated_at: "2026-04-12T20:15:00Z",
@@ -39,6 +41,7 @@ const sessions = [
     title: "Retrieval diagnostics",
     category: "factual",
     custom_tags: ["retrieval"],
+    user_categories: ["Knowledge Ops"],
     markdown_path: "factual/retrieval-diagnostics.md",
     share_post: "How to trace missing evidence and disconnected entities.",
     updated_at: "2026-04-13T09:45:00Z",
@@ -52,6 +55,7 @@ const sessions = [
     title: "Atlas and storyline surfaces",
     category: "factual",
     custom_tags: ["story"],
+    user_categories: ["Knowledge Ops"],
     markdown_path: "factual/atlas-and-storyline-surfaces.md",
     share_post: "Atlas view should support cluster navigation and guided exploration.",
     updated_at: "2026-04-14T11:10:00Z",
@@ -65,6 +69,7 @@ const sessions = [
     title: "Temporal memory patterns",
     category: "factual",
     custom_tags: ["memory"],
+    user_categories: ["Memory Lab"],
     markdown_path: "factual/temporal-memory-patterns.md",
     share_post: "Timeline filters reveal how concepts evolve across sessions.",
     updated_at: "2026-04-15T16:40:00Z",
@@ -78,6 +83,7 @@ const sessions = [
     title: "Karpathy LLM wiki patterns",
     category: "factual",
     custom_tags: ["wiki"],
+    user_categories: ["Knowledge Ops", "Research"],
     markdown_path: "factual/karpathy-llm-wiki-patterns.md",
     share_post: "Index, sync, log, lint, and query should be first-class graph management surfaces.",
     updated_at: "2026-04-16T08:05:00Z",
@@ -91,6 +97,7 @@ const sessions = [
     title: "Sprint checklist cleanup",
     category: "todo",
     custom_tags: ["shared-list"],
+    user_categories: ["Launch"],
     markdown_path: "todo/sprint-checklist-cleanup.md",
     share_post: "Closed two stale tasks and reopened release notes for final review.",
     todo_summary: "Checked off 'Archive stale branches' and reopened 'Review release notes'.",
@@ -105,6 +112,7 @@ const sessions = [
     title: "Product launch board",
     category: "todo",
     custom_tags: ["launch"],
+    user_categories: ["Launch", "Operations"],
     markdown_path: "todo/product-launch-board.md",
     share_post: "Added the rollout checklist and marked launch copy review complete.",
     todo_summary: "Added 'Dry run launch email' and marked 'Review launch copy' done.",
@@ -285,37 +293,93 @@ const sharedTodo = {
   }
 };
 
+function dominantCategory(availableSessions, fallback = "factual") {
+  const counts = new Map();
+  for (const session of availableSessions) {
+    if (!session.category) {
+      continue;
+    }
+    counts.set(session.category, (counts.get(session.category) ?? 0) + 1);
+  }
+  return Array.from(counts.entries()).sort((left, right) => right[1] - left[1])[0]?.[0] ?? fallback;
+}
+
+function pathUserCategory(url) {
+  const marker = "/custom-categories/";
+  const index = url.pathname.indexOf(marker);
+  if (index < 0) {
+    return null;
+  }
+  const tail = url.pathname.slice(index + marker.length);
+  const name = tail.split("/")[0] ?? "";
+  return name ? decodeURIComponent(name) : null;
+}
+
+function scopeLabel(url) {
+  return url.searchParams.get("user_category") ?? pathUserCategory(url) ?? url.searchParams.get("category") ?? "factual";
+}
+
+function summarizeUserCategories(availableSessions) {
+  const counts = new Map();
+  for (const session of availableSessions) {
+    for (const category of session.user_categories ?? []) {
+      counts.set(category, (counts.get(category) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts.entries())
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([name, count]) => ({ name, count }));
+}
+
 function filteredSessions(url) {
   const provider = url.searchParams.get("provider");
   const category = url.searchParams.get("category");
+  const userCategory = url.searchParams.get("user_category") ?? pathUserCategory(url);
   return sessions.filter(
-    (session) => (!provider || session.provider === provider) && (!category || session.category === category)
+    (session) =>
+      (!provider || session.provider === provider) &&
+      (!category || session.category === category) &&
+      (!userCategory || (session.user_categories ?? []).includes(userCategory))
   );
 }
 
-function filteredGraph(url) {
-  if ((url.searchParams.get("category") ?? "factual") !== "factual") {
-    return {
-      category: url.searchParams.get("category") ?? "factual",
-      node_count: 0,
-      edge_count: 0,
-      nodes: [],
-      edges: []
-    };
-  }
-  const scopedIds = new Set(url.searchParams.getAll("session_id"));
-  const hasScope = scopedIds.size > 0;
-  const allowedSessionIds = new Set(filteredSessions(url).map((session) => session.id));
-  const sessionAllowed = (sessionId) => allowedSessionIds.has(sessionId) && (!hasScope || scopedIds.has(sessionId));
+function buildSessionGraph(availableSessions, category) {
+  const nodes = availableSessions.map((session, index) => ({
+    id: session.id,
+    label: session.title,
+    kind: "session",
+    size: 2 + (session.user_categories?.length ?? 0),
+    session_ids: [session.id],
+    provider: session.provider,
+    category: session.category,
+    updated_at: session.updated_at,
+    note_path: session.markdown_path,
+    x: index
+  }));
+  const edges = [];
 
-  const nodes = fullGraph.nodes.filter((node) => node.session_ids.some(sessionAllowed));
-  const nodeIds = new Set(nodes.map((node) => node.id));
-  const edges = fullGraph.edges.filter(
-    (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target) && edge.session_ids.some(sessionAllowed)
-  );
+  for (let index = 0; index < availableSessions.length; index += 1) {
+    for (let inner = index + 1; inner < availableSessions.length; inner += 1) {
+      const left = availableSessions[index];
+      const right = availableSessions[inner];
+      const leftTags = new Set([...(left.custom_tags ?? []), ...(left.user_categories ?? [])]);
+      const sharedLabels = [...new Set([...(right.custom_tags ?? []), ...(right.user_categories ?? [])])].filter((value) => leftTags.has(value));
+      if (!sharedLabels.length && left.provider !== right.provider) {
+        continue;
+      }
+      edges.push({
+        id: `${left.id}-${right.id}`,
+        source: left.id,
+        target: right.id,
+        label: sharedLabels[0] ?? "provider",
+        weight: Math.max(sharedLabels.length, 1),
+        session_ids: [left.id, right.id]
+      });
+    }
+  }
 
   return {
-    category: url.searchParams.get("category") ?? "factual",
+    category,
     node_count: nodes.length,
     edge_count: edges.length,
     nodes,
@@ -323,9 +387,53 @@ function filteredGraph(url) {
   };
 }
 
+function filteredGraph(url) {
+  const availableSessions = filteredSessions(url);
+  const dominant = dominantCategory(availableSessions, url.searchParams.get("category") ?? "factual");
+  const scopedIds = new Set(url.searchParams.getAll("session_id"));
+  const hasScope = scopedIds.size > 0;
+  const allowedSessionIds = new Set(availableSessions.map((session) => session.id));
+  const sessionAllowed = (sessionId) => allowedSessionIds.has(sessionId) && (!hasScope || scopedIds.has(sessionId));
+
+  let graphBody;
+  if ((url.searchParams.get("user_category") || dominant !== "factual") && availableSessions.length) {
+    const scopedSessions = hasScope ? availableSessions.filter((session) => scopedIds.has(session.id)) : availableSessions;
+    graphBody = buildSessionGraph(scopedSessions, dominant);
+  } else if ((url.searchParams.get("category") ?? "factual") !== "factual") {
+    graphBody = {
+      category: url.searchParams.get("category") ?? "factual",
+      node_count: 0,
+      edge_count: 0,
+      nodes: [],
+      edges: []
+    };
+  } else {
+    const nodes = fullGraph.nodes.filter((node) => node.session_ids.some(sessionAllowed));
+    const nodeIds = new Set(nodes.map((node) => node.id));
+    const edges = fullGraph.edges.filter(
+      (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target) && edge.session_ids.some(sessionAllowed)
+    );
+
+    graphBody = {
+      category: dominant,
+      node_count: nodes.length,
+      edge_count: edges.length,
+      nodes,
+      edges
+    };
+  }
+
+  return {
+    ...graphBody,
+    scope_kind: url.searchParams.get("user_category") ? "custom" : "default",
+    scope_label: scopeLabel(url),
+    dominant_category: dominant
+  };
+}
+
 function buildStats(url) {
   const availableSessions = filteredSessions(url);
-  const category = url.searchParams.get("category") ?? "factual";
+  const category = dominantCategory(availableSessions, url.searchParams.get("category") ?? "factual");
   const scopedIds = new Set(url.searchParams.getAll("session_id"));
   const visibleSessions = scopedIds.size
     ? availableSessions.filter((session) => scopedIds.has(session.id))
@@ -342,6 +450,9 @@ function buildStats(url) {
     const bucket = session.updated_at.slice(0, 10);
     activityMap.set(bucket, (activityMap.get(bucket) ?? 0) + 1);
   }
+  const systemCategoryCounts = Array.from(
+    visibleSessions.reduce((counts, session) => counts.set(session.category, (counts.get(session.category) ?? 0) + 1), new Map()).entries()
+  ).map(([name, count]) => ({ category: name, count }));
   const entityCounts = graph.nodes
     .map((node) => ({ label: node.label, count: node.session_ids.length }))
     .sort((left, right) => right.count - left.count)
@@ -353,6 +464,9 @@ function buildStats(url) {
 
   return {
     category,
+    scope_kind: url.searchParams.get("user_category") ? "custom" : "default",
+    scope_label: scopeLabel(url),
+    dominant_category: category,
     total_sessions: visibleSessions.length,
     total_messages: visibleSessions.length * 24,
     total_triplets: category === "factual" ? graph.edges.reduce((sum, edge) => sum + edge.weight, 0) : 0,
@@ -365,6 +479,7 @@ function buildStats(url) {
     notes_with_idea_summary: 0,
     notes_with_journal_entry: 0,
     notes_with_todo_summary: visibleSessions.filter((session) => session.category === "todo" && session.todo_summary).length,
+    system_category_counts: systemCategoryCounts,
     provider_counts: providerCounts,
     activity: Array.from(activityMap.entries())
       .sort(([left], [right]) => left.localeCompare(right))
@@ -396,6 +511,7 @@ function buildSearch(url) {
       session_id: session.id,
       category: session.category,
       provider: session.provider,
+      user_categories: session.user_categories ?? [],
       markdown_path: session.markdown_path
     }));
 
@@ -414,7 +530,8 @@ function buildDashboardSummary() {
     total_sync_events: sessions.length,
     active_tokens: 0,
     latest_sync_at: sessions.map((session) => session.updated_at).sort().at(-1),
-    categories
+    categories,
+    custom_categories: summarizeUserCategories(sessions)
   };
 }
 
@@ -526,8 +643,28 @@ async function main() {
         body = buildGraphEdges();
       } else if (url.pathname.endsWith("/todo")) {
         body = sharedTodo;
+      } else if (url.pathname.endsWith("/user-categories")) {
+        body = summarizeUserCategories(filteredSessions(url));
+      } else if (url.pathname.includes("/sessions/") && url.pathname.endsWith("/user-categories")) {
+        const sessionId = decodeURIComponent(url.pathname.split("/").slice(-2, -1)[0] ?? "");
+        const session = sessions.find((item) => item.id === sessionId);
+        const payload = route.request().postDataJSON?.() ?? {};
+        const nextCategories = Array.isArray(payload.user_categories) ? payload.user_categories.filter(Boolean) : [];
+        if (!session) {
+          await route.fulfill({ status: 404, body: "not found" });
+          return;
+        }
+        session.user_categories = [...new Set(nextCategories)];
+        if (notes[session.id]) {
+          notes[session.id].user_categories = [...session.user_categories];
+        }
+        body = session;
       } else if (url.pathname.endsWith("/sessions")) {
         body = filteredSessions(url);
+      } else if (url.pathname.includes("/custom-categories/") && url.pathname.endsWith("/stats")) {
+        body = buildStats(url);
+      } else if (url.pathname.includes("/custom-categories/") && url.pathname.endsWith("/graph")) {
+        body = filteredGraph(url);
       } else if (url.pathname.includes("/categories/") && url.pathname.endsWith("/stats")) {
         body = buildStats(url);
       } else if (url.pathname.includes("/categories/") && url.pathname.endsWith("/graph")) {
@@ -635,6 +772,16 @@ async function main() {
     await todoPage.screenshot({ path: "/tmp/smc-category-todo-redesign.png", fullPage: true });
     console.log("todo-done");
 
+    const customPage = await context.newPage();
+    attachDebug(customPage, "custom");
+    console.log("opening-custom");
+    await customPage.goto(`chrome-extension://${extensionId}/category.html?category=factual&userCategory=Knowledge%20Ops`, {
+      waitUntil: "domcontentloaded"
+    });
+    await customPage.locator("text=Knowledge Ops").first().waitFor();
+    await customPage.screenshot({ path: "/tmp/smc-category-custom-redesign.png", fullPage: true });
+    console.log("custom-done");
+
     console.log(
       JSON.stringify({
         popup: "/tmp/smc-popup-redesign.png",
@@ -642,7 +789,8 @@ async function main() {
         atlas: "/tmp/smc-category-atlas-redesign.png",
         story: "/tmp/smc-category-story-redesign.png",
         ops: "/tmp/smc-category-ops-redesign.png",
-        todo: "/tmp/smc-category-todo-redesign.png"
+        todo: "/tmp/smc-category-todo-redesign.png",
+        custom: "/tmp/smc-category-custom-redesign.png"
       })
     );
   } finally {

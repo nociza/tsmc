@@ -50,6 +50,7 @@ export function categoryPageUrl(state: {
   view?: CategoryWorkspaceView | null;
   bucket?: string | null;
   note?: string | null;
+  userCategory?: string | null;
 }): string {
   const url = new URL(chrome.runtime.getURL("category.html"));
   url.searchParams.set("category", state.category);
@@ -71,6 +72,9 @@ export function categoryPageUrl(state: {
   if (state.note) {
     url.searchParams.set("note", state.note);
   }
+  if (state.userCategory?.trim()) {
+    url.searchParams.set("userCategory", state.userCategory.trim());
+  }
   return url.toString();
 }
 
@@ -80,6 +84,7 @@ export function notePageUrl(state: {
   q?: string;
   provider?: ProviderName | null;
   sort?: CategorySortMode | null;
+  userCategory?: string | null;
 }): string {
   const url = new URL(chrome.runtime.getURL("note.html"));
   url.searchParams.set("id", state.id);
@@ -94,6 +99,9 @@ export function notePageUrl(state: {
   }
   if (state.sort && state.sort !== "recent") {
     url.searchParams.set("sort", state.sort);
+  }
+  if (state.userCategory?.trim()) {
+    url.searchParams.set("userCategory", state.userCategory.trim());
   }
   return url.toString();
 }

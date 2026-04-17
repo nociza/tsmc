@@ -15,10 +15,14 @@ import { Activity, ArrowLeft, BrainCircuit, Database, ExternalLink, Search, Spar
 import {
   fetchCategoryGraph,
   fetchCategoryStats,
+  fetchCustomCategoryGraph,
+  fetchCustomCategoryStats,
   fetchExplorerSearch,
   fetchSessionNote,
   fetchSessions,
   fetchTodoList,
+  fetchUserCategories,
+  updateSessionUserCategories,
   updateTodoList
 } from "../background/backend";
 import {
@@ -47,6 +51,7 @@ import type {
   BackendSessionNoteRead,
   BackendTodoItem,
   BackendTodoListRead,
+  BackendUserCategorySummary,
   ExtensionSettings,
   ProviderName,
   SessionCategoryName
@@ -72,6 +77,7 @@ type RouteState = {
   view: CategoryWorkspaceView;
   bucket: string | null;
   note: string | null;
+  userCategory: string | null;
 };
 
 type GraphFocus = {
@@ -88,7 +94,8 @@ function readRouteState(): RouteState {
     sort: parseSortMode(params.get("sort")),
     view: parseCategoryWorkspaceView(params.get("view")),
     bucket: params.get("bucket")?.trim() ?? null,
-    note: params.get("note")
+    note: params.get("note"),
+    userCategory: params.get("userCategory")?.trim() ?? null
   };
 }
 
@@ -125,6 +132,11 @@ function writeRouteState(state: RouteState, push = true): void {
   } else {
     url.searchParams.delete("note");
   }
+  if (state.userCategory?.trim()) {
+    url.searchParams.set("userCategory", state.userCategory.trim());
+  } else {
+    url.searchParams.delete("userCategory");
+  }
 
   if (push) {
     window.history.pushState(null, "", url);
@@ -136,6 +148,9 @@ function writeRouteState(state: RouteState, push = true): void {
 function createEmptyStats(category: SessionCategoryName): BackendCategoryStats {
   return {
     category,
+    scope_kind: "default",
+    scope_label: categoryLabels[category],
+    dominant_category: category,
     total_sessions: 0,
     total_messages: 0,
     total_triplets: 0,
@@ -146,6 +161,7 @@ function createEmptyStats(category: SessionCategoryName): BackendCategoryStats {
     notes_with_idea_summary: 0,
     notes_with_journal_entry: 0,
     notes_with_todo_summary: 0,
+    system_category_counts: [{ category, count: 0 }],
     provider_counts: [],
     activity: [],
     top_tags: [],
@@ -157,6 +173,9 @@ function createEmptyStats(category: SessionCategoryName): BackendCategoryStats {
 function createEmptyGraph(category: SessionCategoryName): BackendCategoryGraph {
   return {
     category,
+    scope_kind: "default",
+    scope_label: categoryLabels[category],
+    dominant_category: category,
     node_count: 0,
     edge_count: 0,
     nodes: [],
@@ -190,6 +209,15 @@ function searchMatchMap(search: BackendSearchResponse | undefined): Map<string, 
 }
 
 function statsCards(stats: BackendCategoryStats, todo: BackendTodoListRead | null): Array<{ label: string; value: string }> {
+  if (stats.scope_kind === "custom") {
+    return [
+      { label: "Notes", value: formatNumber(stats.total_sessions) },
+      { label: "Messages", value: formatNumber(stats.total_messages) },
+      { label: "Facts", value: formatNumber(stats.total_triplets) },
+      { label: "Base groups", value: formatNumber(stats.system_category_counts.length) }
+    ];
+  }
+
   if (stats.category === "factual") {
     return [
       { label: "Notes", value: formatNumber(stats.total_sessions) },
@@ -313,17 +341,24 @@ function buildActivityBuckets(sessions: BackendSessionListItem[]): Array<{ bucke
     }));
 }
 
-function noteListMeta(route: RouteState, total: number, visible: number, focus: GraphFocus | null): string {
+function noteListMeta(
+  route: RouteState,
+  total: number,
+  visible: number,
+  focus: GraphFocus | null,
+  displayCategory: SessionCategoryName
+): string {
   const providerText = route.provider ? ` in ${providerLabels[route.provider]}` : "";
   const bucketText = route.bucket ? ` · ${formatBucketLabel(route.bucket)}` : "";
-  const collectionLabel = route.category === "todo" ? "update notes" : "notes";
+  const userCategoryText = route.userCategory ? ` · custom category ${route.userCategory}` : "";
+  const collectionLabel = displayCategory === "todo" ? "update notes" : "notes";
   if (focus) {
-    return `${formatNumber(visible)} ${collectionLabel} linked to ${focus.label}${bucketText}`;
+    return `${formatNumber(visible)} ${collectionLabel} linked to ${focus.label}${bucketText}${userCategoryText}`;
   }
   if (route.q) {
-    return `${formatNumber(visible)} matches for "${route.q}" from ${formatNumber(total)} ${collectionLabel}${providerText}${bucketText}`;
+    return `${formatNumber(visible)} matches for "${route.q}" from ${formatNumber(total)} ${collectionLabel}${providerText}${bucketText}${userCategoryText}`;
   }
-  return `${formatNumber(total)} ${collectionLabel} in view${providerText}${bucketText}`;
+  return `${formatNumber(total)} ${collectionLabel} in view${providerText}${bucketText}${userCategoryText}`;
 }
 
 function App() {
@@ -336,7 +371,10 @@ function App() {
   const [todoDraft, setTodoDraft] = useState("");
   const [todoActionError, setTodoActionError] = useState<string | null>(null);
   const [todoSavingSummary, setTodoSavingSummary] = useState<string | null>(null);
+  const [userCategoryDraft, setUserCategoryDraft] = useState("");
+  const [userCategoryError, setUserCategoryError] = useState<string | null>(null);
   const debouncedQuery = useDebouncedValue(route.q);
+  const isCustomScope = Boolean(route.userCategory);
 
   useEffect(() => {
     const handlePopState = (): void => {
@@ -359,12 +397,28 @@ function App() {
   }
 
   const sessionsQuery = useQuery({
-    queryKey: ["category-sessions", settings?.backendUrl, settings?.backendToken, route.category, route.provider],
+    queryKey: ["category-sessions", settings?.backendUrl, settings?.backendToken, route.category, route.provider, route.userCategory],
     queryFn: () =>
       fetchSessions(
         settings as ExtensionSettings,
-        route.provider ? { category: route.category, provider: route.provider } : { category: route.category }
+        route.provider || route.userCategory
+          ? {
+              category: isCustomScope ? undefined : route.category,
+              provider: route.provider ?? undefined,
+              userCategory: route.userCategory ?? undefined
+            }
+          : { category: route.category }
       ),
+    enabled: Boolean(settings && !status?.backendValidationError)
+  });
+
+  const userCategoriesQuery = useQuery({
+    queryKey: ["session-user-categories", settings?.backendUrl, settings?.backendToken, route.provider, isCustomScope ? null : route.category],
+    queryFn: () =>
+      fetchUserCategories(settings as ExtensionSettings, {
+        provider: route.provider ?? undefined,
+        category: isCustomScope ? undefined : route.category
+      }),
     enabled: Boolean(settings && !status?.backendValidationError)
   });
 
@@ -375,12 +429,14 @@ function App() {
       settings?.backendToken,
       route.category,
       route.provider,
+      route.userCategory,
       debouncedQuery
     ],
     queryFn: () =>
       fetchExplorerSearch(settings as ExtensionSettings, debouncedQuery, {
-        category: route.category,
+        category: isCustomScope ? undefined : route.category,
         provider: route.provider ?? undefined,
+        userCategory: route.userCategory ?? undefined,
         limit: 80
       }),
     enabled: Boolean(settings && !status?.backendValidationError && debouncedQuery.trim())
@@ -420,19 +476,31 @@ function App() {
       settings?.backendToken,
       route.category,
       route.provider,
+      route.userCategory,
       scopedSessionIds?.join("|") ?? "*"
     ],
     queryFn: () =>
-      fetchCategoryStats(
-        settings as ExtensionSettings,
-        route.category,
-        route.provider || scopedSessionIds
-          ? {
-              provider: route.provider ?? undefined,
-              sessionIds: scopedSessionIds
-            }
-          : undefined
-      ),
+      isCustomScope
+        ? fetchCustomCategoryStats(
+            settings as ExtensionSettings,
+            route.userCategory as string,
+            route.provider || scopedSessionIds
+              ? {
+                  provider: route.provider ?? undefined,
+                  sessionIds: scopedSessionIds
+                }
+              : undefined
+          )
+        : fetchCategoryStats(
+            settings as ExtensionSettings,
+            route.category,
+            route.provider || scopedSessionIds
+              ? {
+                  provider: route.provider ?? undefined,
+                  sessionIds: scopedSessionIds
+                }
+              : undefined
+          ),
     enabled: Boolean(settings && !status?.backendValidationError && (!scopedSessionIds || scopedSessionIds.length > 0))
   });
 
@@ -443,19 +511,31 @@ function App() {
       settings?.backendToken,
       route.category,
       route.provider,
+      route.userCategory,
       scopedSessionIds?.join("|") ?? "*"
     ],
     queryFn: () =>
-      fetchCategoryGraph(
-        settings as ExtensionSettings,
-        route.category,
-        route.provider || scopedSessionIds
-          ? {
-              provider: route.provider ?? undefined,
-              sessionIds: scopedSessionIds
-            }
-          : undefined
-      ),
+      isCustomScope
+        ? fetchCustomCategoryGraph(
+            settings as ExtensionSettings,
+            route.userCategory as string,
+            route.provider || scopedSessionIds
+              ? {
+                  provider: route.provider ?? undefined,
+                  sessionIds: scopedSessionIds
+                }
+              : undefined
+          )
+        : fetchCategoryGraph(
+            settings as ExtensionSettings,
+            route.category,
+            route.provider || scopedSessionIds
+              ? {
+                  provider: route.provider ?? undefined,
+                  sessionIds: scopedSessionIds
+                }
+              : undefined
+          ),
     enabled: Boolean(settings && !status?.backendValidationError && (!scopedSessionIds || scopedSessionIds.length > 0))
   });
 
@@ -490,7 +570,7 @@ function App() {
   const todoQuery = useQuery({
     queryKey: ["category-todo", settings?.backendUrl, settings?.backendToken],
     queryFn: () => fetchTodoList(settings as ExtensionSettings),
-    enabled: Boolean(settings && !status?.backendValidationError && route.category === "todo")
+    enabled: Boolean(settings && !status?.backendValidationError && !isCustomScope && route.category === "todo")
   });
 
   const stats =
@@ -501,7 +581,9 @@ function App() {
     (scopedSessionIds && !visibleSessions.length) || (debouncedQuery.trim() && !visibleSessions.length)
       ? createEmptyGraph(route.category)
       : graphQuery.data ?? createEmptyGraph(route.category);
-  const todo = route.category === "todo" ? todoQuery.data ?? null : null;
+  const todo = !isCustomScope && route.category === "todo" ? todoQuery.data ?? null : null;
+  const activeDisplayCategory = graph.dominant_category ?? stats.dominant_category ?? route.category;
+  const userCategories = userCategoriesQuery.data ?? [];
 
   const signals = signalGroups(stats);
   const providerPie = stats.provider_counts.map((item) => ({
@@ -511,11 +593,12 @@ function App() {
     color: providerColors[item.provider]
   }));
   const graphInsights = useMemo(
-    () => buildCategoryGraphInsights(graph, visibleSessions, route.category, groupingMode),
-    [graph, groupingMode, route.category, visibleSessions]
+    () => buildCategoryGraphInsights(graph, visibleSessions, activeDisplayCategory, groupingMode),
+    [activeDisplayCategory, graph, groupingMode, visibleSessions]
   );
   const scopePills = [
-    { key: "category", label: "Category", value: categoryLabels[route.category] },
+    { key: "category", label: isCustomScope ? "Default base" : "Category", value: categoryLabels[activeDisplayCategory] },
+    route.userCategory ? { key: "user-category", label: "Custom", value: route.userCategory } : null,
     route.provider ? { key: "provider", label: "Provider", value: providerLabels[route.provider] } : null,
     route.q ? { key: "query", label: "Query", value: route.q } : null,
     route.bucket ? { key: "bucket", label: "Time", value: formatBucketLabel(route.bucket) } : null,
@@ -533,7 +616,13 @@ function App() {
   function handleCategorySwitch(category: SessionCategoryName): void {
     setGraphFocus(null);
     setCollapsedGroups([]);
-    updateRoute({ category, note: null, bucket: null, view: "atlas" }, true);
+    updateRoute({ category, note: null, bucket: null, view: "atlas", userCategory: null }, true);
+  }
+
+  function handleUserCategorySwitch(name: string): void {
+    setGraphFocus(null);
+    setCollapsedGroups([]);
+    updateRoute({ userCategory: name, note: null, bucket: null, view: "atlas" }, true);
   }
 
   function activateFocus(label: string, sessionIds: string[], nextView?: CategoryWorkspaceView): void {
@@ -554,14 +643,14 @@ function App() {
   function clearScope(): void {
     setGraphFocus(null);
     setCollapsedGroups([]);
-    updateRoute({ q: "", provider: null, sort: "recent", bucket: null, note: null, view: "atlas" }, true);
+    updateRoute({ q: "", provider: null, sort: "recent", bucket: null, note: null, view: "atlas", userCategory: null }, true);
   }
 
   const workspaceCards = [
     {
       value: "atlas" as const,
       label: "Atlas",
-      accent: categoryPalette[route.category].accent,
+      accent: categoryPalette[activeDisplayCategory].accent,
       icon: BrainCircuit,
       metric: `${formatNumber(graph.node_count)} nodes`,
       detail: `${formatNumber(graph.edge_count)} relationships`
@@ -624,8 +713,44 @@ function App() {
     await persistTodoItems(nextItems, done ? `Check off: ${item.text}` : `Reopen: ${item.text}`);
   }
 
+  async function updateSelectedSessionUserCategories(nextCategories: string[]): Promise<void> {
+    if (!settings || !selectedSession) {
+      return;
+    }
+
+    setUserCategoryError(null);
+    try {
+      await updateSessionUserCategories(settings as ExtensionSettings, selectedSession.id, nextCategories);
+      setUserCategoryDraft("");
+      await Promise.all([sessionsQuery.refetch(), noteQuery.refetch(), userCategoriesQuery.refetch()]);
+    } catch (categoryError) {
+      setUserCategoryError(categoryError instanceof Error ? categoryError.message : "Could not update custom categories.");
+    }
+  }
+
+  async function handleAddUserCategory(name: string): Promise<void> {
+    const cleaned = name.trim();
+    if (!cleaned || !selectedSession) {
+      return;
+    }
+    const nextCategories = Array.from(new Set([...(selectedSession.user_categories ?? []), cleaned]));
+    await updateSelectedSessionUserCategories(nextCategories);
+    handleUserCategorySwitch(cleaned);
+  }
+
+  async function handleRemoveUserCategory(name: string): Promise<void> {
+    if (!selectedSession) {
+      return;
+    }
+    const nextCategories = (selectedSession.user_categories ?? []).filter((value) => value !== name);
+    await updateSelectedSessionUserCategories(nextCategories);
+    if (route.userCategory === name) {
+      updateRoute({ userCategory: null }, true);
+    }
+  }
+
   const headerMetrics =
-    route.category === "todo"
+    !isCustomScope && route.category === "todo"
       ? [
           { label: "Shared tasks", value: formatNumber(todo?.total_count), icon: Database },
           { label: "Active", value: formatNumber(todo?.active_count), icon: Workflow },
@@ -635,9 +760,9 @@ function App() {
       : [
           { label: "Notes in scope", value: formatNumber(visibleSessions.length), icon: Database },
           {
-            label: route.category === "factual" ? "Facts" : "Messages",
-            value: route.category === "factual" ? formatNumber(stats.total_triplets) : formatNumber(stats.total_messages),
-            icon: route.category === "factual" ? BrainCircuit : Activity
+            label: activeDisplayCategory === "factual" ? "Facts" : "Messages",
+            value: activeDisplayCategory === "factual" ? formatNumber(stats.total_triplets) : formatNumber(stats.total_messages),
+            icon: activeDisplayCategory === "factual" ? BrainCircuit : Activity
           },
           {
             label: "Graph coverage",
@@ -657,8 +782,14 @@ function App() {
         <CardHeader>
           <div className="space-y-2">
             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">SaveMyContext</div>
-            <CardTitle className="text-3xl leading-none">{categoryLabels[route.category]}</CardTitle>
-            <CardDescription>{categoryDescriptions[route.category]}</CardDescription>
+            <CardTitle className="break-words text-3xl leading-none">
+              {isCustomScope ? route.userCategory : categoryLabels[route.category]}
+            </CardTitle>
+            <CardDescription>
+              {isCustomScope
+                ? "User-defined category for organizing notes and sessions across the workspace."
+                : categoryDescriptions[route.category]}
+            </CardDescription>
           </div>
           <Button variant="secondary" onClick={() => (window.location.href = chrome.runtime.getURL("dashboard.html"))}>
             <ArrowLeft className="h-4 w-4" />
@@ -680,7 +811,7 @@ function App() {
           <div className="rounded-[8px] border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Current scope</div>
             <div className="mt-2 text-lg font-semibold text-zinc-950">
-              {graphFocus ? graphFocus.label : route.q ? `Search: ${route.q}` : "Entire category"}
+              {graphFocus ? graphFocus.label : route.q ? `Search: ${route.q}` : isCustomScope ? route.userCategory : "Entire category"}
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               {scopePills.map((pill) => (
@@ -690,12 +821,12 @@ function App() {
               ))}
               {!scopePills.length ? (
                 <div className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600">
-                  Full category
+                  {isCustomScope ? "Custom category" : "Full category"}
                 </div>
               ) : null}
             </div>
             <div className="mt-4 text-sm leading-6 text-zinc-600">
-              {noteListMeta(route, allSessions.length, visibleSessions.length, graphFocus)}
+              {noteListMeta(route, allSessions.length, visibleSessions.length, graphFocus, activeDisplayCategory)}
             </div>
           </div>
         </CardContent>
@@ -707,25 +838,74 @@ function App() {
             <CardHeader>
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Collections</div>
-                <CardTitle className="mt-1 text-lg">Switch category</CardTitle>
+                <CardTitle className="mt-1 text-lg">Default and custom categories</CardTitle>
               </div>
             </CardHeader>
-            <CardContent className="mt-4 grid gap-2">
-              {categoryOrder.map((category) => (
-                <button
-                  key={category}
-                  type="button"
-                  onClick={() => handleCategorySwitch(category)}
-                  className={`rounded-[8px] border px-3 py-3 text-left transition ${
-                    route.category === category ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-200 bg-white hover:bg-zinc-50"
-                  }`}
+            <CardContent className="mt-4 space-y-4">
+              <div className="grid gap-2">
+                {categoryOrder.map((category) => (
+                  <button
+                    key={category}
+                    type="button"
+                    onClick={() => handleCategorySwitch(category)}
+                    className={`rounded-[8px] border px-3 py-3 text-left transition ${
+                      !isCustomScope && route.category === category
+                        ? "border-zinc-950 bg-zinc-950 text-white"
+                        : "border-zinc-200 bg-white hover:bg-zinc-50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-semibold">{categoryLabels[category]}</span>
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: categoryPalette[category].accent }} />
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-3 border-t border-zinc-200 pt-4">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Custom categories</div>
+                  <div className="mt-1 text-sm text-zinc-500">Use these to organize notes and sessions beyond the default classifier.</div>
+                </div>
+
+                <div className="space-y-2">
+                  {userCategories.map((item) => (
+                    <button
+                      key={item.name}
+                      type="button"
+                      onClick={() => handleUserCategorySwitch(item.name)}
+                      className={`flex w-full items-center justify-between gap-3 rounded-[8px] border px-3 py-3 text-left transition ${
+                        route.userCategory === item.name ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-200 bg-white hover:bg-zinc-50"
+                      }`}
+                    >
+                      <span className="truncate text-sm font-semibold">{item.name}</span>
+                      <span className={route.userCategory === item.name ? "text-xs text-white/70" : "text-xs text-zinc-500"}>
+                        {formatNumber(item.count)}
+                      </span>
+                    </button>
+                  ))}
+                  {!userCategories.length ? <p className="text-sm text-zinc-500">Assign a note to a custom category to make it appear here.</p> : null}
+                </div>
+
+                <form
+                  className="space-y-2"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void handleAddUserCategory(userCategoryDraft);
+                  }}
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-semibold">{categoryLabels[category]}</span>
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: categoryPalette[category].accent }} />
-                  </div>
-                </button>
-              ))}
+                  <input
+                    type="text"
+                    value={userCategoryDraft}
+                    onChange={(event) => setUserCategoryDraft(event.target.value)}
+                    placeholder={selectedSession ? "Create and assign to the selected note" : "Select a note to create a custom category"}
+                    className="h-10 w-full rounded-[8px] border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-zinc-300"
+                  />
+                  <Button type="submit" size="sm" variant="secondary" disabled={!selectedSession || !userCategoryDraft.trim()}>
+                    Add to selected note
+                  </Button>
+                </form>
+              </div>
             </CardContent>
           </Card>
 
@@ -887,22 +1067,24 @@ function App() {
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Workspace</div>
                 <CardTitle className="mt-1 text-lg">
-                  {route.category === "todo"
+                  {!isCustomScope && route.category === "todo"
                     ? "Shared list workspace"
-                    : route.category === "factual"
+                    : activeDisplayCategory === "factual"
                       ? "Knowledge graph workspace"
                       : "Context workspace"}
                 </CardTitle>
                 <CardDescription>
-                  {route.category === "todo"
+                  {!isCustomScope && route.category === "todo"
                     ? "Check tasks off, review git-backed list history, and keep note evidence close to the shared checklist."
-                    : "Atlas for structure, storylines for guided exploration, and graph ops for maintenance and retrieval quality."}
+                    : isCustomScope
+                      ? "This view follows one user-defined category while preserving the underlying note and graph structure."
+                      : "Atlas for structure, storylines for guided exploration, and graph ops for maintenance and retrieval quality."}
                 </CardDescription>
               </div>
             </CardHeader>
 
             <CardContent className="mt-5">
-              {route.category === "todo" ? (
+              {!isCustomScope && route.category === "todo" ? (
                 <TodoWorkspace
                   todo={todo}
                   loading={todoQuery.isLoading}
@@ -980,7 +1162,7 @@ function App() {
 
                       <CategoryGraph
                         graph={graph}
-                        category={route.category}
+                        category={activeDisplayCategory}
                         groupingMode={groupingMode}
                         collapsedGroups={collapsedGroups}
                         focusSessionIds={graphFocus?.sessionIds}
@@ -1117,8 +1299,8 @@ function App() {
                           <AreaChart width={292} height={220} data={activityBuckets}>
                             <defs>
                               <linearGradient id="categoryActivity" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor={categoryPalette[route.category].accent} stopOpacity={0.28} />
-                                <stop offset="100%" stopColor={categoryPalette[route.category].accent} stopOpacity={0.04} />
+                                <stop offset="0%" stopColor={categoryPalette[activeDisplayCategory].accent} stopOpacity={0.28} />
+                                <stop offset="100%" stopColor={categoryPalette[activeDisplayCategory].accent} stopOpacity={0.04} />
                               </linearGradient>
                             </defs>
                             <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
@@ -1128,7 +1310,7 @@ function App() {
                             <Area
                               type="monotone"
                               dataKey="count"
-                              stroke={categoryPalette[route.category].accent}
+                              stroke={categoryPalette[activeDisplayCategory].accent}
                               fill="url(#categoryActivity)"
                               strokeWidth={2.5}
                             />
@@ -1321,9 +1503,11 @@ function App() {
               <CardHeader>
                 <div>
                   <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Results</div>
-                  <CardTitle className="mt-1 text-lg">{route.category === "todo" ? "Change log notes" : "Notes in scope"}</CardTitle>
+                  <CardTitle className="mt-1 text-lg">
+                    {!isCustomScope && route.category === "todo" ? "Change log notes" : isCustomScope ? "Notes in custom category" : "Notes in scope"}
+                  </CardTitle>
                 </div>
-                <div className="text-sm text-zinc-500">{noteListMeta(route, allSessions.length, noteListItems.length, graphFocus)}</div>
+                <div className="text-sm text-zinc-500">{noteListMeta(route, allSessions.length, noteListItems.length, graphFocus, activeDisplayCategory)}</div>
               </CardHeader>
               <CardContent className="mt-4">
                 <ScrollArea className="h-[min(56vh,560px)] pr-4">
@@ -1344,11 +1528,23 @@ function App() {
                             <span className="truncate text-sm font-semibold">{titleFromSession(session)}</span>
                             <Badge tone="neutral">{providerLabels[session.provider]}</Badge>
                           </div>
+                          {(session.user_categories ?? []).length ? (
+                            <div className="mb-2 flex flex-wrap gap-1.5">
+                              {(session.user_categories ?? []).slice(0, 3).map((category) => (
+                                <span
+                                  key={category}
+                                  className={isActive ? "rounded-full border border-white/20 px-2 py-0.5 text-[10px] text-white/75" : "rounded-full border border-zinc-200 px-2 py-0.5 text-[10px] text-zinc-500"}
+                                >
+                                  {category}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
                           <div className={isActive ? "text-xs uppercase tracking-[0.08em] text-white/70" : "text-xs uppercase tracking-[0.08em] text-zinc-500"}>
                             {formatCompactDate(session.updated_at)}
                           </div>
                           <p className={isActive ? "mt-2 line-clamp-3 break-words text-sm leading-6 text-white/80" : "mt-2 line-clamp-3 break-words text-sm leading-6 text-zinc-600"}>
-                            {sessionPreviewText(session, match, route.category)}
+                            {sessionPreviewText(session, match, session.category ?? activeDisplayCategory)}
                           </p>
                         </button>
                       );
@@ -1374,6 +1570,46 @@ function App() {
                         ].join(" · ")
                       : "Select a note, graph node, or storyline to inspect it."}
                   </CardDescription>
+                  {selectedSession ? (
+                    <div className="mt-4 space-y-3">
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Custom categories</div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {(selectedSession.user_categories ?? []).map((category) => (
+                            <button
+                              key={category}
+                              type="button"
+                              onClick={() => void handleRemoveUserCategory(category)}
+                              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs text-zinc-600 transition hover:bg-zinc-50"
+                            >
+                              {category} ×
+                            </button>
+                          ))}
+                          {!(selectedSession.user_categories ?? []).length ? (
+                            <span className="text-sm text-zinc-500">No custom categories assigned yet.</span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <form
+                        className="flex flex-col gap-2 sm:flex-row"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void handleAddUserCategory(userCategoryDraft);
+                        }}
+                      >
+                        <input
+                          type="text"
+                          value={userCategoryDraft}
+                          onChange={(event) => setUserCategoryDraft(event.target.value)}
+                          placeholder="Add this note to a custom category"
+                          className="h-10 flex-1 rounded-[8px] border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-zinc-300"
+                        />
+                        <Button type="submit" size="sm" variant="secondary" disabled={!userCategoryDraft.trim()}>
+                          Add category
+                        </Button>
+                      </form>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-2">
                   {selectedSession ? (
@@ -1385,7 +1621,8 @@ function App() {
                           category: route.category,
                           q: route.q,
                           provider: route.provider,
-                          sort: route.sort
+                          sort: route.sort,
+                          userCategory: route.userCategory
                         });
                       }}
                     >
@@ -1401,6 +1638,9 @@ function App() {
                 </div>
               </CardHeader>
               <CardContent className="mt-4">
+                {userCategoryError ? (
+                  <div className="mb-4 rounded-[8px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{userCategoryError}</div>
+                ) : null}
                 {selectedSession && noteQuery.isLoading ? (
                   <div className="rounded-[8px] border border-zinc-200 bg-zinc-50 p-5 text-sm text-zinc-500">Loading note content…</div>
                 ) : selectedSession && noteQuery.data ? (
@@ -1444,7 +1684,15 @@ function App() {
         </div>
       </div>
 
-      {error || sessionsQuery.error || searchQuery.error || statsQuery.error || graphQuery.error || noteQuery.error || todoQuery.error || status?.backendValidationError ? (
+      {error ||
+      sessionsQuery.error ||
+      searchQuery.error ||
+      statsQuery.error ||
+      graphQuery.error ||
+      noteQuery.error ||
+      todoQuery.error ||
+      userCategoriesQuery.error ||
+      status?.backendValidationError ? (
         <div className="rounded-[8px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {status?.backendValidationError ||
             error ||
@@ -1454,6 +1702,7 @@ function App() {
             (graphQuery.error instanceof Error && graphQuery.error.message) ||
             (noteQuery.error instanceof Error && noteQuery.error.message) ||
             (todoQuery.error instanceof Error && todoQuery.error.message) ||
+            (userCategoriesQuery.error instanceof Error && userCategoriesQuery.error.message) ||
             "Could not load the category explorer."}
         </div>
       ) : null}
