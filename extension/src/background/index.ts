@@ -9,6 +9,7 @@ import {
   validateBackendConfiguration
 } from "./backend";
 import { buildIngestPayload, mergeSeenMessageIds } from "./diff";
+import { activeHistoryWatermarks, shouldCommitHistoryWatermark } from "./history-watermark";
 import { providerRegistry } from "../providers/registry";
 import { supportsProactiveHistorySync } from "../shared/provider";
 import {
@@ -1086,14 +1087,12 @@ async function handlePageVisit(
     return { triggered: false, reason: "already-in-progress" };
   }
 
-  const hasExistingHistoryWatermark =
-    Boolean(currentState.lastTopSessionId) || Boolean(currentState.lastTopSessionIds?.length);
+  const activeWatermarks = activeHistoryWatermarks(payload.provider, currentState, backendStatus.providerDriftAlert);
+  const hasExistingHistoryWatermark = Boolean(activeWatermarks?.length);
   const syncedSessionIds = hasExistingHistoryWatermark
     ? undefined
     : extractExternalSessionIds(payload.provider, await getProviderSessionSyncStates(payload.provider), settings);
-  const previousTopSessionIds =
-    currentState.lastTopSessionIds ??
-    (currentState.lastTopSessionId ? [currentState.lastTopSessionId] : undefined);
+  const previousTopSessionIds = activeWatermarks;
   const now = new Date().toISOString();
   await saveProviderHistorySyncState(payload.provider, {
     ...currentState,
@@ -1123,7 +1122,7 @@ async function handlePageVisit(
       payload: {
         provider: payload.provider,
         syncedSessionIds,
-        previousTopSessionId: currentState.lastTopSessionId,
+        previousTopSessionId: previousTopSessionIds?.[0],
         previousTopSessionIds
       }
     } satisfies RuntimeMessage);
@@ -1226,7 +1225,7 @@ async function handleHistorySyncStatus(update: HistorySyncUpdate): Promise<{ ok:
       update.providerDriftAlert ?? clearRecoveredProviderDriftAlert(currentState.lastDriftAlert, update.provider);
     await saveProviderHistorySyncState(update.provider, {
       ...basePatch,
-      ...(update.providerDriftAlert ? {} : watermarkPatch),
+      ...(shouldCommitHistoryWatermark(update, runError) ? watermarkPatch : {}),
       inProgress: false,
       lastCompletedAt: completedAt,
       lastConversationCount: update.conversationCount ?? currentState.lastConversationCount,

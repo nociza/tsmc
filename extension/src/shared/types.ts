@@ -477,6 +477,7 @@ export interface HistorySyncUpdate {
   phase: "started" | "completed" | "failed" | "unsupported";
   runId?: string;
   conversationCount?: number;
+  retryableFailureCount?: number;
   processedCount?: number;
   totalCount?: number;
   skippedCount?: number;

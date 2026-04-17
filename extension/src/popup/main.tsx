@@ -174,6 +174,9 @@ function PopupApp() {
 
   return (
     <div className="mx-auto flex w-full max-w-[640px] flex-col gap-3 p-3" data-testid="popup-root">
+      <div id="last-session" className="sr-only">
+        {status?.lastSessionKey ?? ""}
+      </div>
       <Card className="p-4">
         <CardHeader className="items-start">
           <div className="space-y-1">
@@ -400,7 +403,9 @@ function PopupApp() {
             <CardContent className="mt-4 space-y-3">
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">History sync</div>
-                <div className="mt-1 text-sm text-zinc-900">{settings && status ? formatHistorySync(settings, status) : "Loading"}</div>
+                <div id="history-sync" className="mt-1 text-sm text-zinc-900">
+                  {settings && status ? formatHistorySync(settings, status) : "Loading"}
+                </div>
               </div>
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Processing mode</div>
@@ -422,8 +427,14 @@ function PopupApp() {
                 Last capture · {status ? formatIndexingStatus(status) : "Loading"}
               </div>
               {status?.providerDriftAlert ? (
-                <div className="rounded-[8px] border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
-                  {formatProviderDriftAlert(status.providerDriftAlert)}
+                <div
+                  id="provider-drift-card"
+                  className="rounded-[8px] border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800"
+                >
+                  <span id="provider-drift" className="sr-only">
+                    {status.providerDriftAlert.provider}: {status.providerDriftAlert.message}
+                  </span>
+                  <span>{formatProviderDriftAlert(status.providerDriftAlert)}</span>
                 </div>
               ) : null}
             </CardContent>

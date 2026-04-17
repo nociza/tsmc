@@ -1,5 +1,6 @@
 import type { CapturedBody, CapturedNetworkEvent, HistorySyncUpdate, ProviderDriftAlert } from "../shared/types";
 
+import { decodeGeminiConversationBlocks, formatGeminiDecodeDiagnostics } from "./gemini-decoder";
 import { buildProviderDriftAlert, createProviderDriftError, isProviderDriftError } from "./drift";
 import type { HistorySyncControlPayload } from "./history-shared";
 import { dedupeIds, normalizeHistorySessionIds, runWithConcurrency } from "./history-shared";
@@ -43,17 +44,27 @@ interface GeminiConversationEntry {
   hidden?: boolean;
 }
 
-interface GeminiConversationBlock {
-  userText: string;
-  assistantText: string;
-  occurredAt?: string;
-}
-
 interface GeminiHistoryHooks {
   runId: string;
   postCapture: (capture: Omit<CapturedNetworkEvent, "source">) => void;
   postStatus: (update: HistorySyncUpdate) => void;
 }
+
+type GeminiConversationSyncOutcome =
+  | {
+      status: "captured";
+      entry: GeminiConversationEntry;
+    }
+  | {
+      status: "provider_drift";
+      entry: GeminiConversationEntry;
+      alert: ProviderDriftAlert;
+    }
+  | {
+      status: "failed";
+      entry: GeminiConversationEntry;
+      message: string;
+    };
 
 type JsonRecord = Record<string, unknown>;
 
@@ -829,50 +840,6 @@ async function collectGeminiHistoryCandidates(
   };
 }
 
-function isGeminiUserMessageNode(node: unknown): node is unknown[] {
-  return (
-    Array.isArray(node) &&
-    node.length >= 2 &&
-    Array.isArray(node[0]) &&
-    node[0].length >= 1 &&
-    node[0].every((part) => typeof part === "string") &&
-    (node[1] === 1 || node[1] === 2)
-  );
-}
-
-function isGeminiAssistantNode(node: unknown): node is unknown[] {
-  return (
-    Array.isArray(node) &&
-    node.length >= 2 &&
-    typeof node[0] === "string" &&
-    node[0].startsWith("rc_") &&
-    Array.isArray(node[1]) &&
-    typeof node[1][0] === "string"
-  );
-}
-
-function isGeminiAssistantContainer(node: unknown): node is unknown[] {
-  return Array.isArray(node) && Array.isArray(node[0]) && node[0].length >= 1 && isGeminiAssistantNode(node[0][0]);
-}
-
-function isGeminiTimestampPair(node: unknown): node is [number, number] {
-  return (
-    Array.isArray(node) &&
-    node.length === 2 &&
-    typeof node[0] === "number" &&
-    typeof node[1] === "number" &&
-    node[0] > 1_600_000_000
-  );
-}
-
-function timestampPairToIso(pair: [number, number] | null): string | undefined {
-  if (!pair) {
-    return undefined;
-  }
-
-  return new Date(pair[0] * 1000).toISOString();
-}
-
 function offsetIsoTimestamp(value: string, milliseconds: number): string {
   const timestamp = Date.parse(value);
   if (Number.isNaN(timestamp)) {
@@ -882,176 +849,13 @@ function offsetIsoTimestamp(value: string, milliseconds: number): string {
   return new Date(timestamp + milliseconds).toISOString();
 }
 
-function extractGeminiBlock(node: unknown): GeminiConversationBlock | null {
-  if (!Array.isArray(node)) {
-    return null;
-  }
-
-  let userNode: unknown[] | null = null;
-  let assistantContainer: unknown[] | null = null;
-  let timestampPair: [number, number] | null = null;
-
-  for (const child of node) {
-    if (!userNode && isGeminiUserMessageNode(child)) {
-      userNode = child;
-      continue;
-    }
-    if (!assistantContainer && isGeminiAssistantContainer(child)) {
-      assistantContainer = child;
-      continue;
-    }
-    if (isGeminiTimestampPair(child)) {
-      timestampPair = child;
-    }
-  }
-
-  if (!userNode || !assistantContainer) {
-    return null;
-  }
-
-  const assistantNode = (assistantContainer[0] as unknown[])[0] as unknown[];
-  const userParts = userNode[0] as unknown[];
-  const assistantParts = Array.isArray(assistantNode[1]) ? (assistantNode[1] as unknown[]) : [];
-  const userText = userParts.filter((part): part is string => typeof part === "string").join("\n").trim();
-  const assistantText = typeof assistantParts[0] === "string" ? assistantParts[0].trim() : "";
-
-  if (!userText || !assistantText) {
-    return null;
-  }
-
-  return {
-    userText,
-    assistantText,
-    occurredAt: timestampPairToIso(timestampPair)
-  };
-}
-
-function getNestedArrayValue(root: unknown, path: number[]): unknown {
-  let current: unknown = root;
-  for (const segment of path) {
-    if (!Array.isArray(current)) {
-      return undefined;
-    }
-    current = current[segment];
-  }
-  return current;
-}
-
-function flattenGeminiText(value: unknown): string {
-  if (typeof value === "string") {
-    return value.trim();
-  }
-
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => flattenGeminiText(item))
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-  }
-
-  if (value && typeof value === "object") {
-    return Object.values(value as JsonRecord)
-      .map((item) => flattenGeminiText(item))
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-  }
-
-  return "";
-}
-
-function extractGeminiFallbackBlocks(payloads: unknown[]): GeminiConversationBlock[] {
-  const blocks: GeminiConversationBlock[] = [];
-  const seen = new Set<string>();
-
-  const scan = (node: unknown): void => {
-    if (!Array.isArray(node)) {
-      if (node && typeof node === "object") {
-        for (const value of Object.values(node as JsonRecord)) {
-          scan(value);
-        }
-      }
-      return;
-    }
-
-    const userText = flattenGeminiText(getNestedArrayValue(node, [2, 0, 0]));
-    const assistantText =
-      flattenGeminiText(getNestedArrayValue(node, [3, 0, 1, 0])) ||
-      flattenGeminiText(getNestedArrayValue(node, [3, 0, 22, 0]));
-
-    if (userText && assistantText) {
-      const composite = `${userText}\n---\n${assistantText}`;
-      if (!seen.has(composite)) {
-        seen.add(composite);
-        blocks.push({
-          userText,
-          assistantText
-        });
-      }
-    }
-
-    for (const child of node) {
-      scan(child);
-    }
-  };
-
-  for (const payload of payloads) {
-    scan(payload);
-  }
-
-  return blocks;
-}
-
-function extractGeminiConversationBlocks(payloads: unknown[]): GeminiConversationBlock[] {
-  const blocks: GeminiConversationBlock[] = [];
-  const seen = new Set<string>();
-
-  const scan = (node: unknown): void => {
-    if (!Array.isArray(node)) {
-      if (node && typeof node === "object") {
-        for (const value of Object.values(node as JsonRecord)) {
-          scan(value);
-        }
-      }
-      return;
-    }
-
-    const block = extractGeminiBlock(node);
-    if (block) {
-      const composite = `${block.userText}\n---\n${block.assistantText}\n---\n${block.occurredAt ?? ""}`;
-      if (!seen.has(composite)) {
-        seen.add(composite);
-        blocks.push(block);
-      }
-    }
-
-    for (const child of node) {
-      scan(child);
-    }
-  };
-
-  for (const payload of payloads) {
-    scan(payload);
-  }
-
-  if (!blocks.length) {
-    return extractGeminiFallbackBlocks(payloads);
-  }
-
-  return blocks.sort((left, right) => {
-    const leftTime = left.occurredAt ? Date.parse(left.occurredAt) : Number.MAX_SAFE_INTEGER;
-    const rightTime = right.occurredAt ? Date.parse(right.occurredAt) : Number.MAX_SAFE_INTEGER;
-    if (leftTime !== rightTime) {
-      return leftTime - rightTime;
-    }
-    return left.userText.localeCompare(right.userText);
-  });
-}
-
 function buildGeminiSyntheticMessages(
   scopedSessionId: string,
-  blocks: GeminiConversationBlock[],
+  blocks: Array<{
+    userText: string;
+    assistantText: string;
+    occurredAt?: string;
+  }>,
   capturedAt: string
 ): Array<{
   id: string;
@@ -1147,12 +951,13 @@ async function fetchGeminiConversationCapture(
   }
 
   const capturedAt = new Date().toISOString();
-  const blocks = extractGeminiConversationBlocks(payloads);
+  const decodeResult = decodeGeminiConversationBlocks(payloads);
+  const blocks = decodeResult.blocks;
   if (!blocks.length) {
     throw createProviderDriftError(
       "gemini",
       "Gemini conversation payload no longer matches the expected turn structure.",
-      `conversationId=${conversationId}`
+      `conversationId=${conversationId} ${formatGeminiDecodeDiagnostics(decodeResult.diagnostics)}`
     );
   }
 
@@ -1250,9 +1055,7 @@ export async function runGeminiHistorySync(
     const topSessionId = topSessionIds[0];
 
     let processedCount = skippedCount;
-    let syncedConversationCount = 0;
-    let driftFailureCount = 0;
-    let firstDriftFailure: ProviderDriftAlert | null = null;
+    const outcomes: GeminiConversationSyncOutcome[] = [];
     postHistorySyncProgress(hooks, processedCount, totalCount, skippedCount, topSessionId, topSessionIds);
 
     await runWithConcurrency(pendingEntries, GEMINI_HISTORY_READ_CONCURRENCY, async (entry) => {
@@ -1278,11 +1081,20 @@ export async function runGeminiHistorySync(
           requestBody: capture.requestBody,
           response: capture.response
         });
-        syncedConversationCount += 1;
+        outcomes.push({ status: "captured", entry });
       } catch (error) {
         if (isProviderDriftError(error)) {
-          driftFailureCount += 1;
-          firstDriftFailure ??= buildProviderDriftAlert("gemini", location.href, error.message, error.evidence);
+          outcomes.push({
+            status: "provider_drift",
+            entry,
+            alert: buildProviderDriftAlert("gemini", location.href, error.message, error.evidence)
+          });
+        } else {
+          outcomes.push({
+            status: "failed",
+            entry,
+            message: error instanceof Error ? error.message : String(error)
+          });
         }
         // Skip malformed individual conversations without aborting the whole run.
       } finally {
@@ -1292,6 +1104,13 @@ export async function runGeminiHistorySync(
     });
 
     const attemptedConversationCount = pendingEntries.length;
+    const syncedConversationCount = outcomes.filter((outcome) => outcome.status === "captured").length;
+    const retryableFailureCount = outcomes.length - syncedConversationCount;
+    const driftFailures = outcomes.filter((outcome): outcome is Extract<GeminiConversationSyncOutcome, { status: "provider_drift" }> => {
+      return outcome.status === "provider_drift";
+    });
+    const driftFailureCount = driftFailures.length;
+    const firstDriftFailure = driftFailures[0]?.alert ?? null;
     let providerDriftAlert: ProviderDriftAlert | null = null;
     if (
       firstDriftFailure &&
@@ -1312,6 +1131,7 @@ export async function runGeminiHistorySync(
       phase: "completed",
       runId: hooks.runId,
       conversationCount: syncedConversationCount,
+      retryableFailureCount,
       processedCount: totalCount,
       totalCount,
       skippedCount,
