@@ -48,7 +48,7 @@ function enqueueRuntimeMessage(message: RuntimeMessage): void {
 function detectProviderFromUrl(url: string): "chatgpt" | "gemini" | "grok" | null {
   try {
     const hostname = new URL(url).hostname;
-    if (/chatgpt\.com|chat\.openai\.com/.test(hostname)) {
+    if (hostname === "chatgpt.com" || hostname.endsWith(".chatgpt.com") || hostname === "chat.openai.com") {
       return "chatgpt";
     }
     if (/gemini\.google\.com/.test(hostname)) {

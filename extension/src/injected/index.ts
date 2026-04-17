@@ -6,6 +6,7 @@ import type {
   HistorySyncControlPayload,
   HistorySyncUpdate,
   MainWorldControlPayload,
+  ProviderDriftAlert,
   ProviderName,
   ProxyPromptResult
 } from "../shared/types";
@@ -14,6 +15,7 @@ import { BRIDGE_CONNECT_SOURCE, MAIN_WORLD_READY_ATTRIBUTE } from "../shared/bri
 import { maybeUpdateGeminiRuntimeContext, runGeminiHistorySync } from "./gemini-history";
 import { runGrokHistorySync } from "./grok-history";
 import { runProxyPrompt, observeProxyCapture } from "./proxy-runner";
+import { buildProviderDriftAlert, createProviderDriftError, isProviderDriftError } from "./drift";
 import {
   dedupeIds,
   normalizeHistorySessionIds,
@@ -26,6 +28,7 @@ const INTERESTING_PATH =
 const CHATGPT_HISTORY_PAGE_LIMIT = 100;
 const CHATGPT_HISTORY_MAX_OFFSET = 5_000;
 const CHATGPT_HISTORY_DETAIL_CONCURRENCY = 4;
+const CHATGPT_ORIGIN = "https://chatgpt.com";
 const nativeFetch = window.fetch.bind(window);
 let bridgePort: MessagePort | null = null;
 const pendingBridgeMessages: BridgeToExtensionMessage[] = [];
@@ -62,10 +65,18 @@ function safeJsonParse(text?: string): unknown {
   }
 }
 
+function asRecord(value: unknown): JsonRecord | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
+}
+
+function isChatGPTHostname(hostname: string): boolean {
+  return hostname === "chatgpt.com" || hostname.endsWith(".chatgpt.com") || hostname === "chat.openai.com";
+}
+
 function providerHintFromUrl(url: string): ProviderName | undefined {
   try {
     const hostname = new URL(url, location.href).hostname;
-    if (/chatgpt\.com|chat\.openai\.com/.test(hostname)) {
+    if (isChatGPTHostname(hostname)) {
       return "chatgpt";
     }
     if (/gemini\.google\.com/.test(hostname)) {
@@ -389,15 +400,31 @@ async function fetchJsonWithText(
   };
 }
 
-function normalizeChatGPTConversationIds(payload: unknown): string[] {
-  const record = payload && typeof payload === "object" ? (payload as JsonRecord) : null;
-  const items = Array.isArray(record?.items) ? record.items : [];
+function assertChatGPTPageOrigin(): void {
+  if (!isChatGPTHostname(location.hostname)) {
+    throw new Error(`ChatGPT history sync must run on chatgpt.com, not ${location.hostname || "an unknown host"}.`);
+  }
+}
+
+function buildChatGPTUrl(path: string): URL {
+  return new URL(path, CHATGPT_ORIGIN);
+}
+
+function normalizeChatGPTConversationIds(payload: unknown, evidence?: string): string[] {
+  const record = asRecord(payload);
+  if (!record || !Array.isArray(record.items)) {
+    throw createProviderDriftError(
+      "chatgpt",
+      "ChatGPT history list no longer exposes the expected items array.",
+      evidence
+    );
+  }
 
   return [
     ...new Set(
-      items
+      record.items
         .map((item) => {
-          const itemRecord = item && typeof item === "object" ? (item as JsonRecord) : null;
+          const itemRecord = asRecord(item);
           return typeof itemRecord?.id === "string" ? itemRecord.id : null;
         })
         .filter((value): value is string => Boolean(value))
@@ -406,7 +433,12 @@ function normalizeChatGPTConversationIds(payload: unknown): string[] {
 }
 
 function buildChatGPTHistoryPageUrl(conversationId: string): string {
-  return new URL(`/c/${conversationId}`, location.origin).toString();
+  return buildChatGPTUrl(`/c/${conversationId}`).toString();
+}
+
+function hasChatGPTConversationPayload(payload: unknown): boolean {
+  const record = asRecord(payload);
+  return Boolean(record && (asRecord(record.mapping) || Array.isArray(record.messages) || asRecord(record.message)));
 }
 
 async function collectChatGPTHistoryCandidates(
@@ -419,7 +451,7 @@ async function collectChatGPTHistoryCandidates(
   let topSessionId: string | undefined;
 
   for (let offset = 0; offset < CHATGPT_HISTORY_MAX_OFFSET; offset += CHATGPT_HISTORY_PAGE_LIMIT) {
-    const listUrl = new URL("/backend-api/conversations", location.origin);
+    const listUrl = buildChatGPTUrl("/backend-api/conversations");
     listUrl.searchParams.set("offset", String(offset));
     listUrl.searchParams.set("limit", String(CHATGPT_HISTORY_PAGE_LIMIT));
     listUrl.searchParams.set("order", "updated");
@@ -433,7 +465,7 @@ async function collectChatGPTHistoryCandidates(
       throw new Error(`ChatGPT list request failed with ${listResult.response.status}.`);
     }
 
-    const pageConversationIds = normalizeChatGPTConversationIds(listResult.json);
+    const pageConversationIds = normalizeChatGPTConversationIds(listResult.json, `offset=${offset}`);
     if (!pageConversationIds.length) {
       break;
     }
@@ -504,7 +536,9 @@ async function runChatGPTHistorySync(control?: HistorySyncControlPayload): Promi
     });
 
     try {
-      const sessionResult = await fetchJsonWithText("/api/auth/session", {
+      assertChatGPTPageOrigin();
+
+      const sessionResult = await fetchJsonWithText(buildChatGPTUrl("/api/auth/session").toString(), {
         method: "GET",
         credentials: "include",
         headers: {
@@ -539,11 +573,13 @@ async function runChatGPTHistorySync(control?: HistorySyncControlPayload): Promi
 
       let processedCount = skippedCount;
       let syncedConversationCount = 0;
+      let driftFailureCount = 0;
+      let firstDriftFailure: ProviderDriftAlert | null = null;
       postHistorySyncProgress("chatgpt", runId, processedCount, totalCount, skippedCount, topSessionId);
 
       await runWithConcurrency(pendingSessionIds, CHATGPT_HISTORY_DETAIL_CONCURRENCY, async (conversationId) => {
         try {
-          const detailUrl = new URL(`/backend-api/conversation/${conversationId}`, location.origin);
+          const detailUrl = buildChatGPTUrl(`/backend-api/conversation/${conversationId}`);
           const detailResult = await fetchJsonWithText(detailUrl.toString(), {
             method: "GET",
             credentials: "include",
@@ -551,6 +587,13 @@ async function runChatGPTHistorySync(control?: HistorySyncControlPayload): Promi
           });
           if (!detailResult.response.ok) {
             return;
+          }
+          if (!hasChatGPTConversationPayload(detailResult.json)) {
+            throw createProviderDriftError(
+              "chatgpt",
+              "ChatGPT conversation detail no longer exposes a mapping or messages payload.",
+              `conversationId=${conversationId}`
+            );
           }
 
           postCapture({
@@ -571,11 +614,33 @@ async function runChatGPTHistorySync(control?: HistorySyncControlPayload): Promi
             }
           });
           syncedConversationCount += 1;
+        } catch (error) {
+          if (isProviderDriftError(error)) {
+            driftFailureCount += 1;
+            firstDriftFailure ??= buildProviderDriftAlert("chatgpt", location.href, error.message, error.evidence);
+          }
+          // Skip malformed individual conversations without aborting the whole run.
         } finally {
           processedCount += 1;
           postHistorySyncProgress("chatgpt", runId, processedCount, totalCount, skippedCount, topSessionId);
         }
       });
+
+      const attemptedConversationCount = pendingSessionIds.length;
+      let providerDriftAlert: ProviderDriftAlert | null = null;
+      if (
+        firstDriftFailure &&
+        driftFailureCount > 0 &&
+        (syncedConversationCount === 0 || driftFailureCount >= Math.max(2, Math.ceil(attemptedConversationCount / 2)))
+      ) {
+        const driftFailure = firstDriftFailure as ProviderDriftAlert;
+        providerDriftAlert = buildProviderDriftAlert(
+          "chatgpt",
+          location.href,
+          `ChatGPT history sync encountered provider drift symptoms in ${driftFailureCount} of ${attemptedConversationCount} conversations.`,
+          driftFailure.evidence ?? driftFailure.message
+        );
+      }
 
       postHistorySyncStatus({
         provider: "chatgpt",
@@ -586,7 +651,8 @@ async function runChatGPTHistorySync(control?: HistorySyncControlPayload): Promi
         totalCount,
         skippedCount,
         topSessionId,
-        pageUrl: location.href
+        pageUrl: location.href,
+        providerDriftAlert
       });
     } catch (error) {
       postHistorySyncStatus({
@@ -594,7 +660,10 @@ async function runChatGPTHistorySync(control?: HistorySyncControlPayload): Promi
         phase: "failed",
         runId,
         pageUrl: location.href,
-        message: error instanceof Error ? error.message : String(error)
+        message: error instanceof Error ? error.message : String(error),
+        providerDriftAlert: isProviderDriftError(error)
+          ? buildProviderDriftAlert("chatgpt", location.href, error.message, error.evidence)
+          : null
       });
     }
   });

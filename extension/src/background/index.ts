@@ -176,7 +176,7 @@ function tabMatchesProviderUrl(url: string | undefined, provider: ProviderName):
   try {
     const hostname = new URL(url).hostname;
     if (provider === "chatgpt") {
-      return /chatgpt\.com|chat\.openai\.com/.test(hostname);
+      return hostname === "chatgpt.com" || hostname.endsWith(".chatgpt.com") || hostname === "chat.openai.com";
     }
     if (provider === "gemini") {
       return /gemini\.google\.com/.test(hostname);

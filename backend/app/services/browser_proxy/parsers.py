@@ -4,7 +4,7 @@ import json
 import re
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from app.models.enums import ProviderName
 from app.services.browser_proxy.helpers import (
@@ -81,6 +81,92 @@ def is_grok_conversation_list_payload(value: Any) -> bool:
     return bool(record and isinstance(record.get("conversations"), list) and not isinstance(record.get("messages"), list) and not isinstance(record.get("responses"), list))
 
 
+def is_chatgpt_hostname(hostname: str | None) -> bool:
+    return bool(hostname) and (hostname == "chatgpt.com" or hostname.endswith(".chatgpt.com") or hostname == "chat.openai.com")
+
+
+def is_chatgpt_conversation_capture_route(parsed) -> bool:
+    pathname = parsed.path.rstrip("/")
+    return pathname == "/backend-api/conversation" or bool(re.match(r"^/backend-api/conversation/[^/]+$", pathname))
+
+
+def chatgpt_conversation_id_from_url(url: str) -> str | None:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return None
+    match = re.match(r"^/backend-api/conversation/([^/]+)$", parsed.path)
+    if match:
+        return unquote(match.group(1))
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    if len(segments) >= 2 and segments[0] == "c":
+        return unquote(segments[1])
+    return None
+
+
+def chatgpt_content_type(record: dict[str, Any]) -> str | None:
+    content = as_record(record.get("content"))
+    return content.get("content_type") if content and isinstance(content.get("content_type"), str) else None
+
+
+def chatgpt_content_text(value: Any) -> str:
+    if isinstance(value, str):
+        return flatten_text(value)
+    if isinstance(value, list):
+        return "\n".join(
+            text
+            for text in (
+                flatten_text(item) if isinstance(item, str) else chatgpt_content_text(item)
+                for item in value
+            )
+            if text
+        )
+
+    record = as_record(value)
+    if record is None:
+        return ""
+
+    parts = record.get("parts")
+    if isinstance(parts, list):
+        texts: list[str] = []
+        for part in parts:
+            if isinstance(part, str):
+                text = flatten_text(part)
+            else:
+                part_record = as_record(part)
+                text = flatten_text(part_record.get("text")) if part_record and isinstance(part_record.get("text"), str) else ""
+            if text:
+                texts.append(text)
+        return "\n".join(texts)
+
+    if isinstance(record.get("text"), str):
+        return flatten_text(record["text"])
+    if isinstance(record.get("content"), str):
+        return flatten_text(record["content"])
+    return ""
+
+
+def is_visible_chatgpt_message(record: dict[str, Any]) -> bool:
+    author = as_record(record.get("author")) or {}
+    role = normalize_role(author.get("role") or record.get("role"))
+    if role not in {"user", "assistant"}:
+        return False
+
+    metadata = as_record(record.get("metadata")) or {}
+    if metadata.get("is_visually_hidden_from_conversation") is True:
+        return False
+
+    content_type = chatgpt_content_type(record)
+    if content_type in {"reasoning_recap", "thoughts", "model_editable_context"}:
+        return False
+
+    recipient = record.get("recipient")
+    if role == "assistant" and isinstance(recipient, str) and recipient not in {"all", "assistant"}:
+        return False
+
+    return True
+
+
 def sort_messages(messages: list[NormalizedMessage]) -> list[NormalizedMessage]:
     indexed_messages = list(enumerate(messages))
     indexed_messages.sort(
@@ -104,17 +190,23 @@ class ProviderParser:
 
 
 def build_chatgpt_message(record: dict[str, Any], fallback_parent: str | None = None) -> NormalizedMessage | None:
-    content = flatten_text(record.get("content") or record.get("parts") or record.get("text") or record.get("message"))
+    if not is_visible_chatgpt_message(record):
+        return None
+
+    content = chatgpt_content_text(record.get("content") or record.get("parts") or record.get("text") or record.get("message"))
     if not content:
         return None
 
     author = as_record(record.get("author")) or {}
     role = normalize_role(author.get("role") or record.get("role"))
+    metadata = as_record(record.get("metadata")) or {}
     identifier = record.get("id") if isinstance(record.get("id"), str) else stable_id("chatgpt-msg", f"{role}:{content}")
     parent_id = (
         record.get("parent") if isinstance(record.get("parent"), str) else None
     ) or (
         record.get("parent_id") if isinstance(record.get("parent_id"), str) else None
+    ) or (
+        metadata.get("parent_id") if isinstance(metadata.get("parent_id"), str) else None
     ) or fallback_parent
     return NormalizedMessage(
         id=identifier,
@@ -126,16 +218,77 @@ def build_chatgpt_message(record: dict[str, Any], fallback_parent: str | None = 
     )
 
 
-def extract_chatgpt_mapping(mapping: dict[str, Any]) -> list[NormalizedMessage]:
-    messages: list[NormalizedMessage] = []
+def extract_chatgpt_mapping_path(
+    mapping: dict[str, Any],
+    current_node: str | None = None,
+) -> list[tuple[dict[str, Any], str | None]]:
+    if current_node and as_record(mapping.get(current_node)):
+        path: list[tuple[dict[str, Any], str | None]] = []
+        seen: set[str] = set()
+        cursor: str | None = current_node
+
+        while cursor and cursor not in seen:
+            seen.add(cursor)
+            node = as_record(mapping.get(cursor))
+            if node is None:
+                break
+            parent = node.get("parent") if isinstance(node.get("parent"), str) else None
+            path.append((node, parent))
+            cursor = parent
+
+        return [
+            (message, parent)
+            for node, parent in reversed(path)
+            if (message := as_record(node.get("message"))) is not None
+        ]
+
+    fallback_path: list[tuple[dict[str, Any], str | None]] = []
     for node in mapping.values():
         record = as_record(node)
         if record is None:
             continue
         message = as_record(record.get("message"))
-        built = build_chatgpt_message(message, record.get("parent") if isinstance(record.get("parent"), str) else None) if message else None
+        if message is not None:
+            fallback_path.append((message, record.get("parent") if isinstance(record.get("parent"), str) else None))
+    return fallback_path
+
+
+def extract_chatgpt_mapping(mapping: dict[str, Any], current_node: str | None = None) -> list[NormalizedMessage]:
+    messages: list[NormalizedMessage] = []
+    for message, parent in extract_chatgpt_mapping_path(mapping, current_node):
+        built = build_chatgpt_message(message, parent)
         if built is not None:
             messages.append(built)
+    return messages
+
+
+def extract_chatgpt_candidate_messages(candidate: Any) -> list[NormalizedMessage]:
+    record = as_record(candidate)
+    if record is None:
+        return []
+
+    messages: list[NormalizedMessage] = []
+    mapping = as_record(record.get("mapping"))
+    if mapping is not None:
+        current_node = record.get("current_node") if isinstance(record.get("current_node"), str) else None
+        messages.extend(extract_chatgpt_mapping(mapping, current_node))
+
+    candidate_messages = record.get("messages")
+    if isinstance(candidate_messages, list):
+        for item in candidate_messages:
+            built = build_chatgpt_message(item) if isinstance(item, dict) else None
+            if built is not None:
+                messages.append(built)
+
+    message_record = as_record(record.get("message"))
+    if message_record is not None:
+        built = build_chatgpt_message(
+            message_record,
+            find_string_by_keys(record, ["parent_message_id", "parent"]),
+        )
+        if built is not None:
+            messages.append(built)
+
     return messages
 
 
@@ -147,17 +300,26 @@ class ChatGPTParser(ProviderParser):
         if not resolved:
             return False
         parsed = urlparse(resolved)
-        return any(host in (parsed.hostname or "") for host in ("chatgpt.com", "chat.openai.com")) and (
-            "backend-api" in parsed.path or "conversation" in parsed.path
-        )
+        return is_chatgpt_hostname(parsed.hostname) and is_chatgpt_conversation_capture_route(parsed)
 
     def parse(self, event: CapturedNetworkEvent) -> NormalizedSessionSnapshot | None:
-        structured = [event.response.json, *extract_structured_candidates(event.response.text)]
+        resolved = resolve_captured_url(event.url, event.page_url)
+        if not resolved:
+            return None
+        parsed = urlparse(resolved)
+        if not is_chatgpt_hostname(parsed.hostname) or not is_chatgpt_conversation_capture_route(parsed):
+            return None
+
+        request_candidates = [candidate for candidate in [event.request_body.json if event.request_body else None] if candidate is not None]
+        if event.request_body and event.request_body.text:
+            request_candidates.extend(extract_structured_candidates(event.request_body.text))
+        response_candidates = [candidate for candidate in [event.response.json, *extract_structured_candidates(event.response.text)] if candidate is not None]
+        structured = [*request_candidates, *response_candidates]
         messages: list[NormalizedMessage] = []
         title: str | None = None
         external_session_id = (
             find_string_by_keys(structured, ["conversation_id", "conversationId"])
-            or _extract_url_tail(event.url)
+            or chatgpt_conversation_id_from_url(resolved)
             or session_id_from_page_url(event.page_url)
             or stable_id("chatgpt-session", event.page_url)
         )
@@ -168,28 +330,9 @@ class ChatGPTParser(ProviderParser):
                 continue
             title = title or find_string_by_keys(record, ["title"])
             external_session_id = external_session_id or find_string_by_keys(record, ["conversation_id", "conversationId"])
+            messages.extend(extract_chatgpt_candidate_messages(record))
 
-            mapping = as_record(record.get("mapping"))
-            if mapping is not None:
-                messages.extend(extract_chatgpt_mapping(mapping))
-
-            candidate_messages = record.get("messages")
-            if isinstance(candidate_messages, list):
-                for item in candidate_messages:
-                    built = build_chatgpt_message(item) if isinstance(item, dict) else None
-                    if built is not None:
-                        messages.append(built)
-
-            message_record = as_record(record.get("message"))
-            if message_record is not None:
-                built = build_chatgpt_message(
-                    message_record,
-                    find_string_by_keys(record, ["parent_message_id", "parent"]),
-                )
-                if built is not None:
-                    messages.append(built)
-
-        normalized = sort_messages(dedupe_messages(messages))
+        normalized = dedupe_messages(messages)
         if not normalized:
             return None
 

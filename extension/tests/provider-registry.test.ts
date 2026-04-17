@@ -33,4 +33,9 @@ describe("providerRegistry", () => {
     expect(detectProviderFromUrl("https://x.com/i/oauth2/authorize?redirect_uri=https%3A%2F%2Faccounts.x.ai%2Fexchange-token")).toBeNull();
     expect(detectProviderFromUrl("https://grok.com/c/example")).toBe("grok");
   });
+
+  it("does not classify deceptive ChatGPT hostnames as ChatGPT pages", () => {
+    expect(detectProviderFromUrl("https://notchatgpt.com/backend-api/conversation/abc123")).toBeNull();
+    expect(detectProviderFromUrl("https://chatgpt.com/c/example")).toBe("chatgpt");
+  });
 });
