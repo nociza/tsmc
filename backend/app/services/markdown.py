@@ -27,6 +27,8 @@ CATEGORY_LABELS = {
     SessionCategory.TODO: "Todo",
 }
 
+DISCARDED_FOLDER = "Discarded"
+
 
 def slugify(value: str) -> str:
     normalized = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
@@ -199,6 +201,9 @@ class MarkdownExporter:
 
         if session.share_post:
             lines.extend(["## Share Post", "", session.share_post.strip(), ""])
+
+        if session.pile_outputs:
+            lines.extend(self._render_pile_outputs(session.pile_outputs))
 
         return "\n".join(lines).strip() + "\n"
 
@@ -396,12 +401,15 @@ class MarkdownExporter:
     async def _write_dashboards(self) -> None:
         if self.db is None:
             return
-        sessions = (
+        all_sessions = (
             await self.db.execute(select(ChatSession).order_by(ChatSession.updated_at.desc()))
         ).scalars().all()
-        source_captures = (
+        sessions = [session for session in all_sessions if not session.is_discarded]
+        discarded_sessions = [session for session in all_sessions if session.is_discarded]
+        all_captures = (
             await self.db.execute(select(SourceCapture).order_by(SourceCapture.updated_at.desc()))
         ).scalars().all()
+        source_captures = [capture for capture in all_captures if not capture.is_discarded]
         triplet_count = int((await self.db.scalar(select(func.count(FactTriplet.id)))) or 0)
 
         dashboards_dir = self.vault_root / "Dashboards"
@@ -432,6 +440,31 @@ class MarkdownExporter:
                 "\n".join(lines).strip() + "\n",
                 encoding="utf-8",
             )
+
+        discarded_lines = [
+            "# Discarded Index",
+            "",
+            "Sessions kept here are saved chronologically with metadata only. They are not classified, not summarized, and not surfaced on the main dashboard. Use the extension's Discarded view to recover an item.",
+            "",
+            f"- Total discarded: {len(discarded_sessions)}",
+            "",
+        ]
+        if discarded_sessions:
+            discarded_lines.extend(["## Sessions", ""])
+            for session in sorted(
+                discarded_sessions,
+                key=lambda s: datetime_sort_key(s.last_captured_at or s.updated_at),
+                reverse=True,
+            ):
+                captured_at = datetime_isoformat(session.last_captured_at) or "n/a"
+                title = session.title or session.external_session_id
+                discarded_lines.append(
+                    f"- {captured_at} — {self._wiki_link(self._session_note_path(session), title)}"
+                )
+        (dashboards_dir / "Discarded Index.md").write_text(
+            "\n".join(discarded_lines).strip() + "\n",
+            encoding="utf-8",
+        )
 
         graph_index_lines = [
             "# Graph Index",
@@ -503,6 +536,7 @@ class MarkdownExporter:
         self.base_dir.mkdir(parents=True, exist_ok=True)
         for category_label in CATEGORY_LABELS.values():
             (self.vault_root / category_label).mkdir(parents=True, exist_ok=True)
+        (self.vault_root / DISCARDED_FOLDER).mkdir(parents=True, exist_ok=True)
         (self.vault_root / "Captures").mkdir(parents=True, exist_ok=True)
         (self.vault_root / "Sessions").mkdir(parents=True, exist_ok=True)
         (self.vault_root / "Sources").mkdir(parents=True, exist_ok=True)
@@ -517,6 +551,8 @@ class MarkdownExporter:
         previous_path = Path(session.markdown_path).expanduser() if session.markdown_path else None
         if previous_path and previous_path != target and previous_path.exists():
             previous_path.unlink()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source_target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(self.render_session(session), encoding="utf-8")
         source_target.write_text(self.render_source_session(session), encoding="utf-8")
         return target
@@ -535,6 +571,14 @@ class MarkdownExporter:
         return target, raw_target
 
     def _session_note_path(self, session: ChatSession) -> Path:
+        if session.is_discarded:
+            timestamp = normalize_datetime(
+                session.last_captured_at or session.updated_at or datetime.now(timezone.utc)
+            )
+            year = f"{timestamp.year:04d}"
+            day = f"{timestamp.month:02d}-{timestamp.day:02d}"
+            filename = f"{day}--{session.provider.value}--{slugify(session.external_session_id)}.md"
+            return self.vault_root / DISCARDED_FOLDER / year / filename
         category_dir = CATEGORY_LABELS.get(session.category, "Sessions")
         filename = f"{session.provider.value}--{slugify(session.external_session_id)}.md"
         return self.vault_root / category_dir / filename
@@ -569,6 +613,52 @@ class MarkdownExporter:
         if label:
             return f"[[{relative.as_posix()}|{label}]]"
         return f"[[{relative.as_posix()}]]"
+
+    def _render_pile_outputs(self, pile_outputs: dict[str, object]) -> list[str]:
+        lines = ["## Pile Outputs", ""]
+
+        summary = str(pile_outputs.get("summary") or "").strip()
+        if summary:
+            lines.extend(["### Summary", "", summary, ""])
+
+        share_post = str(pile_outputs.get("share_post") or "").strip()
+        if share_post:
+            lines.extend(["### Share Post", "", share_post, ""])
+
+        alternate = pile_outputs.get("alternate_phrasings")
+        if isinstance(alternate, list) and any(str(item).strip() for item in alternate):
+            lines.extend(["### Alternate Phrasings", ""])
+            for item in alternate:
+                cleaned = str(item).strip()
+                if cleaned:
+                    lines.append(f"- {cleaned}")
+            lines.append("")
+
+        importance = pile_outputs.get("importance")
+        if isinstance(importance, (int, float)):
+            lines.extend(["### Importance", "", f"- {int(importance)} / 5", ""])
+
+        deadline = pile_outputs.get("deadline")
+        if isinstance(deadline, str) and deadline.strip():
+            lines.extend(["### Deadline", "", f"- {deadline.strip()}", ""])
+
+        completion = pile_outputs.get("completion")
+        if isinstance(completion, str) and completion.strip():
+            lines.extend(["### Completion", "", f"- {completion.strip()}", ""])
+
+        qa_pairs = pile_outputs.get("qa_pairs")
+        if isinstance(qa_pairs, list) and qa_pairs:
+            lines.extend(["### Q&A", ""])
+            for item in qa_pairs:
+                if not isinstance(item, dict):
+                    continue
+                question = str(item.get("question") or "").strip()
+                answer = str(item.get("answer") or "").strip()
+                if question and answer:
+                    lines.extend([f"- **Q:** {question}", f"  **A:** {answer}"])
+            lines.append("")
+
+        return lines
 
     def _render_idea_summary(self, idea_summary: dict[str, object]) -> list[str]:
         lines = ["## Idea Summary", ""]

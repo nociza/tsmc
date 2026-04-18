@@ -27,6 +27,8 @@ describe("backend validation helpers", () => {
         indexingMode: "all",
         triggerWords: ["lorem"],
         blacklistWords: [],
+        discardWordsEnabled: true,
+        discardWords: [],
         selectionCaptureEnabled: false,
         enabledProviders: {
           chatgpt: true,
@@ -84,6 +86,8 @@ describe("backend validation helpers", () => {
         indexingMode: "all",
         triggerWords: ["lorem"],
         blacklistWords: [],
+        discardWordsEnabled: true,
+        discardWords: [],
         selectionCaptureEnabled: false,
         enabledProviders: {
           chatgpt: true,
@@ -141,6 +145,8 @@ describe("backend validation helpers", () => {
         indexingMode: "all",
         triggerWords: ["lorem"],
         blacklistWords: [],
+        discardWordsEnabled: true,
+        discardWords: [],
         selectionCaptureEnabled: false,
         enabledProviders: {
           chatgpt: true,
@@ -207,6 +213,8 @@ describe("backend validation helpers", () => {
         indexingMode: "all",
         triggerWords: ["lorem"],
         blacklistWords: [],
+        discardWordsEnabled: true,
+        discardWords: [],
         selectionCaptureEnabled: false,
         enabledProviders: {
           chatgpt: true,
@@ -244,6 +252,8 @@ describe("backend validation helpers", () => {
       indexingMode: "all",
       triggerWords: ["lorem"],
       blacklistWords: [],
+      discardWordsEnabled: true,
+      discardWords: [],
       selectionCaptureEnabled: false,
       enabledProviders: {
         chatgpt: true,
@@ -287,6 +297,8 @@ describe("backend validation helpers", () => {
         indexingMode: "all",
         triggerWords: ["lorem"],
         blacklistWords: [],
+        discardWordsEnabled: true,
+        discardWords: [],
         selectionCaptureEnabled: false,
         enabledProviders: {
           chatgpt: true,
@@ -331,6 +343,8 @@ describe("backend validation helpers", () => {
         indexingMode: "all",
         triggerWords: ["lorem"],
         blacklistWords: [],
+        discardWordsEnabled: true,
+        discardWords: [],
         selectionCaptureEnabled: false,
         enabledProviders: {
           chatgpt: true,
@@ -380,6 +394,8 @@ describe("backend validation helpers", () => {
         indexingMode: "all",
         triggerWords: ["lorem"],
         blacklistWords: [],
+        discardWordsEnabled: true,
+        discardWords: [],
         selectionCaptureEnabled: false,
         enabledProviders: {
           chatgpt: true,

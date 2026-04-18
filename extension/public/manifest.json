@@ -3,7 +3,7 @@
   "name": "SaveMyContext",
   "version": "0.2.0",
   "description": "Capture AI chat deltas from supported providers and sync them to a local SaveMyContext backend.",
-  "permissions": ["storage", "tabs", "scripting", "activeTab"],
+  "permissions": ["storage", "tabs", "scripting", "activeTab", "alarms"],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",

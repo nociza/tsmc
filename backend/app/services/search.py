@@ -38,6 +38,7 @@ class SearchService:
         provider: ProviderName | None = None,
         user_category: str | None = None,
         kinds: set[str] | None = None,
+        include_discarded: bool = False,
     ) -> SearchResponse:
         pattern = f"%{query}%"
         fetch_limit = limit * 4 if user_category else limit
@@ -56,6 +57,8 @@ class SearchService:
             session_statement = session_statement.where(ChatSession.category == category)
         if provider:
             session_statement = session_statement.where(ChatSession.provider == provider)
+        if not include_discarded:
+            session_statement = session_statement.where(ChatSession.is_discarded.is_(False))
         session_statement = session_statement.order_by(ChatSession.updated_at.desc()).limit(fetch_limit)
         session_rows = (await self.db.execute(session_statement)).scalars().all()
         if user_category:
@@ -72,6 +75,8 @@ class SearchService:
             triplet_statement = triplet_statement.where(ChatSession.category == category)
         if provider:
             triplet_statement = triplet_statement.where(ChatSession.provider == provider)
+        if not include_discarded:
+            triplet_statement = triplet_statement.where(ChatSession.is_discarded.is_(False))
         triplet_statement = triplet_statement.limit(fetch_limit)
         triplet_rows = (await self.db.execute(triplet_statement)).scalars().all()
         if user_category:
@@ -89,6 +94,8 @@ class SearchService:
         )
         if category:
             source_statement = source_statement.where(SourceCapture.category == category)
+        if not include_discarded:
+            source_statement = source_statement.where(SourceCapture.is_discarded.is_(False))
         if provider:
             source_rows = []
         else:

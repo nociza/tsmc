@@ -27,6 +27,8 @@ class IngestDiffRequest(BaseModel):
     custom_tags: list[str] = Field(default_factory=list)
     messages: list[IngestMessage] = Field(default_factory=list)
     raw_capture: dict[str, Any] | list[Any] | None = None
+    route_to_discard: bool = False
+    discard_word_match: str | None = Field(default=None, max_length=64)
 
     @model_validator(mode="after")
     def validate_unique_message_ids(self) -> "IngestDiffRequest":
@@ -46,6 +48,8 @@ class IngestDiffRequest(BaseModel):
 class IngestResponse(BaseModel):
     session_id: str
     category: SessionCategory | None = None
+    pile_slug: str | None = None
+    is_discarded: bool = False
     new_message_count: int
     markdown_path: str | None = None
     processed: bool = False

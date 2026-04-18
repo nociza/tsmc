@@ -10,6 +10,11 @@ import {
 } from "./backend";
 import { buildIngestPayload, mergeSeenMessageIds } from "./diff";
 import { activeHistoryWatermarks, shouldCommitHistoryWatermark } from "./history-watermark";
+import {
+  buildProviderRefreshAlarmPlan,
+  providerFromRefreshAlarmName,
+  providerRefreshAlarmName
+} from "./provider-refresh";
 import { providerRegistry } from "../providers/registry";
 import { supportsProactiveHistorySync } from "../shared/provider";
 import {
@@ -33,7 +38,7 @@ import {
   saveSettings,
   setStatus
 } from "../shared/storage";
-import { evaluateIndexingRules, indexingRulesFingerprint } from "../shared/indexing-rules";
+import { evaluateDiscardWords, evaluateIndexingRules, indexingRulesFingerprint } from "../shared/indexing-rules";
 import type {
   CapturedNetworkEvent,
   ExtensionSettings,
@@ -42,6 +47,7 @@ import type {
   PingProviderTabResponse,
   ProcessingTaskItem,
   ProviderDriftAlert,
+  ProviderHistorySyncState,
   ProviderName,
   RunProviderPromptResponse,
   RuntimeMessage,
@@ -68,8 +74,11 @@ const TAB_MESSAGE_RETRY_MS = 4_000;
 const TAB_MESSAGE_RETRY_INTERVAL_MS = 150;
 const PROVIDER_TAB_READY_TIMEOUT_MS = 10_000;
 const PROVIDER_TAB_READY_INTERVAL_MS = 250;
+const PROVIDER_REFRESH_TAB_LOAD_TIMEOUT_MS = 30_000;
 const PROCESSING_REPAIR_ATTEMPTS = 3;
 const CONTENT_SCRIPT_FILE = "assets/content.js";
+const HISTORY_SYNC_PROVIDERS: ProviderName[] = ["chatgpt", "gemini", "grok"];
+const scheduledProviderRefreshesInFlight = new Set<ProviderName>();
 
 function refreshedProcessingLastError(status: SyncStatus, pendingCount: number): string | null {
   if (status.processingInProgress) {
@@ -86,6 +95,30 @@ const PROVIDER_START_URLS: Record<ProviderName, string> = {
   gemini: "https://gemini.google.com/app",
   grok: "https://grok.com/"
 };
+
+function formatProviderName(provider: ProviderName): string {
+  if (provider === "chatgpt") {
+    return "ChatGPT";
+  }
+  if (provider === "gemini") {
+    return "Gemini";
+  }
+  return "Grok";
+}
+
+function formatProviderList(providers: ProviderName[] | undefined, fallback: ProviderName | undefined): string {
+  const names = (providers?.length ? providers : fallback ? [fallback] : []).map(formatProviderName);
+  return names.length ? names.join(", ") : "provider";
+}
+
+function isFreshHistorySyncInProgress(state: ProviderHistorySyncState): boolean {
+  const lastStartedAt = state.lastStartedAt ? Date.parse(state.lastStartedAt) : Number.NaN;
+  const staleInProgress =
+    state.inProgress &&
+    !Number.isNaN(lastStartedAt) &&
+    Date.now() - lastStartedAt >= HISTORY_SYNC_STALE_AFTER_MS;
+  return Boolean(state.inProgress && !staleInProgress);
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -107,7 +140,10 @@ async function syncActionBadge(status: SyncStatus): Promise<void> {
     await chrome.action.setBadgeBackgroundColor({ color: "#0B8C88" });
     await chrome.action.setBadgeText({ text: "…" });
     await chrome.action.setTitle({
-      title: `SaveMyContext: History sync running for ${status.historySyncProvider ?? "provider"}.`
+      title: `SaveMyContext: History sync running for ${formatProviderList(
+        status.historySyncActiveProviders,
+        status.historySyncProvider
+      )}.`
     });
     return;
   }
@@ -129,6 +165,18 @@ async function setExtensionStatus(update: Partial<SyncStatus>): Promise<SyncStat
   const status = await setStatus(update);
   await syncActionBadge(status);
   return status;
+}
+
+async function getActiveHistorySyncProviders(
+  overrides: Partial<Record<ProviderName, boolean>> = {}
+): Promise<ProviderName[]> {
+  const states = await Promise.all(
+    HISTORY_SYNC_PROVIDERS.map(async (provider) => {
+      const inProgress = overrides[provider] ?? (await getProviderHistorySyncState(provider)).inProgress ?? false;
+      return [provider, inProgress] as const;
+    })
+  );
+  return states.filter(([, inProgress]) => inProgress).map(([provider]) => provider);
 }
 
 function clearRecoveredProviderDriftAlert(
@@ -232,6 +280,66 @@ async function waitForTabComplete(tabId: number): Promise<void> {
     };
     chrome.tabs.onUpdated.addListener(listener);
   });
+}
+
+async function findProviderRefreshTab(provider: ProviderName): Promise<number | null> {
+  const tabs = await chrome.tabs.query({});
+  const matchingTabs = tabs.filter((tab) => typeof tab.id === "number" && tabMatchesProviderUrl(tab.url, provider));
+  return matchingTabs.find((tab) => !tab.active)?.id ?? matchingTabs[0]?.id ?? null;
+}
+
+async function reloadTabAndWaitForComplete(tabId: number): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const cleanup = (): void => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      globalThis.clearTimeout(timeout);
+    };
+    const finish = (error?: unknown): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    };
+    const listener = (updatedTabId: number, changeInfo: { status?: string }) => {
+      if (updatedTabId === tabId && changeInfo.status === "complete") {
+        finish();
+      }
+    };
+    const timeout = globalThis.setTimeout(() => {
+      finish(new Error("Timed out waiting for the provider refresh tab to load."));
+    }, PROVIDER_REFRESH_TAB_LOAD_TIMEOUT_MS);
+
+    chrome.tabs.onUpdated.addListener(listener);
+    void chrome.tabs.reload(tabId).catch(finish);
+  });
+}
+
+async function ensureProviderRefreshTab(provider: ProviderName): Promise<chrome.tabs.Tab & { id: number }> {
+  const existingTabId = await findProviderRefreshTab(provider);
+  if (typeof existingTabId === "number") {
+    await reloadTabAndWaitForComplete(existingTabId);
+    const tab = await chrome.tabs.get(existingTabId);
+    if (typeof tab.id === "number") {
+      return tab as chrome.tabs.Tab & { id: number };
+    }
+  }
+
+  const tab = await chrome.tabs.create({
+    url: PROVIDER_START_URLS[provider],
+    active: false
+  });
+  if (typeof tab.id !== "number") {
+    throw new Error(`Could not open a ${provider} refresh tab.`);
+  }
+  await waitForTabComplete(tab.id);
+  return (await chrome.tabs.get(tab.id)) as chrome.tabs.Tab & { id: number };
 }
 
 async function ensureProcessingWorkerTab(provider: ProviderName): Promise<number> {
@@ -623,12 +731,82 @@ async function refreshBackendStatus(force = false): Promise<SyncStatus> {
   return backendValidationInFlight;
 }
 
+async function syncProviderRefreshAlarms(settings?: ExtensionSettings): Promise<void> {
+  const resolvedSettings = settings ?? (await getSettings());
+  const plan = buildProviderRefreshAlarmPlan(resolvedSettings);
+  const plannedNames = new Set(plan.map((item) => item.alarmName));
+
+  await Promise.all(
+    (["chatgpt", "gemini", "grok"] as ProviderName[]).map(async (provider) => {
+      const alarmName = providerRefreshAlarmName(provider);
+      if (!plannedNames.has(alarmName)) {
+        await chrome.alarms.clear(alarmName);
+      }
+    })
+  );
+
+  await Promise.all(
+    plan.map(async (item) => {
+      await chrome.alarms.create(item.alarmName, {
+        delayInMinutes: item.delayInMinutes,
+        periodInMinutes: item.periodInMinutes
+      });
+    })
+  );
+}
+
+async function handleScheduledProviderRefresh(provider: ProviderName): Promise<void> {
+  if (scheduledProviderRefreshesInFlight.has(provider)) {
+    return;
+  }
+
+  scheduledProviderRefreshesInFlight.add(provider);
+  try {
+    const settings = await getSettings();
+    if (!buildProviderRefreshAlarmPlan(settings).some((item) => item.provider === provider)) {
+      await chrome.alarms.clear(providerRefreshAlarmName(provider));
+      return;
+    }
+
+    if (isFreshHistorySyncInProgress(await getProviderHistorySyncState(provider))) {
+      return;
+    }
+
+    const tab = await ensureProviderRefreshTab(provider);
+    await handlePageVisit(
+      {
+        provider,
+        pageUrl: tab.url ?? PROVIDER_START_URLS[provider]
+      },
+      tab.id
+    );
+  } catch (error) {
+    console.warn(`SaveMyContext scheduled ${provider} refresh failed`, error);
+  } finally {
+    scheduledProviderRefreshesInFlight.delete(provider);
+  }
+}
+
 chrome.runtime.onInstalled.addListener(() => {
-  void initializeStorage().then(() => refreshBackendStatus(true));
+  void initializeStorage().then(async () => {
+    await syncProviderRefreshAlarms();
+    await refreshBackendStatus(true);
+  });
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  void initializeStorage().then(() => refreshBackendStatus(true));
+  void initializeStorage().then(async () => {
+    await syncProviderRefreshAlarms();
+    await refreshBackendStatus(true);
+  });
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  const provider = providerFromRefreshAlarmName(alarm.name);
+  if (!provider) {
+    return;
+  }
+  void handleScheduledProviderRefresh(provider);
 });
 
 chrome.commands.onCommand.addListener((command) => {
@@ -1021,7 +1199,7 @@ function extractExternalSessionIds(
     {
       seenMessageIds: string[];
       lastSyncedAt?: string;
-      indexingRuleDecision?: "indexed" | "skipped";
+      indexingRuleDecision?: "indexed" | "skipped" | "discarded";
       indexingRuleFingerprint?: string;
     }
   >,
@@ -1063,9 +1241,11 @@ async function handlePageVisit(
     return { triggered: false, reason: "auto-sync-disabled" };
   }
   if (!supportsProactiveHistorySync(payload.provider)) {
+    const activeProviders = await getActiveHistorySyncProviders({ [payload.provider]: false });
     await setExtensionStatus({
       autoSyncHistory: settings.autoSyncHistory,
-      historySyncInProgress: false,
+      historySyncInProgress: activeProviders.length > 0,
+      historySyncActiveProviders: activeProviders,
       historySyncProvider: payload.provider,
       historySyncLastPageUrl: payload.pageUrl,
       historySyncLastResult: "unsupported"
@@ -1077,13 +1257,7 @@ async function handlePageVisit(
   }
 
   const currentState = await getProviderHistorySyncState(payload.provider);
-  const lastStartedAt = currentState.lastStartedAt ? Date.parse(currentState.lastStartedAt) : Number.NaN;
-  const staleInProgress =
-    currentState.inProgress &&
-    !Number.isNaN(lastStartedAt) &&
-    Date.now() - lastStartedAt >= HISTORY_SYNC_STALE_AFTER_MS;
-
-  if (currentState.inProgress && !staleInProgress) {
+  if (isFreshHistorySyncInProgress(currentState)) {
     return { triggered: false, reason: "already-in-progress" };
   }
 
@@ -1103,9 +1277,11 @@ async function handlePageVisit(
     totalCount: undefined,
     skippedCount: 0
   });
+  const activeProviders = await getActiveHistorySyncProviders({ [payload.provider]: true });
   await setExtensionStatus({
     autoSyncHistory: settings.autoSyncHistory,
-    historySyncInProgress: true,
+    historySyncInProgress: activeProviders.length > 0,
+    historySyncActiveProviders: activeProviders,
     historySyncProvider: payload.provider,
     historySyncLastStartedAt: now,
     historySyncLastPageUrl: payload.pageUrl,
@@ -1133,8 +1309,10 @@ async function handlePageVisit(
       inProgress: false,
       lastPageUrl: payload.pageUrl
     });
+    const activeProviders = await getActiveHistorySyncProviders({ [payload.provider]: false });
     await setExtensionStatus({
-      historySyncInProgress: false,
+      historySyncInProgress: activeProviders.length > 0,
+      historySyncActiveProviders: activeProviders,
       historySyncProvider: payload.provider,
       historySyncLastPageUrl: payload.pageUrl,
       historySyncLastResult: "failed",
@@ -1177,8 +1355,10 @@ async function handleHistorySyncStatus(update: HistorySyncUpdate): Promise<{ ok:
       totalCount: update.totalCount ?? currentState.totalCount,
       skippedCount: update.skippedCount ?? currentState.skippedCount
     });
+    const activeProviders = await getActiveHistorySyncProviders({ [update.provider]: true });
     await setExtensionStatus({
-      historySyncInProgress: true,
+      historySyncInProgress: activeProviders.length > 0,
+      historySyncActiveProviders: activeProviders,
       historySyncProvider: update.provider,
       historySyncLastStartedAt: startedAt,
       historySyncLastPageUrl: update.pageUrl,
@@ -1204,8 +1384,10 @@ async function handleHistorySyncStatus(update: HistorySyncUpdate): Promise<{ ok:
         inProgress: false,
         lastCompletedAt: completedAt
       });
+      const activeProviders = await getActiveHistorySyncProviders({ [update.provider]: false });
       await setExtensionStatus({
-        historySyncInProgress: false,
+        historySyncInProgress: activeProviders.length > 0,
+        historySyncActiveProviders: activeProviders,
         historySyncProvider: update.provider,
         historySyncLastCompletedAt: completedAt,
         historySyncLastPageUrl: update.pageUrl,
@@ -1234,8 +1416,10 @@ async function handleHistorySyncStatus(update: HistorySyncUpdate): Promise<{ ok:
       skippedCount,
       lastDriftAlert: providerStateDriftAlert
     });
+    const activeProviders = await getActiveHistorySyncProviders({ [update.provider]: false });
     await setExtensionStatus({
-      historySyncInProgress: false,
+      historySyncInProgress: activeProviders.length > 0,
+      historySyncActiveProviders: activeProviders,
       historySyncProvider: update.provider,
       historySyncLastCompletedAt: completedAt,
       historySyncLastConversationCount: update.conversationCount,
@@ -1264,8 +1448,10 @@ async function handleHistorySyncStatus(update: HistorySyncUpdate): Promise<{ ok:
       skippedCount,
       lastDriftAlert: providerStateDriftAlert
     });
+    const activeProviders = await getActiveHistorySyncProviders({ [update.provider]: false });
     await setExtensionStatus({
-      historySyncInProgress: false,
+      historySyncInProgress: activeProviders.length > 0,
+      historySyncActiveProviders: activeProviders,
       historySyncProvider: update.provider,
       historySyncLastCompletedAt: completedAt,
       historySyncLastPageUrl: update.pageUrl,
@@ -1293,8 +1479,10 @@ async function handleHistorySyncStatus(update: HistorySyncUpdate): Promise<{ ok:
     skippedCount,
     lastDriftAlert: providerStateDriftAlert
   });
+  const activeProviders = await getActiveHistorySyncProviders({ [update.provider]: false });
   await setExtensionStatus({
-    historySyncInProgress: false,
+    historySyncInProgress: activeProviders.length > 0,
+    historySyncActiveProviders: activeProviders,
     historySyncProvider: update.provider,
     historySyncLastCompletedAt: completedAt,
     historySyncLastPageUrl: update.pageUrl,
@@ -1351,6 +1539,12 @@ async function handleCapture(event: CapturedNetworkEvent, tabId?: number): Promi
     return;
   }
 
+  const discardDecision = evaluateDiscardWords(settings, snapshot);
+  if (discardDecision.matched) {
+    payload.route_to_discard = true;
+    payload.discard_word_match = discardDecision.matchedWord;
+  }
+
   const backendUrl = settings.backendUrl.replace(/\/$/, "");
   const markHistorySyncFailure = (message: string): void => {
     if (event.captureMode === "full_snapshot" && event.historySyncRunId) {
@@ -1385,12 +1579,15 @@ async function handleCapture(event: CapturedNetworkEvent, tabId?: number): Promi
     throw new Error(`SaveMyContext sync failed: ${response.status}`);
   }
 
+  const finalDecision: "indexed" | "discarded" = discardDecision.matched ? "discarded" : "indexed";
+  const finalReason = discardDecision.matched ? discardDecision.reason : indexingDecision.reason;
   await saveSessionSyncState(sessionKey, {
     seenMessageIds: mergeSeenMessageIds(syncState.seenMessageIds, snapshot.messages),
     lastSyncedAt: new Date().toISOString(),
-    indexingRuleDecision: "indexed",
+    indexingRuleDecision: finalDecision,
     indexingRuleFingerprint: indexingFingerprint,
-    indexingRuleReason: indexingDecision.reason
+    indexingRuleReason: finalReason,
+    discardWordMatch: discardDecision.matchedWord
   });
   await setExtensionStatus({
     backendUrl,
@@ -1400,8 +1597,8 @@ async function handleCapture(event: CapturedNetworkEvent, tabId?: number): Promi
     lastSuccessAt: new Date().toISOString(),
     lastSyncedMessageCount: payload.messages.length,
     autoSyncHistory: settings.autoSyncHistory,
-    lastIndexingDecision: "indexed",
-    lastIndexingReason: indexingDecision.reason
+    lastIndexingDecision: finalDecision,
+    lastIndexingReason: finalReason
   });
 }
 
@@ -1431,6 +1628,7 @@ async function handleSaveSettings(update: Partial<ExtensionSettings>): Promise<S
     if (indexingRulesFingerprint(currentSettings) !== indexingRulesFingerprint(saved)) {
       await clearProviderHistorySyncStates();
     }
+    await syncProviderRefreshAlarms(saved);
     await saveBackendValidation(capabilities, null);
     backendValidationLastKey = backendValidationCacheKey(saved);
     backendValidationLastCompletedAt = Date.now();

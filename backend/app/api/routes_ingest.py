@@ -25,6 +25,8 @@ async def ingest_diff(
     return IngestResponse(
         session_id=session.id,
         category=session.category,
+        pile_slug=session.pile.slug if session.pile else None,
+        is_discarded=session.is_discarded,
         new_message_count=new_message_count,
         markdown_path=session.markdown_path,
         processed=session.last_processed_at is not None,

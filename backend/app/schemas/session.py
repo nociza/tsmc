@@ -42,6 +42,9 @@ class SessionListItem(BaseModel):
     external_session_id: str
     title: str | None
     category: SessionCategory | None
+    pile_slug: str | None = None
+    is_discarded: bool = False
+    discarded_reason: str | None = None
     custom_tags: list[str] = Field(default_factory=list)
     user_categories: list[str] = Field(default_factory=list)
     markdown_path: str | None
@@ -57,6 +60,7 @@ class SessionRead(SessionListItem):
     journal_entry: str | None
     todo_summary: str | None
     idea_summary: dict[str, Any] | None
+    pile_outputs: dict[str, Any] | None = None
     created_at: datetime
     messages: list[MessageRead]
     triplets: list[TripletRead]
@@ -91,6 +95,9 @@ def build_session_list_item(session) -> SessionListItem:  # type: ignore[no-unty
         external_session_id=session.external_session_id,
         title=session.title,
         category=session.category,
+        pile_slug=session.pile.slug if session.pile else None,
+        is_discarded=session.is_discarded,
+        discarded_reason=session.discarded_reason,
         custom_tags=visible_custom_tags(session.custom_tags),
         user_categories=extract_user_categories(session.custom_tags),
         markdown_path=session.markdown_path,
@@ -109,6 +116,7 @@ def build_session_read(session) -> SessionRead:  # type: ignore[no-untyped-def]
         journal_entry=session.journal_entry,
         todo_summary=session.todo_summary,
         idea_summary=session.idea_summary,
+        pile_outputs=session.pile_outputs,
         created_at=session.created_at,
         messages=[MessageRead.model_validate(message) for message in session.messages],
         triplets=[TripletRead.model_validate(triplet) for triplet in session.triplets],

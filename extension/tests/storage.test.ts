@@ -72,9 +72,13 @@ describe("storage", () => {
           grok: true
         },
         autoSyncHistory: true,
+        scheduledProviderRefreshEnabled: false,
+        scheduledProviderRefreshIntervalMinutes: 60,
         indexingMode: "all",
         triggerWords: ["lorem"],
         blacklistWords: [],
+        discardWordsEnabled: true,
+        discardWords: ["loom"],
         selectionCaptureEnabled: false
       }
     });
@@ -90,6 +94,8 @@ describe("storage", () => {
         indexingMode: "trigger_word",
         triggerWords: ["lorem", "alpha"],
         blacklistWords: ["ignore"],
+        discardWordsEnabled: true,
+        discardWords: [],
         selectionCaptureEnabled: true
       },
       "savemycontext.settings.secrets": {
@@ -141,9 +147,13 @@ describe("storage", () => {
           grok: true
         },
         autoSyncHistory: true,
+        scheduledProviderRefreshEnabled: false,
+        scheduledProviderRefreshIntervalMinutes: 60,
         indexingMode: "all",
         triggerWords: ["lorem"],
         blacklistWords: [],
+        discardWordsEnabled: true,
+        discardWords: ["loom"],
         selectionCaptureEnabled: false
       }
     });
@@ -156,9 +166,13 @@ describe("storage", () => {
           grok: true
         },
         autoSyncHistory: true,
+        scheduledProviderRefreshEnabled: false,
+        scheduledProviderRefreshIntervalMinutes: 60,
         indexingMode: "all",
         triggerWords: ["lorem"],
         blacklistWords: [],
+        discardWordsEnabled: true,
+        discardWords: ["loom"],
         selectionCaptureEnabled: false
       }
     });

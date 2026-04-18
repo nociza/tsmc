@@ -6,6 +6,10 @@ import type {
   SessionSyncState,
   SyncStatus
 } from "./types";
+import {
+  normalizeProviderRefreshIntervalMinutes,
+  PROVIDER_REFRESH_DEFAULT_INTERVAL_MINUTES
+} from "./provider-refresh";
 
 const SETTINGS_KEY = "savemycontext.settings";
 const SECRET_SETTINGS_KEY = "savemycontext.settings.secrets";
@@ -24,9 +28,13 @@ export const defaultSettings: ExtensionSettings = {
     grok: true
   },
   autoSyncHistory: true,
+  scheduledProviderRefreshEnabled: false,
+  scheduledProviderRefreshIntervalMinutes: PROVIDER_REFRESH_DEFAULT_INTERVAL_MINUTES,
   indexingMode: "all",
   triggerWords: ["lorem"],
   blacklistWords: [],
+  discardWordsEnabled: true,
+  discardWords: ["loom"],
   selectionCaptureEnabled: false
 };
 
@@ -42,9 +50,16 @@ function mergeSettings(
       ...(current.enabledProviders ?? {})
     },
     autoSyncHistory: current.autoSyncHistory ?? defaultSettings.autoSyncHistory,
+    scheduledProviderRefreshEnabled:
+      current.scheduledProviderRefreshEnabled ?? defaultSettings.scheduledProviderRefreshEnabled,
+    scheduledProviderRefreshIntervalMinutes: normalizeProviderRefreshIntervalMinutes(
+      current.scheduledProviderRefreshIntervalMinutes ?? defaultSettings.scheduledProviderRefreshIntervalMinutes
+    ),
     indexingMode: current.indexingMode ?? defaultSettings.indexingMode,
     triggerWords: current.triggerWords ?? defaultSettings.triggerWords,
     blacklistWords: current.blacklistWords ?? defaultSettings.blacklistWords,
+    discardWordsEnabled: current.discardWordsEnabled ?? defaultSettings.discardWordsEnabled,
+    discardWords: current.discardWords ?? defaultSettings.discardWords,
     selectionCaptureEnabled: current.selectionCaptureEnabled ?? defaultSettings.selectionCaptureEnabled
   };
 }
@@ -53,10 +68,14 @@ function shouldPersistSettings(current: Partial<ExtensionSettings>): boolean {
   if (
     !current.backendUrl ||
     current.autoSyncHistory === undefined ||
+    current.scheduledProviderRefreshEnabled === undefined ||
+    current.scheduledProviderRefreshIntervalMinutes === undefined ||
     !current.enabledProviders ||
     !current.indexingMode ||
     !current.triggerWords ||
     !current.blacklistWords ||
+    current.discardWordsEnabled === undefined ||
+    !current.discardWords ||
     current.selectionCaptureEnabled === undefined
   ) {
     return true;
@@ -75,9 +94,16 @@ function publicSettings(settings: ExtensionSettings | Partial<ExtensionSettings>
       ...(settings.enabledProviders ?? {})
     },
     autoSyncHistory: settings.autoSyncHistory ?? defaultSettings.autoSyncHistory,
+    scheduledProviderRefreshEnabled:
+      settings.scheduledProviderRefreshEnabled ?? defaultSettings.scheduledProviderRefreshEnabled,
+    scheduledProviderRefreshIntervalMinutes: normalizeProviderRefreshIntervalMinutes(
+      settings.scheduledProviderRefreshIntervalMinutes ?? defaultSettings.scheduledProviderRefreshIntervalMinutes
+    ),
     indexingMode: settings.indexingMode ?? defaultSettings.indexingMode,
     triggerWords: settings.triggerWords ?? defaultSettings.triggerWords,
     blacklistWords: settings.blacklistWords ?? defaultSettings.blacklistWords,
+    discardWordsEnabled: settings.discardWordsEnabled ?? defaultSettings.discardWordsEnabled,
+    discardWords: settings.discardWords ?? defaultSettings.discardWords,
     selectionCaptureEnabled: settings.selectionCaptureEnabled ?? defaultSettings.selectionCaptureEnabled
   };
 }
@@ -125,9 +151,16 @@ export async function saveSettings(update: Partial<ExtensionSettings>): Promise<
       ...(update.enabledProviders ?? {})
     },
     autoSyncHistory: update.autoSyncHistory ?? current.autoSyncHistory,
+    scheduledProviderRefreshEnabled:
+      update.scheduledProviderRefreshEnabled ?? current.scheduledProviderRefreshEnabled,
+    scheduledProviderRefreshIntervalMinutes: normalizeProviderRefreshIntervalMinutes(
+      update.scheduledProviderRefreshIntervalMinutes ?? current.scheduledProviderRefreshIntervalMinutes
+    ),
     indexingMode: update.indexingMode ?? current.indexingMode,
     triggerWords: update.triggerWords ?? current.triggerWords,
     blacklistWords: update.blacklistWords ?? current.blacklistWords,
+    discardWordsEnabled: update.discardWordsEnabled ?? current.discardWordsEnabled,
+    discardWords: update.discardWords ?? current.discardWords,
     selectionCaptureEnabled: update.selectionCaptureEnabled ?? current.selectionCaptureEnabled
   };
   await chrome.storage.sync.set({

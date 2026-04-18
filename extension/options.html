@@ -114,6 +114,29 @@
             </label>
 
             <label class="toggle">
+              <input id="scheduled-provider-refresh-enabled" type="checkbox" />
+              <span class="toggle-body">
+                <span class="toggle-title">Provider refresh scheduler</span>
+                <span class="toggle-help">
+                  Keep signed-in provider tabs refreshed on a timer so unattended browser sessions continue syncing.
+                </span>
+              </span>
+            </label>
+
+            <label class="field">
+              <span class="field-label">Refresh interval</span>
+              <input
+                id="scheduled-provider-refresh-interval"
+                name="scheduled-provider-refresh-interval"
+                type="number"
+                min="15"
+                max="1440"
+                step="5"
+              />
+              <small>Minutes between scheduled refreshes for each enabled provider. Providers are staggered.</small>
+            </label>
+
+            <label class="toggle">
               <input id="selection-capture-enabled" type="checkbox" />
               <span class="toggle-body">
                 <span class="toggle-title">Selection capture pop-up</span>
@@ -183,6 +206,35 @@
                 <p id="last-indexing" class="status-value">No decision yet</p>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <h2>Discard pile</h2>
+            <p>
+              Discard words capture the session but route it straight to the Discarded pile, skipping
+              classification, summaries, and notifications. Saying a discard word at the start of a chat is
+              the fastest way to mark a quick scratch session that should not pollute the dashboard.
+            </p>
+          </div>
+          <div class="section-body">
+            <label class="toggle">
+              <input id="discard-words-enabled" type="checkbox" />
+              <span class="toggle-body">
+                <span class="toggle-title">Enable discard words</span>
+                <span class="toggle-help">
+                  When enabled, sessions whose opening request matches a discard word are saved to the
+                  Discarded pile chronologically and stay recoverable from the dashboard.
+                </span>
+              </span>
+            </label>
+
+            <label class="field">
+              <span class="field-label">Discard words</span>
+              <input id="discard-words" name="discard-words" type="text" placeholder="loom" />
+              <small>Comma-separated. Default: <code>loom</code>.</small>
+            </label>
           </div>
         </section>
 

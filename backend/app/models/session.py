@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import DateTime, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -36,6 +36,14 @@ class ChatSession(TimestampMixin, Base):
         SAEnum(SessionCategory, native_enum=False),
         index=True,
     )
+    pile_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("piles.id", ondelete="SET NULL"),
+        index=True,
+    )
+    is_discarded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    discarded_reason: Mapped[str | None] = mapped_column(Text)
+    pile_outputs: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     custom_tags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     classification_reason: Mapped[str | None] = mapped_column(Text)
     journal_entry: Mapped[str | None] = mapped_column(Text)
@@ -44,6 +52,8 @@ class ChatSession(TimestampMixin, Base):
     share_post: Mapped[str | None] = mapped_column(Text)
     last_captured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     last_processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
+    pile = relationship("Pile", lazy="joined")
 
     messages = relationship(
         "ChatMessage",

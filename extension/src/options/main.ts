@@ -3,12 +3,18 @@ import "./styles.css";
 import type {
   ExtensionSettings,
   ProviderDriftAlert,
+  ProviderName,
   RuntimeMessage,
   SaveKnowledgePathResponse,
   SaveSettingsResponse,
   SyncStatus
 } from "../shared/types";
 import { describeIndexingMode, normalizeRuleWords } from "../shared/indexing-rules";
+import {
+  normalizeProviderRefreshIntervalMinutes,
+  PROVIDER_REFRESH_MAX_INTERVAL_MINUTES,
+  PROVIDER_REFRESH_MIN_INTERVAL_MINUTES
+} from "../shared/provider-refresh";
 
 const form = document.querySelector<HTMLFormElement>("#settings-form");
 const backendUrlInput = document.querySelector<HTMLInputElement>("#backend-url");
@@ -16,10 +22,14 @@ const backendTokenInput = document.querySelector<HTMLInputElement>("#backend-tok
 const knowledgePathInput = document.querySelector<HTMLInputElement>("#knowledge-path");
 const saveKnowledgePathButton = document.querySelector<HTMLButtonElement>("#save-knowledge-path");
 const autoSyncHistoryInput = document.querySelector<HTMLInputElement>("#auto-sync-history");
+const scheduledProviderRefreshEnabledInput = document.querySelector<HTMLInputElement>("#scheduled-provider-refresh-enabled");
+const scheduledProviderRefreshIntervalInput = document.querySelector<HTMLInputElement>("#scheduled-provider-refresh-interval");
 const selectionCaptureEnabledInput = document.querySelector<HTMLInputElement>("#selection-capture-enabled");
 const indexingModeInput = document.querySelector<HTMLInputElement>("#indexing-mode-trigger");
 const triggerWordsInput = document.querySelector<HTMLInputElement>("#trigger-words");
 const blacklistWordsInput = document.querySelector<HTMLInputElement>("#blacklist-words");
+const discardWordsEnabledInput = document.querySelector<HTMLInputElement>("#discard-words-enabled");
+const discardWordsInput = document.querySelector<HTMLInputElement>("#discard-words");
 const providerInputs = {
   chatgpt: document.querySelector<HTMLInputElement>("#provider-chatgpt"),
   gemini: document.querySelector<HTMLInputElement>("#provider-gemini"),
@@ -45,6 +55,21 @@ let formHydrated = false;
 let formDirty = false;
 let knowledgePathDirty = false;
 
+function formatProviderName(provider: ProviderName): string {
+  if (provider === "chatgpt") {
+    return "ChatGPT";
+  }
+  if (provider === "gemini") {
+    return "Gemini";
+  }
+  return "Grok";
+}
+
+function formatProviderList(providers: ProviderName[] | undefined, fallback: ProviderName | undefined): string {
+  const names = (providers?.length ? providers : fallback ? [fallback] : []).map(formatProviderName);
+  return names.length ? names.join(", ") : "provider";
+}
+
 function formatDate(value?: string): string {
   if (!value) {
     return "No sync yet";
@@ -57,14 +82,7 @@ function formatRecentCapture(status: SyncStatus): string {
   if (!status.lastSuccessAt) {
     return "No captures yet";
   }
-  const provider =
-    status.lastProvider === "chatgpt"
-      ? "ChatGPT"
-      : status.lastProvider === "gemini"
-        ? "Gemini"
-        : status.lastProvider === "grok"
-          ? "Grok"
-          : "Capture";
+  const provider = status.lastProvider ? formatProviderName(status.lastProvider) : "Capture";
   const messageCount =
     typeof status.lastSyncedMessageCount === "number" && status.lastSyncedMessageCount > 0
       ? `, ${status.lastSyncedMessageCount} messages`
@@ -78,7 +96,7 @@ function formatHistorySync(settings: ExtensionSettings, status: SyncStatus): str
   }
 
   if (status.historySyncInProgress) {
-    const provider = status.historySyncProvider ?? "";
+    const provider = formatProviderList(status.historySyncActiveProviders, status.historySyncProvider);
     const progress =
       typeof status.historySyncTotalCount === "number"
         ? ` ${status.historySyncProcessedCount ?? 0}/${status.historySyncTotalCount}`
@@ -124,7 +142,12 @@ function formatLastIndexing(status: SyncStatus): string {
     return "No decision yet";
   }
 
-  const prefix = status.lastIndexingDecision === "indexed" ? "Indexed" : "Skipped";
+  const prefix =
+    status.lastIndexingDecision === "indexed"
+      ? "Indexed"
+      : status.lastIndexingDecision === "discarded"
+        ? "Discarded"
+        : "Skipped";
   return status.lastIndexingReason ? `${prefix}: ${status.lastIndexingReason}` : prefix;
 }
 
@@ -146,6 +169,17 @@ function syncFormFromSettings(settings: ExtensionSettings): void {
   if (autoSyncHistoryInput) {
     autoSyncHistoryInput.checked = settings.autoSyncHistory;
   }
+  if (scheduledProviderRefreshEnabledInput) {
+    scheduledProviderRefreshEnabledInput.checked = Boolean(settings.scheduledProviderRefreshEnabled);
+  }
+  if (scheduledProviderRefreshIntervalInput) {
+    scheduledProviderRefreshIntervalInput.value = String(
+      normalizeProviderRefreshIntervalMinutes(settings.scheduledProviderRefreshIntervalMinutes)
+    );
+    scheduledProviderRefreshIntervalInput.min = String(PROVIDER_REFRESH_MIN_INTERVAL_MINUTES);
+    scheduledProviderRefreshIntervalInput.max = String(PROVIDER_REFRESH_MAX_INTERVAL_MINUTES);
+    scheduledProviderRefreshIntervalInput.disabled = !settings.scheduledProviderRefreshEnabled;
+  }
   if (selectionCaptureEnabledInput) {
     selectionCaptureEnabledInput.checked = settings.selectionCaptureEnabled;
   }
@@ -157,6 +191,12 @@ function syncFormFromSettings(settings: ExtensionSettings): void {
   }
   if (blacklistWordsInput) {
     blacklistWordsInput.value = settings.blacklistWords.join(", ");
+  }
+  if (discardWordsEnabledInput) {
+    discardWordsEnabledInput.checked = settings.discardWordsEnabled !== false;
+  }
+  if (discardWordsInput) {
+    discardWordsInput.value = (settings.discardWords ?? []).join(", ");
   }
 
   for (const [provider, input] of Object.entries(providerInputs)) {
@@ -254,10 +294,16 @@ form?.addEventListener("submit", async (event) => {
     backendUrl: backendUrlInput.value.trim(),
     backendToken: backendTokenInput?.value.trim() ?? "",
     autoSyncHistory: autoSyncHistoryInput?.checked ?? true,
+    scheduledProviderRefreshEnabled: scheduledProviderRefreshEnabledInput?.checked ?? false,
+    scheduledProviderRefreshIntervalMinutes: normalizeProviderRefreshIntervalMinutes(
+      scheduledProviderRefreshIntervalInput?.value
+    ),
     selectionCaptureEnabled: selectionCaptureEnabledInput?.checked ?? false,
     indexingMode: indexingModeInput?.checked ? "trigger_word" : "all",
     triggerWords: [],
     blacklistWords: normalizeRuleWords(blacklistWordsInput?.value ?? ""),
+    discardWordsEnabled: discardWordsEnabledInput?.checked ?? true,
+    discardWords: normalizeRuleWords(discardWordsInput?.value ?? ""),
     enabledProviders: {
       chatgpt: providerInputs.chatgpt?.checked ?? true,
       gemini: providerInputs.gemini?.checked ?? true,
@@ -305,6 +351,17 @@ autoSyncHistoryInput?.addEventListener("change", () => {
   formDirty = true;
 });
 
+scheduledProviderRefreshEnabledInput?.addEventListener("change", () => {
+  formDirty = true;
+  if (scheduledProviderRefreshIntervalInput) {
+    scheduledProviderRefreshIntervalInput.disabled = !scheduledProviderRefreshEnabledInput.checked;
+  }
+});
+
+scheduledProviderRefreshIntervalInput?.addEventListener("input", () => {
+  formDirty = true;
+});
+
 selectionCaptureEnabledInput?.addEventListener("change", () => {
   formDirty = true;
 });
@@ -318,6 +375,14 @@ triggerWordsInput?.addEventListener("input", () => {
 });
 
 blacklistWordsInput?.addEventListener("input", () => {
+  formDirty = true;
+});
+
+discardWordsEnabledInput?.addEventListener("change", () => {
+  formDirty = true;
+});
+
+discardWordsInput?.addEventListener("input", () => {
   formDirty = true;
 });
 

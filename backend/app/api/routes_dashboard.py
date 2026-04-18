@@ -32,7 +32,9 @@ async def dashboard_summary(
     _: AuthContext = Depends(require_scope("read")),
     db: AsyncSession = Depends(get_db_session),
 ) -> DashboardSummary:
-    total_sessions = int((await db.scalar(select(func.count(ChatSession.id)))) or 0)
+    total_sessions = int(
+        (await db.scalar(select(func.count(ChatSession.id)).where(ChatSession.is_discarded.is_(False)))) or 0
+    )
     total_messages = int((await db.scalar(select(func.count(ChatMessage.id)))) or 0)
     total_triplets = int((await db.scalar(select(func.count(FactTriplet.id)))) or 0)
     total_sync_events = int((await db.scalar(select(func.count(SyncEvent.id)))) or 0)
@@ -40,12 +42,15 @@ async def dashboard_summary(
         (await db.scalar(select(func.count(APIToken.id)).where(APIToken.is_active.is_(True), APIToken.revoked_at.is_(None))))
         or 0
     )
-    latest_sync_at = await db.scalar(select(func.max(ChatSession.last_captured_at)))
+    latest_sync_at = await db.scalar(
+        select(func.max(ChatSession.last_captured_at)).where(ChatSession.is_discarded.is_(False))
+    )
 
     category_rows = (
         await db.execute(
             select(ChatSession.category, func.count(ChatSession.id))
             .where(ChatSession.category.is_not(None))
+            .where(ChatSession.is_discarded.is_(False))
             .group_by(ChatSession.category)
         )
     ).all()
@@ -55,7 +60,11 @@ async def dashboard_summary(
         for category, count in category_rows
         if category in {SessionCategory.JOURNAL, SessionCategory.FACTUAL, SessionCategory.IDEAS, SessionCategory.TODO}
     ]
-    session_tags = (await db.execute(select(ChatSession.custom_tags))).scalars().all()
+    session_tags = (
+        await db.execute(
+            select(ChatSession.custom_tags).where(ChatSession.is_discarded.is_(False))
+        )
+    ).scalars().all()
     return DashboardSummary(
         total_sessions=total_sessions,
         total_messages=total_messages,
@@ -76,6 +85,7 @@ async def search(
     provider: ProviderName | None = Query(default=None),
     user_category: str | None = Query(default=None),
     kind: list[str] | None = Query(default=None),
+    include_discarded: bool = Query(default=False),
     _: AuthContext = Depends(require_scope("read")),
     db: AsyncSession = Depends(get_db_session),
 ) -> SearchResponse:
@@ -86,6 +96,7 @@ async def search(
         provider=provider,
         user_category=user_category,
         kinds=set(kind) if kind else None,
+        include_discarded=include_discarded or category == SessionCategory.DISCARDED,
     )
 
 

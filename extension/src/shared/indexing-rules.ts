@@ -32,8 +32,41 @@ export function indexingRulesFingerprint(settings: ExtensionSettings): string {
   return JSON.stringify({
     indexingMode: settings.indexingMode,
     triggerWords: normalizeRuleWords(settings.triggerWords),
-    blacklistWords: normalizeRuleWords(settings.blacklistWords)
+    blacklistWords: normalizeRuleWords(settings.blacklistWords),
+    discardWordsEnabled: settings.discardWordsEnabled !== false,
+    discardWords: normalizeRuleWords(settings.discardWords ?? [])
   });
+}
+
+export type DiscardWordDecision = {
+  matched: boolean;
+  matchedWord?: string;
+  probeText: string;
+  reason: string;
+};
+
+export function evaluateDiscardWords(
+  settings: ExtensionSettings,
+  snapshot: Pick<NormalizedSessionSnapshot, "messages">
+): DiscardWordDecision {
+  const probeText = buildIndexingProbeText(snapshot.messages);
+  if (settings.discardWordsEnabled === false) {
+    return { matched: false, probeText, reason: "Discard words are disabled." };
+  }
+  const discardWords = normalizeRuleWords(settings.discardWords ?? []);
+  if (!discardWords.length) {
+    return { matched: false, probeText, reason: "No discard words configured." };
+  }
+  const matched = discardWords.find((word) => matchesRuleWord(probeText, word));
+  if (!matched) {
+    return { matched: false, probeText, reason: "Opening request did not match any discard word." };
+  }
+  return {
+    matched: true,
+    matchedWord: matched,
+    probeText,
+    reason: `Routed to Discarded because discard word '${matched}' matched the opening request.`
+  };
 }
 
 export function evaluateIndexingRules(

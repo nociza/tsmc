@@ -32,9 +32,23 @@ The backend doesn't just store data; it actively reads and organizes it using LL
 * **The Classifier:** When a new QA pair or session is ingested, a lightweight LLM call categorizes the interaction into one of three predefined buckets.
 * **Custom Categories:** Users can define custom tags, but the system defaults to the three primary pipelines below.
 
-### 4. The Three Processing Pipelines
+### 4. The Pile Model
 
-Each categorized QA pair triggers a specific summarization and extraction pipeline.
+Each category is a **pile** — a first-class record (table `piles`) with a slug, a name, a `folder_label`, and a list of `attributes` that drive how the LLM pipeline processes the session.
+
+* **Built-in piles** (seeded on first run, cannot be deleted):
+    * `journal` — chronological + summary + queryable Q&A
+    * `factual` — summary + knowledge graph extraction
+    * `ideas` — summary + knowledge graph + share-post + alternate phrasings
+    * `todo` — chronological + importance + deadline + completion (still updates the shared `Dashboards/To-Do List.md`)
+    * `discarded` — chronological only; receives sessions captured-but-shelved (see § 6)
+* **User-defined piles** — created via `POST /api/v1/piles` with a chosen attribute set. The generic attribute pipeline (`orchestrator.pile_outputs`) extracts whatever the attribute set requests and writes the result to `ChatSession.pile_outputs` JSON, which the markdown writer renders under `## Pile Outputs`.
+
+Available attributes: `summary`, `chronological`, `queryable_qa`, `knowledge_graph`, `share_post`, `alternate_phrasings`, `importance`, `deadline`, `completion`.
+
+### 5. The Processing Pipelines
+
+Each classified session triggers a specific summarization and extraction pipeline.
 
 * **Pipeline A: Journal (Personal & Day-to-Day)**
     * **Trigger:** Conversations about the user's life, daily tasks, or personal reflections.
@@ -48,3 +62,15 @@ Each categorized QA pair triggers a specific summarization and extraction pipeli
     * **Trigger:** Original thoughts, creative writing, architectural brainstorming, or "what if" scenarios.
     * **Action:** Distills the creative session into a structured summary (Core Idea, Pros/Cons, Next Steps).
     * **Bonus Action (The Share Feature):** Automatically generates a concise, engaging "Tweet-like" post summarizing the core thesis of the brainstorm, ready for the user to copy and share on social media.
+
+### 6. Discard System
+
+Discards are a first-class concern: items are still captured (so you can recover them), but never reach the dashboard, never produce summaries, and never trigger notifications.
+
+Three independent paths route a session to the `Discarded` pile:
+
+1. **Discard words** (extension-side, default ON, default word `loom`). When the opening user request matches a discard word, the extension still ingests the session but tags the payload with `route_to_discard=true`. The backend short-circuits classification and stores the session under `Discarded/{YYYY}/...md`.
+2. **LLM auto-discard categories**. The discarded pile's `pipeline_config.auto_discard_categories` is a list of natural-language category strings (e.g. `["small talk", "test sessions"]`). The classifier prompt is augmented with these so the LLM can choose to route the session to discarded.
+3. **Manual discard**. `POST /api/v1/piles/discarded/sessions/{id}/discard` moves any session into the discarded pile.
+
+Recovery: `POST /api/v1/piles/discarded/sessions/{id}/recover` clears the discard flag and re-runs the full classification pipeline. The corresponding markdown is moved out of `Discarded/` into the new pile's folder.

@@ -168,7 +168,8 @@ h1 {
 
 .field input[type="url"],
 .field input[type="text"],
-.field input[type="password"] {
+.field input[type="password"],
+.field input[type="number"] {
   width: 100%;
   height: 44px;
   padding: 0 14px;

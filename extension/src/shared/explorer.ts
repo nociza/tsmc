@@ -1,33 +1,37 @@
 import type { BackendSessionListItem, ProviderName, SessionCategoryName } from "./types";
 
-export const categoryOrder: SessionCategoryName[] = ["factual", "ideas", "journal", "todo"];
+export const categoryOrder: SessionCategoryName[] = ["factual", "ideas", "journal", "todo", "discarded"];
 
 export const categoryLabels: Record<SessionCategoryName, string> = {
   factual: "Factual",
   ideas: "Ideas",
   journal: "Journal",
-  todo: "To-Do"
+  todo: "To-Do",
+  discarded: "Discarded"
 };
 
 export const categoryDescriptions: Record<SessionCategoryName, string> = {
   factual: "Verified notes, extracted facts, and the knowledge graph.",
   ideas: "Concepts, proposals, and next-step thinking.",
   journal: "Daily reflections, summaries, and action items.",
-  todo: "Task updates and notes that changed the shared list."
+  todo: "Task updates and notes that changed the shared list.",
+  discarded: "Captured but shelved. Not summarized, not on the dashboard, but recoverable."
 };
 
 export const categoryPalette: Record<SessionCategoryName, { accent: string; soft: string; ink: string }> = {
   factual: { accent: "#0f8a84", soft: "#e2f1ef", ink: "#076b66" },
   ideas: { accent: "#d18425", soft: "#faecd4", ink: "#8a561a" },
   journal: { accent: "#4968ab", soft: "#e3ebf8", ink: "#2f4a85" },
-  todo: { accent: "#c15a40", soft: "#f7e4dd", ink: "#8a3b27" }
+  todo: { accent: "#c15a40", soft: "#f7e4dd", ink: "#8a3b27" },
+  discarded: { accent: "#736e63", soft: "#ebe7df", ink: "#4a463e" }
 };
 
 export const categoryGlyphs: Record<SessionCategoryName, string> = {
   factual: "§",
   ideas: "✦",
   journal: "¶",
-  todo: "✓"
+  todo: "✓",
+  discarded: "⊘"
 };
 
 export const providerLabels: Record<ProviderName, string> = {
@@ -141,7 +145,10 @@ export function formatLongDate(value?: string | null, fallback = "No data"): str
 }
 
 export function parseCategory(value: string | null): SessionCategoryName {
-  return categoryOrder.includes(value as SessionCategoryName) ? (value as SessionCategoryName) : "factual";
+  if (value && categoryOrder.includes(value as SessionCategoryName)) {
+    return value as SessionCategoryName;
+  }
+  return "factual";
 }
 
 export function parseProvider(value: string | null): ProviderName | null {

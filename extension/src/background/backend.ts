@@ -3,10 +3,12 @@ import type {
   BackendCategoryGraph,
   BackendCategoryStats,
   BackendDashboardSummary,
+  BackendDiscardedSessionsResponse,
   BackendExplorerGraphEdge,
   BackendExplorerGraphNode,
   BackendGraphEdge,
   BackendGraphNode,
+  BackendPileRead,
   BackendProcessingStatus,
   BackendSearchResponse,
   BackendSessionListItem,
@@ -241,6 +243,71 @@ export async function updateTodoList(
     throw new Error(`Shared to-do update failed with ${response.status}: ${details.slice(0, 300)}`);
   }
   return (await response.json()) as BackendTodoListRead;
+}
+
+export async function fetchPiles(
+  settings: ExtensionSettings,
+  capabilities?: BackendCapabilities
+): Promise<BackendPileRead[]> {
+  return fetchBackendJson<BackendPileRead[]>(settings, "/piles", capabilities);
+}
+
+export async function fetchDiscardedSessions(
+  settings: ExtensionSettings,
+  capabilities?: BackendCapabilities
+): Promise<BackendDiscardedSessionsResponse> {
+  return fetchBackendJson<BackendDiscardedSessionsResponse>(
+    settings,
+    "/piles/discarded/sessions",
+    capabilities
+  );
+}
+
+export async function recoverDiscardedSession(
+  settings: ExtensionSettings,
+  sessionId: string,
+  capabilities?: BackendCapabilities
+): Promise<BackendSessionRead> {
+  const response = await fetch(
+    backendApiUrl(
+      settings,
+      `/piles/discarded/sessions/${encodeURIComponent(sessionId)}/recover`,
+      capabilities
+    ),
+    {
+      method: "POST",
+      headers: buildBackendHeaders(settings)
+    }
+  );
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Recover discarded session failed with ${response.status}: ${details.slice(0, 300)}`);
+  }
+  return (await response.json()) as BackendSessionRead;
+}
+
+export async function discardSession(
+  settings: ExtensionSettings,
+  sessionId: string,
+  reason?: string,
+  capabilities?: BackendCapabilities
+): Promise<BackendSessionRead> {
+  const url = backendApiUrl(
+    settings,
+    `/piles/discarded/sessions/${encodeURIComponent(sessionId)}/discard${
+      reason ? `?reason=${encodeURIComponent(reason)}` : ""
+    }`,
+    capabilities
+  );
+  const response = await fetch(url, {
+    method: "POST",
+    headers: buildBackendHeaders(settings)
+  });
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Manual discard failed with ${response.status}: ${details.slice(0, 300)}`);
+  }
+  return (await response.json()) as BackendSessionRead;
 }
 
 export async function fetchGraphNodes(

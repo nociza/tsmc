@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { buildIndexingProbeText, evaluateIndexingRules, indexingRulesFingerprint, normalizeRuleWords } from "../src/shared/indexing-rules";
+import {
+  buildIndexingProbeText,
+  evaluateDiscardWords,
+  evaluateIndexingRules,
+  indexingRulesFingerprint,
+  normalizeRuleWords
+} from "../src/shared/indexing-rules";
 import type { ExtensionSettings, NormalizedSessionSnapshot } from "../src/shared/types";
 
 const baseSettings: ExtensionSettings = {
@@ -15,6 +21,8 @@ const baseSettings: ExtensionSettings = {
   indexingMode: "all",
   triggerWords: ["lorem"],
   blacklistWords: [],
+  discardWordsEnabled: true,
+  discardWords: [],
   selectionCaptureEnabled: false
 };
 
@@ -106,5 +114,74 @@ describe("indexing rules", () => {
     });
 
     expect(first).not.toBe(second);
+  });
+
+  it("changes the rules fingerprint when discard words change", () => {
+    const first = indexingRulesFingerprint(baseSettings);
+    const second = indexingRulesFingerprint({
+      ...baseSettings,
+      discardWords: ["loom"]
+    });
+
+    expect(first).not.toBe(second);
+  });
+
+  it("matches a discard word at the start of the opening request", () => {
+    const decision = evaluateDiscardWords(
+      {
+        ...baseSettings,
+        discardWordsEnabled: true,
+        discardWords: ["loom"]
+      },
+      {
+        ...snapshot,
+        messages: [
+          {
+            id: "u1",
+            role: "user",
+            content: "Loom — quick scratch session, please ignore."
+          }
+        ]
+      }
+    );
+
+    expect(decision.matched).toBe(true);
+    expect(decision.matchedWord).toBe("loom");
+  });
+
+  it("does not match when the opening request has no discard word", () => {
+    const decision = evaluateDiscardWords(
+      {
+        ...baseSettings,
+        discardWordsEnabled: true,
+        discardWords: ["loom"]
+      },
+      snapshot
+    );
+
+    expect(decision.matched).toBe(false);
+  });
+
+  it("never matches when discard words are disabled", () => {
+    const decision = evaluateDiscardWords(
+      {
+        ...baseSettings,
+        discardWordsEnabled: false,
+        discardWords: ["loom"]
+      },
+      {
+        ...snapshot,
+        messages: [
+          {
+            id: "u1",
+            role: "user",
+            content: "Loom — anything"
+          }
+        ]
+      }
+    );
+
+    expect(decision.matched).toBe(false);
+    expect(decision.reason).toContain("disabled");
   });
 });

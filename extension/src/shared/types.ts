@@ -51,9 +51,10 @@ export interface NormalizedSessionSnapshot {
 export interface SessionSyncState {
   seenMessageIds: string[];
   lastSyncedAt?: string;
-  indexingRuleDecision?: "indexed" | "skipped";
+  indexingRuleDecision?: "indexed" | "skipped" | "discarded";
   indexingRuleFingerprint?: string;
   indexingRuleReason?: string;
+  discardWordMatch?: string;
 }
 
 export interface ProviderDriftAlert {
@@ -83,9 +84,13 @@ export interface ExtensionSettings {
   backendToken?: string;
   enabledProviders: Record<ProviderName, boolean>;
   autoSyncHistory: boolean;
+  scheduledProviderRefreshEnabled?: boolean;
+  scheduledProviderRefreshIntervalMinutes?: number;
   indexingMode: IndexingMode;
   triggerWords: string[];
   blacklistWords: string[];
+  discardWordsEnabled: boolean;
+  discardWords: string[];
   selectionCaptureEnabled: boolean;
 }
 
@@ -131,6 +136,7 @@ export interface SyncStatus {
   backendUrl?: string;
   autoSyncHistory?: boolean;
   historySyncInProgress?: boolean;
+  historySyncActiveProviders?: ProviderName[];
   historySyncProvider?: ProviderName;
   historySyncLastStartedAt?: string;
   historySyncLastCompletedAt?: string;
@@ -157,7 +163,7 @@ export interface SyncStatus {
   processingProcessedCount?: number;
   processingLastRunAt?: string;
   processingLastError?: string | null;
-  lastIndexingDecision?: "indexed" | "skipped";
+  lastIndexingDecision?: "indexed" | "skipped" | "discarded";
   lastIndexingReason?: string | null;
 }
 
@@ -168,7 +174,9 @@ export interface BackendProcessingStatus {
   pending_count: number;
 }
 
-export type SessionCategoryName = "journal" | "factual" | "ideas" | "todo";
+export type SessionCategoryName = "journal" | "factual" | "ideas" | "todo" | "discarded";
+
+export type PileSlug = string;
 
 export interface DashboardCategoryCount {
   category: SessionCategoryName;
@@ -240,6 +248,9 @@ export interface BackendSessionListItem {
   external_session_id: string;
   title?: string | null;
   category?: SessionCategoryName | null;
+  pile_slug?: string | null;
+  is_discarded?: boolean;
+  discarded_reason?: string | null;
   custom_tags: string[];
   user_categories: string[];
   markdown_path?: string | null;
@@ -276,6 +287,7 @@ export interface BackendSessionRead extends BackendSessionListItem {
   journal_entry?: string | null;
   todo_summary?: string | null;
   idea_summary?: Record<string, unknown> | null;
+  pile_outputs?: Record<string, unknown> | null;
   created_at: string;
   messages: BackendSessionMessage[];
   triplets: BackendSessionTriplet[];
@@ -558,6 +570,40 @@ export interface BackendIngestPayload {
   custom_tags: string[];
   raw_capture: CapturedNetworkEvent;
   messages: BackendIngestMessage[];
+  route_to_discard?: boolean;
+  discard_word_match?: string;
+}
+
+export interface BackendPileRead {
+  id: string;
+  slug: string;
+  name: string;
+  description?: string | null;
+  kind: string;
+  folder_label: string;
+  attributes: string[];
+  pipeline_config: Record<string, unknown>;
+  is_active: boolean;
+  is_visible_on_dashboard: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BackendDiscardedSessionItem {
+  id: string;
+  provider: ProviderName;
+  external_session_id: string;
+  title?: string | null;
+  discarded_reason?: string | null;
+  last_captured_at?: string | null;
+  updated_at: string;
+  markdown_path?: string | null;
+}
+
+export interface BackendDiscardedSessionsResponse {
+  count: number;
+  items: BackendDiscardedSessionItem[];
 }
 
 export interface SaveSettingsResponse {

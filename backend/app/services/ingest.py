@@ -36,7 +36,14 @@ class IngestService:
 
         await self.db.flush()
         self.processor.base_dir = self.exporter.base_dir
-        if uses_extension_browser_processing():
+        if payload.route_to_discard:
+            reason = (
+                f"Auto-discarded by trigger word '{payload.discard_word_match}'."
+                if payload.discard_word_match
+                else "Auto-discarded by client."
+            )
+            session = await self.processor.route_to_discard(session.id, reason=reason)
+        elif uses_extension_browser_processing():
             session = await self.processor.mark_pending(session.id)
         else:
             session = await self.processor.process(session.id)
@@ -162,8 +169,10 @@ class IngestService:
                 selectinload(ChatSession.messages),
                 selectinload(ChatSession.triplets),
                 selectinload(ChatSession.sync_events),
+                selectinload(ChatSession.pile),
             )
             .where(ChatSession.id == session_id)
+            .execution_options(populate_existing=True)
         )
         result = await self.db.execute(statement)
         return result.scalar_one()

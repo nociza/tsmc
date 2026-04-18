@@ -1,6 +1,6 @@
 # SaveMyContext
 
-SaveMyContext captures your ChatGPT, Gemini, and Grok conversations, syncs them to a backend, classifies them into `journal`, `factual`, `ideas`, or `todo`, and writes an Obsidian-friendly Markdown vault plus a lightweight knowledge graph.
+SaveMyContext captures your ChatGPT, Gemini, and Grok conversations, syncs them to a backend, sorts them into **piles** (the built-in five are `journal`, `factual`, `ideas`, `todo`, and `discarded`), and writes an Obsidian-friendly Markdown vault plus a lightweight knowledge graph. You can add your own piles with their own attribute-driven processing pipelines.
 
 ## What You Get
 
@@ -78,6 +78,14 @@ Optional indexing gate:
 
 The trigger/blacklist check focuses on the opening one or two user sentences so it works well with natural speech dictation.
 
+Discard words (separate from the indexing gate):
+
+- on by default, with `loom` as the default discard word
+- when the opening request matches a discard word, the session is still captured (with metadata, in the chronological `Discarded/` folder) but skips classification, summaries, and dashboard counts
+- discarded items stay recoverable from the dashboard's Discarded panel; recovering re-runs the AI pipeline
+
+Auto-discard categories let the LLM classifier route a session to `Discarded` based on a list of category descriptions you configure on the discarded pile (`PATCH /api/v1/piles/discarded`). Useful for "small talk", "test sessions", etc.
+
 ### 4. Use it
 
 Visit ChatGPT, Gemini, or Grok while signed in.
@@ -144,6 +152,9 @@ SaveMyContext/
   Factual/
   Ideas/
   Todo/
+  Discarded/
+    2026/
+      04-18--chatgpt--abc.md
   Sessions/
   Captures/
   Sources/
@@ -152,10 +163,13 @@ SaveMyContext/
     Indexes/
   Dashboards/
     To-Do List.md
+    Discarded Index.md
   README.md
   AGENTS.md
   manifest.json
 ```
+
+User-defined piles get their own folder named after the pile's `folder_label`. The Discarded folder is partitioned by year so chronologically-saved scratch sessions don't crowd the rest of the vault.
 
 ## Useful Commands
 
@@ -205,6 +219,7 @@ pnpm test:e2e
 - [Overview](docs/index.md)
 - [Getting Started](docs/getting-started.md)
 - [Using SaveMyContext](docs/using-save-my-context.md)
+- [Piles](docs/piles.md)
 - [Dashboard and Search](docs/dashboard-and-search.md)
 - [Vault and Storage](docs/vault-and-storage.md)
 - [Security and Access](docs/security-and-access.md)

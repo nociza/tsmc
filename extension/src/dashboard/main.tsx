@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Area,
   AreaChart,
@@ -22,11 +22,13 @@ import {
 
 import {
   fetchDashboardSummary,
+  fetchDiscardedSessions,
   fetchGraphEdges,
   fetchGraphNodes,
   fetchSessions,
   fetchSystemStatus,
-  fetchTodoList
+  fetchTodoList,
+  recoverDiscardedSession
 } from "../background/backend";
 import {
   categoryDescriptions,
@@ -133,6 +135,33 @@ function App() {
     enabled: Boolean(settings && !status?.backendValidationError)
   });
 
+  const discardedQuery = useQuery({
+    queryKey: ["dashboard-discarded", settings?.backendUrl, settings?.backendToken],
+    queryFn: () => fetchDiscardedSessions(settings as ExtensionSettings),
+    enabled: Boolean(settings && !status?.backendValidationError)
+  });
+
+  const queryClient = useQueryClient();
+  const [recoverError, setRecoverError] = useState<string | null>(null);
+
+  const recoverMutation = useMutation({
+    mutationFn: (sessionId: string) =>
+      recoverDiscardedSession(settings as ExtensionSettings, sessionId),
+    onSuccess: async () => {
+      setRecoverError(null);
+      await Promise.all([
+        discardedQuery.refetch(),
+        summaryQuery.refetch(),
+        sessionsQuery.refetch(),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-graph-nodes"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-graph-edges"] })
+      ]);
+    },
+    onError: (error: unknown) => {
+      setRecoverError(error instanceof Error ? error.message : "Could not recover the session.");
+    }
+  });
+
   const summary = status?.backendValidationError ? null : summaryQuery.data ?? null;
   const systemStatus = systemQuery.data;
   const nodes = nodesQuery.data ?? [];
@@ -154,13 +183,15 @@ function App() {
 
   const categoryData = useMemo(() => {
     const counts = new Map(summary?.categories.map((item) => [item.category, item.count] as const) ?? []);
-    return categoryOrder.map((category) => ({
-      category,
-      label: categoryLabels[category],
-      count: counts.get(category) ?? 0,
-      accent: categoryPalette[category].accent,
-      description: categoryDescriptions[category]
-    }));
+    return categoryOrder
+      .filter((category) => category !== "discarded")
+      .map((category) => ({
+        category,
+        label: categoryLabels[category],
+        count: counts.get(category) ?? 0,
+        accent: categoryPalette[category].accent,
+        description: categoryDescriptions[category]
+      }));
   }, [summary]);
 
   const providerData = useMemo(() => providerMix(sessions), [sessions]);
@@ -183,7 +214,8 @@ function App() {
       nodesQuery.refetch(),
       edgesQuery.refetch(),
       sessionsQuery.refetch(),
-      todoQuery.refetch()
+      todoQuery.refetch(),
+      discardedQuery.refetch()
     ]);
   }
 
@@ -400,6 +432,70 @@ function App() {
               </div>
             </button>
           ))}
+        </div>
+      </section>
+
+      <section className="mb-10">
+        <div className="surface overflow-hidden p-0">
+          <div className="flex items-center justify-between border-b border-[var(--color-line)] px-6 py-4">
+            <div>
+              <div className="eyebrow">Discarded</div>
+              <div className="display-serif mt-1 text-[22px] font-semibold text-[var(--color-ink)]">
+                Captured but shelved
+              </div>
+              <p className="mt-1 max-w-[68ch] text-[13px] leading-5 text-[var(--color-ink-soft)]">
+                Sessions whose opening request matched a discard word (default: <code>loom</code>) land here. They never run
+                through classification or notifications, but stay in the vault under <code>Discarded/</code> so you can
+                recover them.
+              </p>
+            </div>
+            <div className="text-xs tabular-nums text-[var(--color-ink-subtle)]">
+              {formatNumber(discardedQuery.data?.count ?? 0)} item
+              {discardedQuery.data?.count === 1 ? "" : "s"}
+            </div>
+          </div>
+          <div className="px-6 py-4">
+            {recoverError ? (
+              <div className="mb-3 rounded-[10px] border border-[rgba(193,90,64,0.35)] bg-[rgba(193,90,64,0.08)] px-3 py-2 text-xs text-[#8a3b27]">
+                {recoverError}
+              </div>
+            ) : null}
+            {discardedQuery.isLoading ? (
+              <div className="text-sm text-[var(--color-ink-subtle)]">Loading…</div>
+            ) : discardedQuery.data?.items.length ? (
+              <ul className="divide-y divide-[var(--color-line)]">
+                {discardedQuery.data.items.slice(0, 10).map((item) => (
+                  <li key={item.id} className="flex items-start justify-between gap-4 py-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-[var(--color-ink)]">
+                        {item.title?.trim() || `${providerLabels[item.provider]} · ${item.external_session_id}`}
+                      </div>
+                      <div className="mt-0.5 text-[11px] uppercase tracking-[0.08em] text-[var(--color-ink-subtle)]">
+                        {providerLabels[item.provider]} · {formatCompactDate(item.last_captured_at ?? item.updated_at)}
+                      </div>
+                      {item.discarded_reason ? (
+                        <div className="mt-1 line-clamp-2 text-[12px] text-[var(--color-ink-soft)]">
+                          {item.discarded_reason}
+                        </div>
+                      ) : null}
+                    </div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={recoverMutation.isPending && recoverMutation.variables === item.id}
+                      onClick={() => recoverMutation.mutate(item.id)}
+                    >
+                      {recoverMutation.isPending && recoverMutation.variables === item.id ? "Recovering…" : "Recover"}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="text-sm text-[var(--color-ink-subtle)]">
+                Nothing discarded. Say <code>loom</code> at the start of a session to route it here.
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
