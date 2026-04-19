@@ -98,8 +98,6 @@ const ACTION_ICON_PATHS: Record<number, string> = {
 const ACTION_ICON_SIZES = [16, 32, 48, 128] as const;
 const syncIconImageData = new Map<number, ImageData>();
 let actionIconMode: "default" | "syncing" = "default";
-const recentProviderVisitsByTabId = new Map<number, { pageUrl: string; startedAt: number }>();
-const RECENT_PROVIDER_VISIT_TTL_MS = 750;
 
 function refreshedProcessingLastError(status: SyncStatus, pendingCount: number): string | null {
   if (status.processingInProgress) {
@@ -157,35 +155,6 @@ function clearActiveChatContext(tabId: number | undefined): void {
   if (typeof tabId === "number") {
     activeChatContextsByTabId.delete(tabId);
   }
-}
-
-function wasRecentProviderVisit(tabId: number | undefined, pageUrl: string): boolean {
-  if (typeof tabId !== "number") {
-    return false;
-  }
-
-  const current = recentProviderVisitsByTabId.get(tabId);
-  if (!current) {
-    return false;
-  }
-
-  if (Date.now() - current.startedAt >= RECENT_PROVIDER_VISIT_TTL_MS) {
-    recentProviderVisitsByTabId.delete(tabId);
-    return false;
-  }
-
-  return current.pageUrl === pageUrl;
-}
-
-function rememberRecentProviderVisit(tabId: number | undefined, pageUrl: string): void {
-  if (typeof tabId !== "number") {
-    return;
-  }
-
-  recentProviderVisitsByTabId.set(tabId, {
-    pageUrl,
-    startedAt: Date.now()
-  });
 }
 
 function searchResultIdentity(result: BackendSearchResult): string {
@@ -1079,7 +1048,6 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   clearActiveChatContext(tabId);
-  recentProviderVisitsByTabId.delete(tabId);
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -1101,12 +1069,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     return;
   }
 
-  void handlePageVisit(
-    {
-      provider,
-      pageUrl
-    },
-    tabId
+  void enqueueTask(() =>
+    handlePageVisit(
+      {
+        provider,
+        pageUrl
+      },
+      tabId
+    )
   );
 });
 
@@ -1140,7 +1110,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
   }
 
   if (message.type === "PAGE_VISIT") {
-    void handlePageVisit(message.payload, _sender.tab?.id).then(sendResponse);
+    void enqueueTask(() => handlePageVisit(message.payload, _sender.tab?.id)).then(sendResponse);
     return true;
   }
 
@@ -1584,10 +1554,6 @@ async function handlePageVisit(
     return { triggered: false, reason: "missing-tab-id" };
   }
 
-  if (wasRecentProviderVisit(tabId, payload.pageUrl)) {
-    return { triggered: false, reason: "recent-page-visit" };
-  }
-
   const currentState = await getProviderHistorySyncState(payload.provider);
   if (isFreshHistorySyncInProgress(currentState)) {
     return { triggered: false, reason: "already-in-progress" };
@@ -1600,7 +1566,6 @@ async function handlePageVisit(
     : extractExternalSessionIds(payload.provider, await getProviderSessionSyncStates(payload.provider), settings);
   const previousTopSessionIds = activeWatermarks;
   const now = new Date().toISOString();
-  rememberRecentProviderVisit(tabId, payload.pageUrl);
   await saveProviderHistorySyncState(payload.provider, {
     ...currentState,
     inProgress: true,
