@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.core.config import get_settings
 from app.models import ChatMessage, ChatSession, FactTriplet, MessageRole, ProviderName, SessionCategory, SourceCapture
 from app.models.base import Base
+from app.services.agentic_search import AgenticSearchCandidate
 from app.services.graph import GraphService
 from app.services.search import SearchService
 from app.services.todo import TodoListService
@@ -168,6 +169,66 @@ async def test_search_reads_capture_source_files_with_shell_search(tmp_path, mon
                 "cap theorem footnote" in result.snippet.lower()
                 for result in search.results
                 if result.source_id == source_id
+            )
+    finally:
+        get_settings.cache_clear()
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_search_uses_adk_candidates_when_google_is_configured(tmp_path, monkeypatch) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'savemycontext-search-adk.db'}")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    monkeypatch.setenv("SAVEMYCONTEXT_MARKDOWN_DIR", str(tmp_path / "markdown"))
+    monkeypatch.setenv("SAVEMYCONTEXT_GOOGLE_API_KEY", "test-google-key")
+    get_settings.cache_clear()
+    try:
+        note_path = tmp_path / "markdown" / "SaveMyContext" / "Factual" / "adk-note.md"
+        note_path.parent.mkdir(parents=True, exist_ok=True)
+        note_path.write_text("# ADK note\n\nSearch result chosen by the fake ADK service.\n", encoding="utf-8")
+
+        async with session_factory() as session:
+            chat_session = ChatSession(
+                provider=ProviderName.GEMINI,
+                external_session_id="session-adk-only",
+                title="ADK note",
+                category=SessionCategory.FACTUAL,
+                markdown_path=str(note_path),
+                last_captured_at=datetime.now(timezone.utc),
+            )
+            session.add(chat_session)
+            await session.commit()
+            session_id = chat_session.id
+
+        class FakeADKVaultSearchService:
+            def __init__(self, settings=None) -> None:
+                self.settings = settings
+
+            async def search(self, query: str, *, limit: int = 10) -> list[AgenticSearchCandidate]:
+                assert query == "rare adk token"
+                assert limit >= 24
+                return [
+                    AgenticSearchCandidate(
+                        path=str(note_path.resolve()),
+                        reason="ADK selected the best matching note.",
+                        snippet="ADK snippet for a query that is not in the database.",
+                    )
+                ]
+
+        monkeypatch.setattr("app.services.search.ADKVaultSearchService", FakeADKVaultSearchService)
+
+        async with session_factory() as session:
+            search = await SearchService(session).search("rare adk token")
+            assert any(result.session_id == session_id for result in search.results)
+            assert any(
+                "adk snippet" in result.snippet.lower()
+                for result in search.results
+                if result.session_id == session_id
             )
     finally:
         get_settings.cache_clear()

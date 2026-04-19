@@ -28,6 +28,7 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
+    "3d-force-graph": "^1.80.0",
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-separator": "^1.1.8",
@@ -35,6 +36,7 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tanstack/react-query": "^5.99.0",
+    "@types/three": "^0.184.0",
     "@xyflow/react": "^12.10.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -49,6 +51,7 @@
     "recharts": "^3.8.1",
     "remark-gfm": "^4.0.1",
     "sigma": "^3.0.2",
-    "tailwind-merge": "^3.5.0"
+    "tailwind-merge": "^3.5.0",
+    "three": "^0.184.0"
   }
 }

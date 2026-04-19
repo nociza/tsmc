@@ -11,15 +11,15 @@ const buttonVariants = cva(
     variants: {
       variant: {
         primary:
-          "rounded-[10px] bg-[var(--color-ink)] text-[var(--color-paper)] hover:bg-[#1a2c44] active:translate-y-[0.5px]",
+          "rounded-[8px] bg-[var(--color-ink)] text-[var(--color-paper)] hover:bg-[#1a2c44] active:translate-y-[0.5px]",
         accent:
-          "rounded-[10px] bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-strong)] active:translate-y-[0.5px]",
+          "rounded-[8px] bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-strong)] active:translate-y-[0.5px]",
         secondary:
-          "rounded-[10px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] text-[var(--color-ink)] hover:border-[var(--color-line-strong)] hover:bg-[var(--color-paper-sunken)]",
+          "rounded-[8px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] text-[var(--color-ink)] hover:border-[var(--color-line-strong)] hover:bg-[var(--color-paper-sunken)]",
         subtle:
-          "rounded-[10px] bg-[var(--color-paper-sunken)] text-[var(--color-ink)] hover:bg-[#e6dfcd]",
+          "rounded-[8px] bg-[var(--color-paper-sunken)] text-[var(--color-ink)] hover:bg-[#e6dfcd]",
         ghost:
-          "rounded-[10px] text-[var(--color-ink-soft)] hover:bg-[var(--color-paper-sunken)] hover:text-[var(--color-ink)]"
+          "rounded-[8px] text-[var(--color-ink-soft)] hover:bg-[var(--color-paper-sunken)] hover:text-[var(--color-ink)]"
       },
       size: {
         default: "h-10 px-4 text-sm",

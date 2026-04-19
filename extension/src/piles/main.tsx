@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, LoaderCircle, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, LoaderCircle, Plus, Save, SlidersHorizontal, Trash2 } from "lucide-react";
 
 import {
   createPile,
@@ -128,9 +128,21 @@ function App() {
   const userPiles = useMemo(() => piles.filter((pile) => !isBuiltIn(pile)), [piles]);
 
   return (
-    <div className="mx-auto max-w-[980px] px-6 py-10 sm:px-10">
-      <header className="mb-8 flex items-start justify-between gap-6">
-        <div className="flex items-start gap-4">
+    <div className="app-page app-page--narrow">
+      <header className="app-page-header">
+        <div className="app-page-heading">
+          <div className="app-page-mark">C</div>
+          <div>
+            <p className="eyebrow">Configuration</p>
+            <h1 className="app-page-title">Piles</h1>
+            <p className="app-page-copy">
+              Piles decide where a session ends up and how it gets processed. The five built-in piles always exist;
+              you can layer your own piles with their own attribute set on top. Each attribute drives one part of the
+              LLM pipeline.
+            </p>
+          </div>
+        </div>
+        <div className="app-page-actions">
           <Button
             variant="ghost"
             size="sm"
@@ -141,40 +153,39 @@ function App() {
             <ArrowLeft className="h-3.5 w-3.5" />
             Dashboard
           </Button>
-          <div>
-            <p className="eyebrow">Configuration</p>
-            <h1 className="display-serif text-[34px] font-semibold leading-[1.05] text-[var(--color-ink)]">
-              Piles
-            </h1>
-            <p className="mt-2 max-w-[60ch] text-[14px] leading-relaxed text-[var(--color-ink-soft)]">
-              Piles decide where a session ends up and how it gets processed. The five built-in piles always exist;
-              you can layer your own piles with their own attribute set on top. Each attribute drives one part of the
-              LLM pipeline.
-            </p>
-          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              window.location.href = chrome.runtime.getURL("prompts.html");
+            }}
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            Prompts
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => {
+              setCreating(true);
+              setEditing(null);
+            }}
+            disabled={loading || !settings || Boolean(status?.backendValidationError)}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New pile
+          </Button>
         </div>
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={() => {
-            setCreating(true);
-            setEditing(null);
-          }}
-          disabled={loading || !settings || Boolean(status?.backendValidationError)}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          New pile
-        </Button>
       </header>
 
       {error ? (
-        <div className="mb-6 rounded-[12px] border border-[rgba(193,90,64,0.35)] bg-[rgba(193,90,64,0.08)] px-4 py-3 text-sm text-[#8a3b27]">
+        <div className="mb-6 rounded-[8px] border border-[rgba(193,90,64,0.35)] bg-[rgba(193,90,64,0.08)] px-4 py-3 text-sm text-[#8a3b27]">
           {error}
         </div>
       ) : null}
 
       {status?.backendValidationError ? (
-        <div className="mb-6 rounded-[12px] border border-[rgba(193,90,64,0.35)] bg-[rgba(193,90,64,0.08)] px-4 py-3 text-sm text-[#8a3b27]">
+        <div className="mb-6 rounded-[8px] border border-[rgba(193,90,64,0.35)] bg-[rgba(193,90,64,0.08)] px-4 py-3 text-sm text-[#8a3b27]">
           <strong>Backend unavailable.</strong> {status.backendValidationError}
         </div>
       ) : null}
@@ -220,7 +231,7 @@ function App() {
       <section>
         <h2 className="display-serif mb-3 text-[20px] font-semibold text-[var(--color-ink)]">Your piles</h2>
         {userPiles.length === 0 ? (
-          <div className="rounded-[12px] border border-dashed border-[var(--color-line)] bg-[var(--color-paper-sunken)] px-5 py-6 text-sm text-[var(--color-ink-soft)]">
+          <div className="rounded-[8px] border border-dashed border-[var(--color-line)] bg-[var(--color-paper-sunken)] px-5 py-6 text-sm text-[var(--color-ink-soft)]">
             You don't have any custom piles yet. Use <strong>New pile</strong> above to add one. Custom piles get a
             folder under the vault and use the attribute pipeline.
           </div>
@@ -280,9 +291,11 @@ function PileCard({
       ? ((pile.pipeline_config as Record<string, unknown>).auto_discard_categories as string[]).join(", ")
       : ""
   );
-  const [customPromptAddendum, setCustomPromptAddendum] = useState<string>(
-    typeof (pile.pipeline_config as Record<string, unknown>)?.custom_prompt_addendum === "string"
-      ? ((pile.pipeline_config as Record<string, unknown>).custom_prompt_addendum as string)
+  const [pipelinePromptAddendum, setPipelinePromptAddendum] = useState<string>(
+    typeof (pile.pipeline_config as Record<string, unknown>)?.pipeline_prompt_addendum === "string"
+      ? ((pile.pipeline_config as Record<string, unknown>).pipeline_prompt_addendum as string)
+      : typeof (pile.pipeline_config as Record<string, unknown>)?.custom_prompt_addendum === "string"
+        ? ((pile.pipeline_config as Record<string, unknown>).custom_prompt_addendum as string)
       : ""
   );
 
@@ -300,7 +313,8 @@ function PileCard({
     }
     const pipelineConfig: Record<string, unknown> = {
       ...(pile.pipeline_config ?? {}),
-      custom_prompt_addendum: customPromptAddendum.trim() || null
+      pipeline_prompt_addendum: pipelinePromptAddendum.trim() || null,
+      custom_prompt_addendum: pipelinePromptAddendum.trim() || null
     };
     if (discarded) {
       pipelineConfig.auto_discard_categories = autoDiscardCategories
@@ -382,7 +396,7 @@ function PileCard({
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               rows={2}
-              className="w-full rounded-[10px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] px-3 py-2 text-sm text-[var(--color-ink)]"
+              className="w-full rounded-[8px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] px-3 py-2 text-sm text-[var(--color-ink)]"
             />
           </Field>
 
@@ -409,7 +423,7 @@ function PileCard({
                   <label
                     key={attr.id}
                     className={cn(
-                      "flex cursor-pointer items-start gap-2 rounded-[10px] border px-3 py-2 text-left transition",
+                      "flex cursor-pointer items-start gap-2 rounded-[8px] border px-3 py-2 text-left transition",
                       attributes.includes(attr.id)
                         ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
                         : "border-[var(--color-line)] bg-[var(--color-paper-raised)] hover:border-[var(--color-line-strong)]"
@@ -441,20 +455,20 @@ function PileCard({
                 onChange={(event) => setAutoDiscardCategories(event.target.value)}
                 rows={3}
                 placeholder="small talk, test sessions, debugging chat"
-                className="w-full rounded-[10px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] px-3 py-2 text-sm text-[var(--color-ink)]"
+                className="w-full rounded-[8px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] px-3 py-2 text-sm text-[var(--color-ink)]"
               />
             </Field>
           ) : null}
 
           <Field
-            label="Custom prompt addendum (optional)"
-            hint="Extra instructions appended to the pile's pipeline prompt."
+            label="Pipeline instructions (optional)"
+            hint="Extra instructions appended when this pile's extraction step runs."
           >
             <textarea
-              value={customPromptAddendum}
-              onChange={(event) => setCustomPromptAddendum(event.target.value)}
+              value={pipelinePromptAddendum}
+              onChange={(event) => setPipelinePromptAddendum(event.target.value)}
               rows={2}
-              className="w-full rounded-[10px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] px-3 py-2 text-sm text-[var(--color-ink)]"
+              className="w-full rounded-[8px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] px-3 py-2 text-sm text-[var(--color-ink)]"
             />
           </Field>
         </div>
@@ -538,7 +552,7 @@ function NewPileForm({
             onChange={(event) => setDescription(event.target.value)}
             rows={2}
             placeholder="Long-form research notes that I want to share later."
-            className="w-full rounded-[10px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] px-3 py-2 text-sm text-[var(--color-ink)]"
+            className="w-full rounded-[8px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] px-3 py-2 text-sm text-[var(--color-ink)]"
           />
         </Field>
       </div>
@@ -564,7 +578,7 @@ function NewPileForm({
               <label
                 key={attr.id}
                 className={cn(
-                  "flex cursor-pointer items-start gap-2 rounded-[10px] border px-3 py-2 text-left transition",
+                  "flex cursor-pointer items-start gap-2 rounded-[8px] border px-3 py-2 text-left transition",
                   attributes.includes(attr.id)
                     ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
                     : "border-[var(--color-line)] bg-[var(--color-paper-raised)] hover:border-[var(--color-line-strong)]"

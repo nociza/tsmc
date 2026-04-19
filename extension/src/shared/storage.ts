@@ -36,7 +36,9 @@ export const defaultSettings: ExtensionSettings = {
   blacklistWords: [],
   discardWordsEnabled: true,
   discardWords: ["loom"],
-  selectionCaptureEnabled: false
+  selectionCaptureEnabled: false,
+  contextSuggestionsEnabled: false,
+  contextSuggestionsFloatingButtonEnabled: true
 };
 
 function mergeSettings(
@@ -61,7 +63,11 @@ function mergeSettings(
     blacklistWords: current.blacklistWords ?? defaultSettings.blacklistWords,
     discardWordsEnabled: current.discardWordsEnabled ?? defaultSettings.discardWordsEnabled,
     discardWords: current.discardWords ?? defaultSettings.discardWords,
-    selectionCaptureEnabled: current.selectionCaptureEnabled ?? defaultSettings.selectionCaptureEnabled
+    selectionCaptureEnabled: current.selectionCaptureEnabled ?? defaultSettings.selectionCaptureEnabled,
+    contextSuggestionsEnabled:
+      current.contextSuggestionsEnabled ?? defaultSettings.contextSuggestionsEnabled,
+    contextSuggestionsFloatingButtonEnabled:
+      current.contextSuggestionsFloatingButtonEnabled ?? defaultSettings.contextSuggestionsFloatingButtonEnabled
   };
 }
 
@@ -77,7 +83,9 @@ function shouldPersistSettings(current: Partial<ExtensionSettings>): boolean {
     !current.blacklistWords ||
     current.discardWordsEnabled === undefined ||
     !current.discardWords ||
-    current.selectionCaptureEnabled === undefined
+    current.selectionCaptureEnabled === undefined ||
+    current.contextSuggestionsEnabled === undefined ||
+    current.contextSuggestionsFloatingButtonEnabled === undefined
   ) {
     return true;
   }
@@ -105,7 +113,11 @@ function publicSettings(settings: ExtensionSettings | Partial<ExtensionSettings>
     blacklistWords: settings.blacklistWords ?? defaultSettings.blacklistWords,
     discardWordsEnabled: settings.discardWordsEnabled ?? defaultSettings.discardWordsEnabled,
     discardWords: settings.discardWords ?? defaultSettings.discardWords,
-    selectionCaptureEnabled: settings.selectionCaptureEnabled ?? defaultSettings.selectionCaptureEnabled
+    selectionCaptureEnabled: settings.selectionCaptureEnabled ?? defaultSettings.selectionCaptureEnabled,
+    contextSuggestionsEnabled:
+      settings.contextSuggestionsEnabled ?? defaultSettings.contextSuggestionsEnabled,
+    contextSuggestionsFloatingButtonEnabled:
+      settings.contextSuggestionsFloatingButtonEnabled ?? defaultSettings.contextSuggestionsFloatingButtonEnabled
   };
 }
 
@@ -162,7 +174,10 @@ export async function saveSettings(update: Partial<ExtensionSettings>): Promise<
     blacklistWords: update.blacklistWords ?? current.blacklistWords,
     discardWordsEnabled: update.discardWordsEnabled ?? current.discardWordsEnabled,
     discardWords: update.discardWords ?? current.discardWords,
-    selectionCaptureEnabled: update.selectionCaptureEnabled ?? current.selectionCaptureEnabled
+    selectionCaptureEnabled: update.selectionCaptureEnabled ?? current.selectionCaptureEnabled,
+    contextSuggestionsEnabled: update.contextSuggestionsEnabled ?? current.contextSuggestionsEnabled,
+    contextSuggestionsFloatingButtonEnabled:
+      update.contextSuggestionsFloatingButtonEnabled ?? current.contextSuggestionsFloatingButtonEnabled
   };
   await chrome.storage.sync.set({
     [SETTINGS_KEY]: publicSettings(next)

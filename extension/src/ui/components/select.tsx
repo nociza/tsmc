@@ -16,7 +16,7 @@ export function SelectTrigger({
   return (
     <SelectPrimitive.Trigger
       className={cn(
-        "flex h-10 w-full items-center justify-between rounded-[10px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] px-3 text-sm text-[var(--color-ink)] outline-none transition hover:border-[var(--color-line-strong)] focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[rgba(15,138,132,0.15)] disabled:cursor-not-allowed disabled:opacity-50",
+        "flex h-10 w-full items-center justify-between rounded-[8px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] px-3 text-sm text-[var(--color-ink)] outline-none transition hover:border-[var(--color-line-strong)] focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[rgba(15,138,132,0.15)] disabled:cursor-not-allowed disabled:opacity-50",
         className
       )}
       {...props}
@@ -40,7 +40,7 @@ export function SelectContent({
       <SelectPrimitive.Content
         position={position}
         className={cn(
-          "z-50 max-h-80 min-w-[10rem] overflow-hidden rounded-[12px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] p-1 shadow-[0_14px_40px_-20px_rgba(15,27,44,0.2)]",
+          "z-50 max-h-80 min-w-[10rem] overflow-hidden rounded-[8px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] p-1 shadow-[0_14px_40px_-20px_rgba(15,27,44,0.2)]",
           className
         )}
         {...props}

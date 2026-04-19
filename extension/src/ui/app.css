@@ -93,9 +93,135 @@
 }
 
 @layer components {
+  .app-page {
+    width: 100%;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 32px 24px 64px;
+  }
+
+  .app-page--wide {
+    max-width: 1680px;
+    padding: 12px 12px 24px;
+  }
+
+  .app-page--narrow {
+    max-width: 980px;
+  }
+
+  .app-page--reader {
+    max-width: 920px;
+  }
+
+  .app-page-header {
+    min-height: 88px;
+    margin-bottom: 28px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+  }
+
+  .app-page-heading {
+    min-width: 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .app-page-mark {
+    width: 40px;
+    height: 40px;
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    background: var(--color-ink);
+    color: var(--color-paper);
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .app-page-title {
+    margin-top: 2px;
+    font-family: var(--font-display);
+    font-size: 36px;
+    font-weight: 600;
+    line-height: 1.05;
+    color: var(--color-ink);
+  }
+
+  .app-page-copy {
+    margin-top: 8px;
+    max-width: 60ch;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--color-ink-soft);
+  }
+
+  .app-page-actions,
+  .app-page-topbar {
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .app-page-topbar {
+    margin-bottom: 16px;
+    justify-content: space-between;
+  }
+
+  .workspace-control-bar {
+    min-height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border: 1px solid var(--color-line);
+    border-radius: 8px;
+    background: var(--color-paper-sunken);
+    padding: 6px;
+  }
+
+  .workspace-control-group {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .workspace-control-label {
+    flex: 0 0 auto;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-ink-soft);
+  }
+
+  .workspace-scope-chip {
+    min-width: 0;
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border: 1px solid var(--color-line);
+    border-radius: 999px;
+    background: var(--color-paper-raised);
+    padding: 2px 9px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--color-ink-soft);
+  }
+
   .surface,
   .panel-surface {
-    border-radius: 16px;
+    border-radius: 8px;
     border: 1px solid var(--color-line);
     background: var(--color-paper-raised);
     box-shadow:
@@ -104,12 +230,12 @@
   }
 
   .surface-sunken {
-    border-radius: 14px;
+    border-radius: 8px;
     background: var(--color-paper-sunken);
   }
 
   .surface-flat {
-    border-radius: 14px;
+    border-radius: 8px;
     border: 1px solid var(--color-line);
     background: var(--color-paper-raised);
   }
@@ -135,7 +261,7 @@
 
   .stamp {
     position: relative;
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 14px 16px;
     background: var(--color-paper-raised);
     border: 1px solid var(--color-line);
@@ -163,7 +289,7 @@
     width: 100%;
     height: 44px;
     padding: 0 14px;
-    border-radius: 10px;
+    border-radius: 8px;
     border: 1px solid var(--color-line);
     background: var(--color-paper-raised);
     color: var(--color-ink);
@@ -244,5 +370,50 @@
 
   .scroll-fade-bottom {
     mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
+  }
+
+  @media (max-width: 767px) {
+    .app-page {
+      padding: 24px 16px 56px;
+    }
+
+    .app-page--wide {
+      padding: 12px;
+    }
+
+    .app-page-header {
+      min-height: 0;
+      flex-direction: column;
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .app-page-actions {
+      width: 100%;
+      justify-content: flex-start;
+    }
+
+    .app-page-title {
+      font-size: 31px;
+    }
+
+    .workspace-control-bar {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .workspace-control-group {
+      flex-wrap: wrap;
+    }
+
+    .workspace-scope-chip {
+      max-width: 100%;
+    }
+  }
+
+  @media (min-width: 1536px) {
+    .workspace-scope-chip {
+      max-width: 420px;
+    }
   }
 }

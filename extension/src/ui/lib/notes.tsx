@@ -5,12 +5,21 @@ import remarkGfm from "remark-gfm";
 
 import { categoryLabels, formatCompactDate, providerLabels, titleFromSession } from "../../shared/explorer";
 import type { BackendSessionNoteRead } from "../../shared/types";
+import { IdeaFlow, type IdeaFlowData, type IdeaFlowOrigin } from "../components/idea-flow";
 
 function textList(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
   }
   return value.map((item) => String(item).trim()).filter(Boolean);
+}
+
+function ideaFlowHasStructure(ideaSummary: Record<string, unknown>): boolean {
+  if (typeof ideaSummary["core_idea"] === "string" && ideaSummary["core_idea"]) {
+    return true;
+  }
+  const keys = ["reasoning_steps", "related_facts", "supports", "conflicts_with", "next_steps"] as const;
+  return keys.some((key) => textList(ideaSummary[key]).length > 0);
 }
 
 function splitJournalEntry(value?: string | null): { body: string; actionItems: string[] } {
@@ -152,6 +161,20 @@ export function NoteOverview({
 
       {note.category === "ideas" ? (
         <>
+          {ideaFlowHasStructure(ideaSummary) ? (
+            <NoteSection title="Idea Flow">
+              <IdeaFlow
+                idea={ideaSummary as IdeaFlowData}
+                origin={{
+                  title: titleFromSession(note),
+                  provider: providerLabels[note.provider],
+                  occurredAt: formatCompactDate(note.updated_at),
+                  participants: []
+                } satisfies IdeaFlowOrigin}
+                height={compact ? 360 : 520}
+              />
+            </NoteSection>
+          ) : null}
           {typeof ideaSummary["core_idea"] === "string" ? (
             <NoteSection title="Core Idea">
               <p>{ideaSummary["core_idea"]}</p>

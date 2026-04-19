@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from sqlalchemy import Text, cast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
 from app.models import ChatMessage, ChatSession, FactTriplet, ProviderName, SessionCategory, SourceCapture
 from app.schemas.search import SearchResult, SearchResponse
-from app.services.agentic_search import AgenticVaultSearchService
+from app.services.agentic_search import ADKVaultSearchService, VaultSearchToolkit
 from app.services.graph import entity_note_path
 from app.services.todo import TODO_TITLE, TodoListService
 from app.services.user_categories import extract_user_categories, has_user_category
+
+
+logger = logging.getLogger(__name__)
 
 
 def _snippet(text: str | None, query: str) -> str:
@@ -35,6 +40,16 @@ def _normalize_path(path_text: str | None) -> str | None:
         return str(Path(path_text).expanduser().resolve())
     except OSError:
         return None
+
+
+def _candidate_snippet(hit: object) -> str:
+    snippet = getattr(hit, "snippet", "")
+    if isinstance(snippet, str) and snippet.strip():
+        return snippet.strip()
+    reason = getattr(hit, "reason", "")
+    if isinstance(reason, str):
+        return reason.strip()
+    return ""
 
 
 def _result_identity(result: SearchResult) -> tuple[str, str]:
@@ -256,7 +271,7 @@ class SearchService:
                 )
             )
 
-        shell_results = await self._shell_results(
+        agentic_results = await self._agentic_results(
             query,
             limit=max(limit * 4, 24),
             category=category,
@@ -265,10 +280,10 @@ class SearchService:
             allowed_kinds=allowed_kinds,
             include_discarded=include_discarded,
         )
-        ordered = self._merge_results(shell_results, results, limit=limit)
+        ordered = self._merge_results(agentic_results, results, limit=limit)
         return SearchResponse(query=query, count=len(ordered), results=ordered)
 
-    async def _shell_results(
+    async def _agentic_results(
         self,
         query: str,
         *,
@@ -282,7 +297,7 @@ class SearchService:
         if not {"session", "source_capture"} & allowed_kinds:
             return []
 
-        hits = AgenticVaultSearchService().search(query, limit=limit)
+        hits = await self._agentic_candidates(query, limit=limit)
         if not hits:
             return []
 
@@ -332,7 +347,7 @@ class SearchService:
                     SearchResult(
                         kind="session",
                         title=session.title or session.external_session_id,
-                        snippet=hit.snippet,
+                        snippet=_candidate_snippet(hit),
                         session_id=session.id,
                         category=session.category,
                         provider=session.provider,
@@ -348,7 +363,7 @@ class SearchService:
                     SearchResult(
                         kind="source_capture",
                         title=source_capture.title or source_capture.page_title or "Saved source",
-                        snippet=hit.snippet,
+                        snippet=_candidate_snippet(hit),
                         source_id=source_capture.id,
                         category=source_capture.category,
                         markdown_path=source_capture.markdown_path or source_capture.raw_source_path,
@@ -357,6 +372,19 @@ class SearchService:
                 continue
 
         return resolved
+
+    async def _agentic_candidates(self, query: str, *, limit: int):
+        settings = get_settings()
+        if settings.google_api_key:
+            try:
+                candidates = await ADKVaultSearchService(settings=settings).search(query, limit=limit)
+                if candidates:
+                    return candidates
+            except Exception as exc:
+                logger.warning("ADK vault search failed; falling back to local grep search: %s", exc)
+
+        toolkit = VaultSearchToolkit(settings)
+        return toolkit.search(query, limit=limit)
 
     def _merge_results(
         self,

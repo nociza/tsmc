@@ -221,12 +221,17 @@ function buildSigmaGraph(
   const clusterCenterById = new Map<string, { x: number; y: number }>();
   const visibleEntityIds = new Set<string>();
 
+  // Space clusters far enough apart that their inner rings don't collide.
+  const clusterSpacingX = 60;
+  const clusterSpacingY = 52;
   clusters.forEach((cluster, index) => {
     const column = index % columns;
     const row = Math.floor(index / columns);
+    // Stagger every other row horizontally so the lattice is not axis-aligned.
+    const staggerOffset = row % 2 === 0 ? 0 : clusterSpacingX / 2;
     clusterCenterById.set(cluster.id, {
-      x: column * 24,
-      y: row * 20
+      x: column * clusterSpacingX + staggerOffset,
+      y: row * clusterSpacingY
     });
   });
 
@@ -265,9 +270,14 @@ function buildSigmaGraph(
       continue;
     }
 
+    // Ring radius grows with cluster size so large clusters don't squeeze into
+    // a single tight orbit. The small golden-angle rotation makes each ring's
+    // start angle differ from its neighbors, which breaks the visible grid.
+    const baseRing = 6 + Math.sqrt(visibleClusterNodes.length) * 1.6;
+    const ringGoldenOffset = (Math.PI * (Math.sqrt(5) - 1)) * (clusterCenterById.get(cluster.id)?.x ?? 0);
     visibleClusterNodes.forEach((node, index) => {
-      const angle = (Math.PI * 2 * index) / Math.max(visibleClusterNodes.length, 1);
-      const ring = 3.5 + Math.floor(index / 8) * 2.2;
+      const angle = ringGoldenOffset + (Math.PI * 2 * index) / Math.max(visibleClusterNodes.length, 1);
+      const ring = baseRing + Math.floor(index / 10) * 3.2;
       const degree = degreeByNodeId.get(node.id) ?? 0;
       const muted = Boolean(activeSessions && !hasActiveSession(node.session_ids, activeSessions));
       visibleEntityIds.add(node.id);
@@ -361,22 +371,38 @@ function buildSigmaGraph(
   if (graph.order > 1) {
     try {
       forceAtlas2.assign(graph, {
-        iterations: graph.order > 80 ? 80 : 120,
+        iterations: graph.order > 80 ? 100 : 160,
         settings: {
           ...forceAtlas2.inferSettings(graph),
-          gravity: 0.9,
-          scalingRatio: groupingMode === "community" ? 7 : 5,
-          edgeWeightInfluence: 0.45,
-          barnesHutOptimize: graph.order > 80
+          gravity: 0.5,
+          // Stronger repulsion so clusters stay visually distinct.
+          scalingRatio: groupingMode === "community" ? 14 : 10,
+          edgeWeightInfluence: 0.35,
+          barnesHutOptimize: graph.order > 80,
+          // Linear mode gives more breathing room between high-degree nodes.
+          linLogMode: false,
+          outboundAttractionDistribution: true
         },
         getEdgeWeight: "weight"
       });
+      // Two noverlap passes: first with a bigger margin to force separation,
+      // then with tight margin to tidy up without overshooting.
       noverlap.assign(graph, {
-        maxIterations: 80,
+        maxIterations: 120,
         settings: {
-          margin: 3,
-          ratio: 1.2,
-          expansion: 1.08
+          margin: 6,
+          ratio: 1.35,
+          expansion: 1.2,
+          gridSize: 24,
+          speed: 3
+        }
+      });
+      noverlap.assign(graph, {
+        maxIterations: 60,
+        settings: {
+          margin: 3.5,
+          ratio: 1.15,
+          expansion: 1.04
         }
       });
     } catch {
@@ -477,20 +503,31 @@ export function CategoryGraph({
       autoRescale: true,
       enableEdgeEvents: true,
       hideEdgesOnMove: true,
-      hideLabelsOnMove: false,
-      labelDensity: 0.1,
-      labelGridCellSize: 90,
-      labelRenderedSizeThreshold: density === "curated" ? 7 : 9,
+      hideLabelsOnMove: true,
+      // Keep labels sparse so they don't overlap each other. Sigma uses a grid
+      // occlusion strategy — larger cells + a higher rendered-size threshold
+      // means a label is only drawn when its node is big and isolated enough.
+      labelDensity: 0.06,
+      labelGridCellSize: 160,
+      labelRenderedSizeThreshold: density === "curated" ? 10 : 13,
       renderEdgeLabels: false,
       zIndex: true,
       nodeReducer: (node, data) => {
         const neighbors = selectedNeighborSet(build.graph, selectedNodeRef.current, hoveredNodeRef.current);
         const isActive = node === selectedNodeRef.current || node === hoveredNodeRef.current;
         const inNeighborhood = !neighbors || neighbors.has(node);
+        // When nothing is focused, only cluster-labels and the tallest nodes
+        // carry a label so we don't get a wall of overlapping text.
+        const labelAllowed =
+          isActive ||
+          inNeighborhood ||
+          data.variant === "cluster" ||
+          data.degree >= 5 ||
+          data.noteCount >= 6;
         return {
           ...data,
           color: data.muted || !inNeighborhood ? "#c7cbd1" : data.baseColor,
-          label: inNeighborhood || data.variant === "cluster" || data.degree >= 3 ? data.label : "",
+          label: labelAllowed ? data.label : "",
           size: isActive ? data.size * 1.45 : data.size,
           zIndex: isActive ? 2 : data.variant === "cluster" ? 1 : 0
         };
@@ -501,8 +538,10 @@ export function CategoryGraph({
         const inNeighborhood = !neighbors || (neighbors.has(String(extremities[0])) && neighbors.has(String(extremities[1])));
         return {
           ...data,
-          color: data.muted || !inNeighborhood ? "#d4d8dd" : "#7b8492",
-          size: inNeighborhood ? data.size : Math.max(data.size * 0.45, 0.4),
+          // Faded, near-white default keeps idle edges from crosshatching the
+          // visible labels. Focused neighborhoods get a darker tone for contrast.
+          color: data.muted || !inNeighborhood ? "#e4e6ea" : "#6b7380",
+          size: inNeighborhood ? data.size : Math.max(data.size * 0.35, 0.3),
           zIndex: inNeighborhood ? 1 : 0
         };
       }

@@ -4,17 +4,8 @@ import { ChatGPTScraper } from "../providers/chatgpt";
 import { GeminiScraper } from "../providers/gemini";
 import { GrokScraper } from "../providers/grok";
 import { normalizeWhitespace } from "../providers/helpers";
+import { providerDomAdapters } from "../shared/provider-dom";
 import { extractFirstBalancedJsonObject } from "./proxy-json";
-
-interface ProviderUIAdapter {
-  startUrl: string;
-  inputSelectors: string[];
-  sendButtonSelectors: string[];
-  stopButtonSelectors: string[];
-  responseSelectors: string[];
-  thinkingTogglePatterns: RegExp[];
-  stopButtonPatterns: RegExp[];
-}
 
 interface ProxyRunState {
   provider: ProviderName;
@@ -38,69 +29,6 @@ const QUIET_PERIOD_MS = 1500;
 const FALLBACK_QUIET_PERIOD_MS = 5000;
 const PARTIAL_JSON_FALLBACK_MS = 10_000;
 const DEFAULT_TIMEOUT_MS = 120_000;
-
-const providerAdapters: Record<ProviderName, ProviderUIAdapter> = {
-  chatgpt: {
-    startUrl: "https://chatgpt.com/",
-    inputSelectors: [
-      "#prompt-textarea",
-      "textarea[data-id]",
-      "form textarea",
-      "textarea",
-      "div[contenteditable='true'][role='textbox']"
-    ],
-    sendButtonSelectors: [
-      "button[data-testid='send-button']",
-      "button[aria-label*='Send']",
-      "form button[type='submit']"
-    ],
-    stopButtonSelectors: [
-      "button[data-testid='stop-button']",
-      "button[aria-label*='Stop']",
-      "button[title*='Stop']"
-    ],
-    responseSelectors: ["article div[data-message-author-role='assistant']", "main article"],
-    thinkingTogglePatterns: [/think/i, /reason/i, /research/i],
-    stopButtonPatterns: [/stop/i, /interrupt/i, /cancel/i]
-  },
-  gemini: {
-    startUrl: "https://gemini.google.com/app",
-    inputSelectors: [
-      "rich-textarea textarea",
-      "div[contenteditable='true'][role='textbox']",
-      "div.ql-editor[contenteditable='true']",
-      "textarea"
-    ],
-    sendButtonSelectors: [
-      "button[aria-label*='Send']",
-      "button[aria-label*='Run']",
-      "button[mattooltip*='Send']",
-      "form button[type='submit']"
-    ],
-    stopButtonSelectors: [
-      "button[aria-label*='Stop']",
-      "button[mattooltip*='Stop']",
-      "button[title*='Stop']",
-      "button[aria-label*='Cancel']"
-    ],
-    responseSelectors: ["message-content", "article model-response", "main article"],
-    thinkingTogglePatterns: [/thinking/i, /reason/i, /research/i],
-    stopButtonPatterns: [/stop/i, /cancel/i]
-  },
-  grok: {
-    startUrl: "https://grok.com/",
-    inputSelectors: ["textarea", "div[contenteditable='true'][role='textbox']", "div[contenteditable='true']"],
-    sendButtonSelectors: ["button[aria-label*='Send']", "button[data-testid*='send']", "form button[type='submit']"],
-    stopButtonSelectors: [
-      "button[aria-label*='Stop']",
-      "button[title*='Stop']",
-      "button[data-testid*='stop']"
-    ],
-    responseSelectors: ["article", "main article", "[data-testid*='message']"],
-    thinkingTogglePatterns: [/think/i, /reason/i, /deep\s*search/i, /research/i],
-    stopButtonPatterns: [/stop/i, /interrupt/i, /cancel/i]
-  }
-};
 
 const scrapers = {
   chatgpt: new ChatGPTScraper(),
@@ -179,7 +107,7 @@ function findVisibleMatchingButton(selectors: string[], patterns: RegExp[]): HTM
 }
 
 function isProviderGenerationActive(provider: ProviderName): boolean {
-  const adapter = providerAdapters[provider];
+  const adapter = providerDomAdapters[provider];
   if (findVisibleMatchingButton(adapter.stopButtonSelectors, adapter.stopButtonPatterns)) {
     return true;
   }
@@ -198,7 +126,7 @@ function isProviderGenerationActive(provider: ProviderName): boolean {
 }
 
 async function disableThinkingMode(provider: ProviderName): Promise<void> {
-  const patterns = providerAdapters[provider].thinkingTogglePatterns;
+  const patterns = providerDomAdapters[provider].thinkingTogglePatterns;
   if (!patterns.length) {
     return;
   }
@@ -223,7 +151,7 @@ async function disableThinkingMode(provider: ProviderName): Promise<void> {
 async function waitForInput(provider: ProviderName, timeoutMs: number): Promise<HTMLElement> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const input = findFirstVisible(providerAdapters[provider].inputSelectors);
+    const input = findFirstVisible(providerDomAdapters[provider].inputSelectors);
     if (input) {
       return input;
     }
@@ -253,7 +181,7 @@ function setElementValue(element: HTMLElement, value: string): void {
 }
 
 function clickSendButton(provider: ProviderName): boolean {
-  for (const selector of providerAdapters[provider].sendButtonSelectors) {
+  for (const selector of providerDomAdapters[provider].sendButtonSelectors) {
     for (const element of document.querySelectorAll(selector)) {
       if (!isVisible(element)) {
         continue;
@@ -298,7 +226,7 @@ async function sendPrompt(provider: ProviderName, promptText: string, timeoutMs:
 
 function extractResponseFromDom(provider: ProviderName): string | null {
   const values: string[] = [];
-  for (const selector of providerAdapters[provider].responseSelectors) {
+  for (const selector of providerDomAdapters[provider].responseSelectors) {
     for (const element of document.querySelectorAll(selector)) {
       if (!isVisible(element)) {
         continue;

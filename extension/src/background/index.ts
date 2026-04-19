@@ -17,7 +17,7 @@ import {
   providerRefreshAlarmName
 } from "./provider-refresh";
 import { providerRegistry } from "../providers/registry";
-import { supportsProactiveHistorySync } from "../shared/provider";
+import { detectProviderFromUrl, supportsProactiveHistorySync } from "../shared/provider";
 import {
   buildProcessingRepairPrompt,
   normalizePartialProcessingResponseJson,
@@ -43,10 +43,15 @@ import {
 import { parseConnectionString } from "../shared/connection";
 import { evaluateDiscardWords, evaluateIndexingRules, indexingRulesFingerprint } from "../shared/indexing-rules";
 import type {
+  ActiveChatContextResponse,
+  ActiveChatContextSnapshot,
+  BackendSearchResult,
   CapturedNetworkEvent,
   ExtensionSettings,
   HistorySyncUpdate,
+  KnowledgeSearchRequest,
   KnowledgeSearchResponse,
+  NormalizedSessionSnapshot,
   PingProviderTabResponse,
   ProcessingTaskItem,
   ProviderDriftAlert,
@@ -74,6 +79,7 @@ let backendValidationGeneration = 0;
 let processingWorkerTabId: number | null = null;
 let processingWorkerTabProvider: ProviderName | null = null;
 let processingWorkerTabOwned = false;
+const activeChatContextsByTabId = new Map<number, ActiveChatContextSnapshot>();
 const TAB_MESSAGE_RETRY_MS = 4_000;
 const TAB_MESSAGE_RETRY_INTERVAL_MS = 150;
 const PROVIDER_TAB_READY_TIMEOUT_MS = 10_000;
@@ -83,6 +89,15 @@ const PROCESSING_REPAIR_ATTEMPTS = 3;
 const CONTENT_SCRIPT_FILE = "assets/content.js";
 const HISTORY_SYNC_PROVIDERS: ProviderName[] = ["chatgpt", "gemini", "grok"];
 const scheduledProviderRefreshesInFlight = new Set<ProviderName>();
+const ACTION_ICON_PATHS: Record<number, string> = {
+  16: "icons/icon-16.png",
+  32: "icons/icon-32.png",
+  48: "icons/icon-48.png",
+  128: "icons/icon-128.png"
+};
+const ACTION_ICON_SIZES = [16, 32, 48, 128] as const;
+const syncIconImageData = new Map<number, ImageData>();
+let actionIconMode: "default" | "syncing" = "default";
 
 function refreshedProcessingLastError(status: SyncStatus, pendingCount: number): string | null {
   if (status.processingInProgress) {
@@ -115,6 +130,67 @@ function formatProviderList(providers: ProviderName[] | undefined, fallback: Pro
   return names.length ? names.join(", ") : "provider";
 }
 
+function rememberActiveChatContext(tabId: number, snapshot: NormalizedSessionSnapshot, pageUrl: string): void {
+  const messages = snapshot.messages
+    .slice(Math.max(snapshot.messages.length - 10, 0))
+    .map((message) => ({
+      id: message.id,
+      role: message.role,
+      content: message.content.slice(0, 2_000),
+      occurredAt: message.occurredAt
+    }));
+
+  activeChatContextsByTabId.set(tabId, {
+    provider: snapshot.provider,
+    externalSessionId: snapshot.externalSessionId,
+    title: snapshot.title,
+    sourceUrl: snapshot.sourceUrl,
+    pageUrl,
+    capturedAt: snapshot.capturedAt,
+    messages
+  });
+}
+
+function clearActiveChatContext(tabId: number | undefined): void {
+  if (typeof tabId === "number") {
+    activeChatContextsByTabId.delete(tabId);
+  }
+}
+
+function searchResultIdentity(result: BackendSearchResult): string {
+  if (result.entity_id) {
+    return `entity:${result.entity_id.toLowerCase()}`;
+  }
+  if (result.source_id) {
+    return `source:${result.source_id}`;
+  }
+  if (result.session_id) {
+    return `session:${result.session_id}`;
+  }
+  if (result.markdown_path) {
+    return `${result.kind}:${result.markdown_path}`;
+  }
+  return `${result.kind}:${result.title.toLowerCase()}`;
+}
+
+function mergeSearchResults(results: BackendSearchResult[]): BackendSearchResult[] {
+  const merged = new Map<string, BackendSearchResult>();
+  for (const result of results) {
+    const identity = searchResultIdentity(result);
+    if (!merged.has(identity)) {
+      merged.set(identity, result);
+    }
+  }
+  return [...merged.values()];
+}
+
+function normalizeKnowledgeSearchQueries(payload: KnowledgeSearchRequest): string[] {
+  return [...new Set([payload.query ?? "", ...(payload.queries ?? [])].map((value) => value.trim()).filter((value) => value.length >= 2))].slice(
+    0,
+    8
+  );
+}
+
 async function extensionClientName(): Promise<string> {
   const platform = await chrome.runtime.getPlatformInfo();
   return `Chrome ${platform.os}`;
@@ -129,6 +205,86 @@ function isFreshHistorySyncInProgress(state: ProviderHistorySyncState): boolean 
   return Boolean(state.inProgress && !staleInProgress);
 }
 
+function createSyncActionIcon(size: number): ImageData {
+  const canvas = new OffscreenCanvas(size, size);
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return new ImageData(size, size);
+  }
+
+  const center = size / 2;
+  const outerRadius = size * 0.45;
+  const ringRadius = size * 0.28;
+  const lineWidth = Math.max(1.4, size * 0.1);
+  const arrowSize = Math.max(2.2, size * 0.14);
+
+  context.clearRect(0, 0, size, size);
+  context.fillStyle = "#0f1b2c";
+  context.beginPath();
+  context.arc(center, center, outerRadius, 0, Math.PI * 2);
+  context.fill();
+
+  context.lineWidth = lineWidth;
+  context.lineCap = "round";
+  context.strokeStyle = "#fbf9f3";
+  context.beginPath();
+  context.arc(center, center, ringRadius, Math.PI * 0.25, Math.PI * 1.2);
+  context.stroke();
+
+  context.strokeStyle = "#0f8a84";
+  context.beginPath();
+  context.arc(center, center, ringRadius, Math.PI * 1.28, Math.PI * 2.08);
+  context.stroke();
+
+  const arrowAngle = Math.PI * 2.08;
+  const arrowX = center + Math.cos(arrowAngle) * ringRadius;
+  const arrowY = center + Math.sin(arrowAngle) * ringRadius;
+  context.fillStyle = "#0f8a84";
+  context.beginPath();
+  context.moveTo(arrowX, arrowY);
+  context.lineTo(arrowX - arrowSize, arrowY - arrowSize * 0.2);
+  context.lineTo(arrowX - arrowSize * 0.25, arrowY + arrowSize);
+  context.closePath();
+  context.fill();
+
+  context.fillStyle = "#fbf9f3";
+  context.beginPath();
+  context.arc(center, center, Math.max(1.4, size * 0.09), 0, Math.PI * 2);
+  context.fill();
+
+  return context.getImageData(0, 0, size, size);
+}
+
+function getSyncActionIcon(size: number): ImageData {
+  const existing = syncIconImageData.get(size);
+  if (existing) {
+    return existing;
+  }
+  const created = createSyncActionIcon(size);
+  syncIconImageData.set(size, created);
+  return created;
+}
+
+async function syncActionIcon(status: SyncStatus): Promise<void> {
+  if (status.historySyncInProgress) {
+    if (actionIconMode === "syncing") {
+      return;
+    }
+    const imageData = Object.fromEntries(
+      ACTION_ICON_SIZES.map((size) => [size, getSyncActionIcon(size)])
+    ) as Record<number, ImageData>;
+    await chrome.action.setIcon({ imageData });
+    actionIconMode = "syncing";
+    return;
+  }
+
+  if (actionIconMode === "default") {
+    return;
+  }
+  await chrome.action.setIcon({ path: ACTION_ICON_PATHS });
+  actionIconMode = "default";
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     globalThis.setTimeout(resolve, ms);
@@ -136,6 +292,8 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function syncActionBadge(status: SyncStatus): Promise<void> {
+  await syncActionIcon(status);
+
   if (status.providerDriftAlert) {
     await chrome.action.setBadgeBackgroundColor({ color: "#BD5D38" });
     await chrome.action.setBadgeText({ text: "!" });
@@ -493,12 +651,13 @@ async function sendMessageToActivePage<TResponse>(message: RuntimeMessage): Prom
   return await sendMessageToTabWithRetry<TResponse>(activeTab.id, message);
 }
 
-async function handleKnowledgeSearch(payload: { query: string; limit?: number }): Promise<KnowledgeSearchResponse> {
-  const query = payload.query.trim();
-  if (query.length < 2) {
+async function handleKnowledgeSearch(payload: KnowledgeSearchRequest): Promise<KnowledgeSearchResponse> {
+  const queries = normalizeKnowledgeSearchQueries(payload);
+  const queryLabel = queries.join(" | ");
+  if (!queries.length) {
     return {
       ok: true,
-      query,
+      query: queryLabel,
       count: 0,
       results: []
     };
@@ -509,7 +668,7 @@ async function handleKnowledgeSearch(payload: { query: string; limit?: number })
   if (status.backendValidationError) {
     return {
       ok: false,
-      query,
+      query: queryLabel,
       count: 0,
       results: [],
       error: status.backendValidationError
@@ -517,29 +676,70 @@ async function handleKnowledgeSearch(payload: { query: string; limit?: number })
   }
 
   try {
-    const response = await fetchKnowledgeSearch(
-      {
-        ...settings,
-        backendUrl: status.backendUrl ?? settings.backendUrl
-      },
-      query,
-      payload.limit ?? 8
+    const perQueryLimit = queries.length > 1 ? Math.min(Math.max(payload.limit ?? 8, 6), 10) : payload.limit ?? 8;
+    const responses = await Promise.all(
+      queries.map((query) =>
+        fetchKnowledgeSearch(
+          {
+            ...settings,
+            backendUrl: status.backendUrl ?? settings.backendUrl
+          },
+          query,
+          perQueryLimit,
+          {
+            provider: payload.provider,
+            kinds: payload.kinds
+          }
+        )
+      )
     );
+    const results = mergeSearchResults(responses.flatMap((response) => response.results)).slice(0, payload.limit ?? 8);
     return {
       ok: true,
-      query: response.query,
-      count: response.count,
-      results: response.results
+      query: queryLabel,
+      count: results.length,
+      results
     };
   } catch (error) {
     return {
       ok: false,
-      query,
+      query: queryLabel,
       count: 0,
       results: [],
       error: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+function handleGetActiveChatContext(
+  sender: chrome.runtime.MessageSender,
+  payload?: { pageUrl?: string }
+): ActiveChatContextResponse {
+  const tabId = sender.tab?.id;
+  if (typeof tabId !== "number") {
+    return {
+      ok: true
+    };
+  }
+
+  const snapshot = activeChatContextsByTabId.get(tabId);
+  if (!snapshot) {
+    return {
+      ok: true
+    };
+  }
+
+  const expectedProvider = detectProviderFromUrl(payload?.pageUrl ?? sender.tab?.url ?? "");
+  if (expectedProvider && expectedProvider !== snapshot.provider) {
+    return {
+      ok: true
+    };
+  }
+
+  return {
+    ok: true,
+    snapshot
+  };
 }
 
 async function handleSaveSourceCapture(payload: SourceCapturePayload): Promise<SourceCaptureResponse> {
@@ -810,6 +1010,16 @@ chrome.runtime.onStartup.addListener(() => {
   });
 });
 
+chrome.tabs.onRemoved.addListener((tabId) => {
+  clearActiveChatContext(tabId);
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === "loading" || typeof changeInfo.url === "string") {
+    clearActiveChatContext(tabId);
+  }
+});
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   const provider = providerFromRefreshAlarmName(alarm.name);
   if (!provider) {
@@ -940,6 +1150,11 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
   if (message.type === "SEARCH_KNOWLEDGE") {
     void handleKnowledgeSearch(message.payload).then(sendResponse);
     return true;
+  }
+
+  if (message.type === "GET_ACTIVE_CHAT_CONTEXT") {
+    sendResponse(handleGetActiveChatContext(_sender, message.payload));
+    return false;
   }
 
   if (message.type === "START_PROCESSING") {
@@ -1248,6 +1463,7 @@ async function handlePageVisit(
   payload: { provider: ProviderName; pageUrl: string },
   tabId: number | undefined
 ): Promise<{ triggered: boolean; reason?: string }> {
+  clearActiveChatContext(tabId);
   if (typeof tabId === "number" && tabId === processingWorkerTabId) {
     return { triggered: false, reason: "processing-worker-tab" };
   }
@@ -1532,6 +1748,9 @@ async function handleCapture(event: CapturedNetworkEvent, tabId?: number): Promi
   const snapshot = scraper.parse(event);
   if (!snapshot || !snapshot.messages.length) {
     return;
+  }
+  if (typeof tabId === "number") {
+    rememberActiveChatContext(tabId, snapshot, event.pageUrl);
   }
 
   const sessionKey = `${snapshot.provider}:${snapshot.externalSessionId}`;

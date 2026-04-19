@@ -79,7 +79,9 @@ describe("storage", () => {
         blacklistWords: [],
         discardWordsEnabled: true,
         discardWords: ["loom"],
-        selectionCaptureEnabled: false
+        selectionCaptureEnabled: false,
+        contextSuggestionsEnabled: false,
+        contextSuggestionsFloatingButtonEnabled: true
       }
     });
     const local = createStorageArea({
@@ -96,7 +98,9 @@ describe("storage", () => {
         blacklistWords: ["ignore"],
         discardWordsEnabled: true,
         discardWords: [],
-        selectionCaptureEnabled: true
+        selectionCaptureEnabled: true,
+        contextSuggestionsEnabled: true,
+        contextSuggestionsFloatingButtonEnabled: false
       },
       "savemycontext.settings.secrets": {
         backendToken: "secret-token"
@@ -154,7 +158,9 @@ describe("storage", () => {
         blacklistWords: [],
         discardWordsEnabled: true,
         discardWords: ["loom"],
-        selectionCaptureEnabled: false
+        selectionCaptureEnabled: false,
+        contextSuggestionsEnabled: false,
+        contextSuggestionsFloatingButtonEnabled: true
       }
     });
     expect(local.set).toHaveBeenCalledWith({
@@ -173,7 +179,9 @@ describe("storage", () => {
         blacklistWords: [],
         discardWordsEnabled: true,
         discardWords: ["loom"],
-        selectionCaptureEnabled: false
+        selectionCaptureEnabled: false,
+        contextSuggestionsEnabled: false,
+        contextSuggestionsFloatingButtonEnabled: true
       }
     });
   });

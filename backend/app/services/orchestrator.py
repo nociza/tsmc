@@ -3,10 +3,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.models import ChatMessage
 from app.models.enums import SessionCategory
+from app.prompts import BUILT_IN_PILE_RULES
 from app.schemas.processing import (
     ClassificationResult,
     FactualResult,
@@ -30,6 +32,7 @@ from app.services.llm.base import LLMClient
 from app.services.llm.browser_proxy_client import BrowserProxyClient
 from app.services.llm.google_client import GoogleGenAIClient
 from app.services.llm.openai_client import OpenAIClient
+from app.services.prompt_templates import PromptTemplateService
 from app.services.todo import heuristic_todo_result
 
 if TYPE_CHECKING:
@@ -55,24 +58,12 @@ def render_indexed_transcript(messages: list[ChatMessage]) -> str:
     return "\n".join(lines).strip()
 
 
-BUILT_IN_PILE_RULES = (
-    "Use 'journal' only for the user's personal day-to-day life: what they did, how they "
-    "felt, relationships, relatives, routines, reflections. Not a catch-all.\n"
-    "Use 'todo' only when the user explicitly asks to add, edit, remove, mark, or reorder "
-    "items on the shared to-do list. Generic planning language is never 'todo'.\n"
-    "Use 'factual' for objective knowledge the user wants stored as a reference: coding, "
-    "research, explanation, how-to, historical or scientific Q&A. It is a queryable dump; "
-    "facts are stable and do not depend on the user's opinions.\n"
-    "Use 'ideas' only when the user is developing their own original thought: "
-    "brainstorming, speculation, 'what if', design directions, arguments, creative "
-    "ideation. Ideas are the user's evolving positions, not stored facts.\n"
-)
-
-
 class ProcessingOrchestrator:
-    def __init__(self, browser_proxy: BrowserProxyService | None = None) -> None:
-        self.settings = get_settings()
+    def __init__(self, browser_proxy: BrowserProxyService | None = None, db: AsyncSession | None = None) -> None:
+        self.settings: Settings = get_settings()
+        self.db = db
         self.browser_proxy = browser_proxy
+        self.prompts = PromptTemplateService(db)
         self.client = self._resolve_client()
 
     def _resolve_client(self) -> LLMClient | None:
@@ -103,28 +94,27 @@ class ProcessingOrchestrator:
             return heuristic_classification(messages)
 
         cleaned_discard = [item.strip() for item in (auto_discard_categories or []) if item and item.strip()]
-        discard_addendum = ""
+        discard_addendum_block = ""
         if cleaned_discard:
             joined = "; ".join(f"'{item}'" for item in cleaned_discard)
-            discard_addendum = (
+            discard_addendum_block = (
                 "\nIf the transcript clearly fits one of the user's auto-discard categories "
                 f"({joined}), return category='discarded' with a short reason naming the matching category. "
                 "Otherwise, never use 'discarded'."
             )
 
         try:
+            prompt = await self.prompts.render(
+                "processing.classify",
+                values={
+                    "built_in_pile_rules": BUILT_IN_PILE_RULES,
+                    "discard_addendum_block": discard_addendum_block,
+                    "transcript": transcript,
+                },
+            )
             classification = await self.client.generate_json(
-                system_prompt=(
-                    "You classify transcripts into one of these buckets: journal, factual, ideas, todo, or discarded. "
-                    "Return JSON with keys category and reason."
-                ),
-                user_prompt=(
-                    "Classify this transcript using the rules below. Pick the single pile that best fits the "
-                    "dominant intent of the conversation.\n\n"
-                    f"{BUILT_IN_PILE_RULES}"
-                    f"{discard_addendum}\n\n"
-                    f"{transcript}"
-                ),
+                system_prompt=prompt.system_prompt,
+                user_prompt=prompt.user_prompt,
                 schema=ClassificationResult,
             )
             if classification.category == SessionCategory.DISCARDED:
@@ -165,32 +155,27 @@ class ProcessingOrchestrator:
 
         candidate_lines = "\n".join(f"- '{slug}': {description.strip()}" for slug, description in candidates)
         cleaned_discard = [item.strip() for item in (auto_discard_categories or []) if item and item.strip()]
-        discard_addendum = ""
+        discard_addendum_block = ""
         if cleaned_discard:
             joined = "; ".join(f"'{item}'" for item in cleaned_discard)
-            discard_addendum = (
+            discard_addendum_block = (
                 f"\nIf the transcript clearly fits an auto-discard category ({joined}), pick the 'discarded' pile."
             )
 
         valid_slugs = {slug for slug, _ in candidates}
 
         try:
+            prompt = await self.prompts.render(
+                "processing.classify_pile",
+                values={
+                    "discard_addendum_block": discard_addendum_block,
+                    "candidate_lines": candidate_lines,
+                    "transcript": transcript,
+                },
+            )
             result = await self.client.generate_json(
-                system_prompt=(
-                    "You route a transcript to one of the user's piles. "
-                    "Return JSON with keys pile_slug and reason. "
-                    "pile_slug MUST exactly equal one of the supplied slugs."
-                ),
-                user_prompt=(
-                    "Pick the single best pile for this transcript from the list below. "
-                    "Prefer a user-defined pile when its description clearly fits over a generic built-in. "
-                    "Use 'todo' only when the user explicitly asks to modify the shared to-do list."
-                    f"{discard_addendum}\n\n"
-                    "Available piles:\n"
-                    f"{candidate_lines}\n\n"
-                    "Transcript:\n"
-                    f"{transcript}"
-                ),
+                system_prompt=prompt.system_prompt,
+                user_prompt=prompt.user_prompt,
                 schema=PileClassificationResult,
             )
             slug = (result.pile_slug or "").strip()
@@ -239,24 +224,18 @@ class ProcessingOrchestrator:
         cleaned_discard = [item.strip() for item in (auto_discard_categories or []) if item and item.strip()]
 
         try:
+            prompt = await self.prompts.render(
+                "processing.segment",
+                values={
+                    "built_in_pile_rules": BUILT_IN_PILE_RULES,
+                    "candidate_lines": candidate_lines,
+                    "last_message_index": max(total - 1, 0),
+                    "transcript": transcript,
+                },
+            )
             result = await self.client.generate_json(
-                system_prompt=(
-                    "You split a chat transcript into contiguous segments and route each to a pile. "
-                    "Return STRICT JSON: {\"segments\":[{\"pile_slug\":\"...\",\"reason\":\"...\",\"start_index\":N,\"end_index\":N}]}. "
-                    "start_index and end_index are inclusive message indexes matching the transcript. "
-                    "Segments must be contiguous, non-overlapping, and cover every message once."
-                ),
-                user_prompt=(
-                    "Split this transcript into segments by topic/intent and assign each to a pile. "
-                    "Return a single segment covering the whole transcript if it is on one topic. "
-                    "Segments are at message boundaries; do not carve inside a message.\n\n"
-                    f"{BUILT_IN_PILE_RULES}"
-                    "\nAvailable piles:\n"
-                    f"{candidate_lines}\n\n"
-                    f"Messages are numbered [0]..[{total - 1}].\n"
-                    "Transcript:\n"
-                    f"{transcript}"
-                ),
+                system_prompt=prompt.system_prompt,
+                user_prompt=prompt.user_prompt,
                 schema=SegmentedClassificationResult,
             )
         except Exception:
@@ -315,34 +294,37 @@ class ProcessingOrchestrator:
                 merged.append(seg)
         return merged
 
-    async def journal(self, messages: list[ChatMessage]) -> JournalResult:
+    async def journal(self, messages: list[ChatMessage], *, prompt_addendum: str | None = None) -> JournalResult:
         transcript = render_transcript(messages)
         if not transcript or not self.client:
             return heuristic_journal(messages)
 
         try:
+            prompt = await self.prompts.render(
+                "processing.journal",
+                values={
+                    "pile_addendum_block": self._pile_addendum_block(prompt_addendum),
+                    "transcript": transcript,
+                },
+            )
             return await self.client.generate_json(
-                system_prompt=(
-                    "You write concise diary-style notes from a user transcript and extract structured "
-                    "daily-life fields. Return JSON with keys entry, action_items, occurred_on (ISO date or null), "
-                    "people (list of names), activities (list), locations (list), mood (short phrase or null)."
-                ),
-                user_prompt=(
-                    "Focus only on the user's personal day-to-day life: what they did, how they felt, who they "
-                    "interacted with, routines and reflections. Do not invent content; leave fields empty when "
-                    "the transcript does not mention them. Strip AI filler. Keep the entry grounded.\n\n"
-                    f"{transcript}"
-                ),
+                system_prompt=prompt.system_prompt,
+                user_prompt=prompt.user_prompt,
                 schema=JournalResult,
             )
         except Exception:
             return heuristic_journal(messages)
 
-    async def factual_triplets(self, messages: list[ChatMessage]) -> list[TripletResult]:
-        result = await self.factual(messages)
+    async def factual_triplets(
+        self,
+        messages: list[ChatMessage],
+        *,
+        prompt_addendum: str | None = None,
+    ) -> list[TripletResult]:
+        result = await self.factual(messages, prompt_addendum=prompt_addendum)
         return result.triplets
 
-    async def factual(self, messages: list[ChatMessage]) -> FactualResult:
+    async def factual(self, messages: list[ChatMessage], *, prompt_addendum: str | None = None) -> FactualResult:
         """Factuals are a lightweight substrate: a queryable dump of the user's
         referenced facts. Triplets are emitted for rough semantic anchoring, not
         for strong graph enforcement. Graph visualization renders these as a
@@ -353,62 +335,51 @@ class ProcessingOrchestrator:
             return FactualResult(triplets=heuristic_triplets(messages))
 
         try:
+            prompt = await self.prompts.render(
+                "processing.factual",
+                values={
+                    "pile_addendum_block": self._pile_addendum_block(prompt_addendum),
+                    "transcript": transcript,
+                },
+            )
             wrapper = await self.client.generate_json(
-                system_prompt=(
-                    "Extract a small factual substrate from a transcript. "
-                    "Return JSON with keys summary (1-2 sentence neutral recap or null), "
-                    "keywords (list of durable concept tags), and triplets "
-                    "(list of {subject, predicate, object, confidence, keywords})."
-                ),
-                user_prompt=(
-                    "Emit a lightweight reference pile for this transcript. Triplets anchor durable entities "
-                    "(libraries, frameworks, protocols, products, concepts). Keep the set small, high signal, "
-                    "and skip speculative relationships. The pile is a queryable substrate, so keywords on each "
-                    "triplet should be the tags a user might search for later.\n\n"
-                    f"{transcript}"
-                ),
+                system_prompt=prompt.system_prompt,
+                user_prompt=prompt.user_prompt,
                 schema=FactualResult,
             )
             return wrapper
         except Exception:
             return FactualResult(triplets=heuristic_triplets(messages))
 
-    async def todo(self, messages: list[ChatMessage], current_markdown: str) -> TodoResult:
+    async def todo(
+        self,
+        messages: list[ChatMessage],
+        current_markdown: str,
+        *,
+        prompt_addendum: str | None = None,
+    ) -> TodoResult:
         transcript = render_transcript(messages)
         if not transcript or not self.client:
             return heuristic_todo_result(messages, current_markdown)
 
         try:
+            prompt = await self.prompts.render(
+                "processing.todo",
+                values={
+                    "pile_addendum_block": self._pile_addendum_block(prompt_addendum),
+                    "current_todo_markdown": current_markdown,
+                    "transcript": transcript,
+                },
+            )
             return await self.client.generate_json(
-                system_prompt=(
-                    "You maintain a shared markdown to-do list and emit structured metadata for each item. "
-                    "Return JSON with keys summary, updated_markdown, and items. items is a list of "
-                    "{text, deadline (ISO date or null), reminder_at (ISO datetime or null), is_persistent "
-                    "(true when the item has no date), completed}. In updated_markdown, dated items "
-                    "appear in Active with a `(YYYY-MM-DD)` prefix before the item text; undated items are "
-                    "persistent and appear without a date prefix. Keep `## Active` and `## Done` as the "
-                    "top-level sections so the file stays compatible with existing parsers."
-                ),
-                user_prompt=(
-                    "Update the shared markdown to-do list using the transcript.\n"
-                    "Only apply changes the user clearly requested to the shared to-do list.\n"
-                    "Do not turn general planning advice into to-do items unless the transcript explicitly asks to modify the shared list.\n"
-                    "Preserve unfinished work unless the transcript says to remove or complete it.\n"
-                    "If the user gives a date or relative date, convert to ISO (YYYY-MM-DD) and write it as a "
-                    "`(YYYY-MM-DD)` prefix on the item text. Undated items are persistent.\n"
-                    "Keep the response markdown concise and readable for Obsidian.\n"
-                    "The file should remain a complete standalone markdown document.\n\n"
-                    "Current to-do list markdown:\n"
-                    f"{current_markdown}\n\n"
-                    "Transcript:\n"
-                    f"{transcript}"
-                ),
+                system_prompt=prompt.system_prompt,
+                user_prompt=prompt.user_prompt,
                 schema=TodoResult,
             )
         except Exception:
             return heuristic_todo_result(messages, current_markdown)
 
-    async def ideas(self, messages: list[ChatMessage]) -> IdeaResult:
+    async def ideas(self, messages: list[ChatMessage], *, prompt_addendum: str | None = None) -> IdeaResult:
         """Ideas are dynamic. Each idea can evolve across sessions, conflict
         with prior threads, and anchor on facts. The structured output keeps
         the graph of threads rich enough to visualize reasoning steps later.
@@ -418,25 +389,16 @@ class ProcessingOrchestrator:
             return heuristic_idea(messages)
 
         try:
+            prompt = await self.prompts.render(
+                "processing.ideas",
+                values={
+                    "pile_addendum_block": self._pile_addendum_block(prompt_addendum),
+                    "transcript": transcript,
+                },
+            )
             return await self.client.generate_json(
-                system_prompt=(
-                    "Summarize ideation transcripts and extract the causal / reasoning structure. "
-                    "Return JSON with keys core_idea, pros, cons, next_steps, share_post, "
-                    "reasoning_steps (ordered list of inference steps that developed the idea), "
-                    "related_facts (short list of durable facts/entities the idea rests on — "
-                    "these anchor into the factual substrate), supports (prior ideas this one reinforces), "
-                    "conflicts_with (prior ideas this one contradicts), and thread_hint (a short phrase "
-                    "identifying the broader thread of thought, or null)."
-                ),
-                user_prompt=(
-                    "Distill the transcript into a structured brainstorm summary. Capture the reasoning "
-                    "path, not just the conclusion: reasoning_steps should read as a chain the user can "
-                    "pick up later. Related_facts are pointers into stored factual knowledge.\n"
-                    "Keep the share_post concise, specific, and credible. Avoid hype words such as "
-                    "revolutionary, effortless, unlock, game-changing, or world-class. Write it like a "
-                    "thoughtful builder note.\n\n"
-                    f"{transcript}"
-                ),
+                system_prompt=prompt.system_prompt,
+                user_prompt=prompt.user_prompt,
                 schema=IdeaResult,
             )
         except Exception:
@@ -488,14 +450,13 @@ class ProcessingOrchestrator:
         if not attr_lines:
             return {}
 
-        addendum = f"\n\nAdditional pile-specific instructions:\n{custom_prompt_addendum.strip()}" if custom_prompt_addendum else ""
-        request = (
-            "Extract the following fields from the transcript. Return STRICT JSON with only these keys (omit any that "
-            "aren't requested). Use null for fields you cannot ground in the transcript:\n"
-            + "\n".join(attr_lines)
-            + addendum
-            + "\n\nTranscript:\n"
-            + transcript
+        prompt = await self.prompts.render(
+            "processing.user_pile",
+            values={
+                "requested_fields": "\n".join(attr_lines),
+                "pile_addendum_block": self._pile_addendum_block(custom_prompt_addendum),
+                "transcript": transcript,
+            },
         )
 
         try:
@@ -512,17 +473,21 @@ class ProcessingOrchestrator:
                 completion: str | None = None
 
             raw = await self.client.generate_json(
-                system_prompt=(
-                    "You extract structured fields from a transcript for a user-defined note pile. "
-                    "Return JSON only, no commentary."
-                ),
-                user_prompt=request,
+                system_prompt=prompt.system_prompt,
+                user_prompt=prompt.user_prompt,
                 schema=_GenericPileOutput,
             )
             payload = raw.model_dump(exclude_none=True)
             return {key: value for key, value in payload.items() if key in wanted}
         except Exception:
             return _heuristic_pile_outputs(messages, wanted)
+
+    @staticmethod
+    def _pile_addendum_block(prompt_addendum: str | None) -> str:
+        cleaned = (prompt_addendum or "").strip()
+        if not cleaned:
+            return ""
+        return f"\n\nAdditional pile-specific instructions:\n{cleaned}"
 
 
 def _heuristic_pile_outputs(messages: list[ChatMessage], wanted: set[str]) -> dict[str, object]:

@@ -23,7 +23,9 @@ const baseSettings: ExtensionSettings = {
   blacklistWords: [],
   discardWordsEnabled: true,
   discardWords: [],
-  selectionCaptureEnabled: false
+  selectionCaptureEnabled: false,
+  contextSuggestionsEnabled: false,
+  contextSuggestionsFloatingButtonEnabled: true
 };
 
 const snapshot: NormalizedSessionSnapshot = {

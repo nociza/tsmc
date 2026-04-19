@@ -11,6 +11,7 @@ from app.schemas.source_capture import SourceCaptureRequest, SourceCaptureRespon
 from app.services.heuristics import heuristic_classification
 from app.services.markdown import MarkdownExporter
 from app.services.orchestrator import ProcessingOrchestrator
+from app.services.prompt_templates import PromptTemplateService
 from app.services.text import normalize_whitespace, take_sentences
 
 
@@ -32,31 +33,29 @@ class SourceCaptureEnrichment:
 
 
 class SourceCaptureProcessor:
-    def __init__(self) -> None:
-        self.orchestrator = ProcessingOrchestrator()
+    def __init__(self, db: AsyncSession | None = None) -> None:
+        self.orchestrator = ProcessingOrchestrator(db=db)
         self.client = self.orchestrator.client
+        self.prompts = PromptTemplateService(db)
 
     async def enrich(self, payload: SourceCaptureRequest) -> SourceCaptureEnrichment:
         transcript = self._build_transcript(payload)
         if self.client:
             try:
+                prompt = await self.prompts.render(
+                    "capture.enrich",
+                    values={
+                        "capture_kind": payload.capture_kind,
+                        "save_mode": payload.save_mode,
+                        "page_title": payload.page_title or "n/a",
+                        "source_url": payload.source_url or "n/a",
+                        "source_markdown": payload.source_markdown or "n/a",
+                        "transcript": transcript,
+                    },
+                )
                 result = await self.client.generate_json(
-                    system_prompt=(
-                        "You clean captured web content into faithful Markdown and classify it into one of four buckets: "
-                        "journal, factual, ideas, or todo. Return JSON with keys title, category, classification_reason, "
-                        "summary, and cleaned_markdown. Keep cleaned_markdown concise but faithful. Do not invent facts."
-                    ),
-                    user_prompt=(
-                        "Process this saved source.\n"
-                        f"Capture kind: {payload.capture_kind}\n"
-                        f"Save mode: {payload.save_mode}\n"
-                        f"Page title: {payload.page_title or 'n/a'}\n"
-                        f"Source URL: {payload.source_url or 'n/a'}\n\n"
-                        "Captured markdown candidate:\n"
-                        f"{payload.source_markdown or 'n/a'}\n\n"
-                        "Captured text:\n"
-                        f"{transcript}"
-                    ),
+                    system_prompt=prompt.system_prompt,
+                    user_prompt=prompt.user_prompt,
                     schema=SourceCaptureAIResult,
                 )
                 return SourceCaptureEnrichment(
@@ -115,7 +114,7 @@ class SourceCaptureProcessor:
 class SourceCaptureService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
-        self.processor = SourceCaptureProcessor()
+        self.processor = SourceCaptureProcessor(db)
         self.exporter = MarkdownExporter(db)
 
     async def capture(self, payload: SourceCaptureRequest) -> SourceCaptureResponse:

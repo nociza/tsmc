@@ -30,6 +30,8 @@ describe("backend validation helpers", () => {
         discardWordsEnabled: true,
         discardWords: [],
         selectionCaptureEnabled: false,
+        contextSuggestionsEnabled: false,
+        contextSuggestionsFloatingButtonEnabled: true,
         enabledProviders: {
           chatgpt: true,
           gemini: true,
@@ -89,6 +91,8 @@ describe("backend validation helpers", () => {
         discardWordsEnabled: true,
         discardWords: [],
         selectionCaptureEnabled: false,
+        contextSuggestionsEnabled: false,
+        contextSuggestionsFloatingButtonEnabled: true,
         enabledProviders: {
           chatgpt: true,
           gemini: true,
@@ -148,6 +152,8 @@ describe("backend validation helpers", () => {
         discardWordsEnabled: true,
         discardWords: [],
         selectionCaptureEnabled: false,
+        contextSuggestionsEnabled: false,
+        contextSuggestionsFloatingButtonEnabled: true,
         enabledProviders: {
           chatgpt: true,
           gemini: true,
@@ -216,6 +222,8 @@ describe("backend validation helpers", () => {
         discardWordsEnabled: true,
         discardWords: [],
         selectionCaptureEnabled: false,
+        contextSuggestionsEnabled: false,
+        contextSuggestionsFloatingButtonEnabled: true,
         enabledProviders: {
           chatgpt: true,
           gemini: true,
@@ -255,6 +263,8 @@ describe("backend validation helpers", () => {
       discardWordsEnabled: true,
       discardWords: [],
       selectionCaptureEnabled: false,
+      contextSuggestionsEnabled: false,
+      contextSuggestionsFloatingButtonEnabled: true,
       enabledProviders: {
         chatgpt: true,
         gemini: true,
@@ -300,6 +310,8 @@ describe("backend validation helpers", () => {
         discardWordsEnabled: true,
         discardWords: [],
         selectionCaptureEnabled: false,
+        contextSuggestionsEnabled: false,
+        contextSuggestionsFloatingButtonEnabled: true,
         enabledProviders: {
           chatgpt: true,
           gemini: true,
@@ -346,6 +358,8 @@ describe("backend validation helpers", () => {
         discardWordsEnabled: true,
         discardWords: [],
         selectionCaptureEnabled: false,
+        contextSuggestionsEnabled: false,
+        contextSuggestionsFloatingButtonEnabled: true,
         enabledProviders: {
           chatgpt: true,
           gemini: true,
@@ -397,6 +411,8 @@ describe("backend validation helpers", () => {
         discardWordsEnabled: true,
         discardWords: [],
         selectionCaptureEnabled: false,
+        contextSuggestionsEnabled: false,
+        contextSuggestionsFloatingButtonEnabled: true,
         enabledProviders: {
           chatgpt: true,
           gemini: true,

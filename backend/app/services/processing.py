@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -10,7 +12,7 @@ from app.schemas.processing import SegmentRouting, TripletResult
 from app.schemas.processing_worker import SessionPipelineResult
 from app.services.orchestrator import ProcessingOrchestrator
 from app.services.pile_service import PileService
-from app.services.piles import BUILT_IN_SLUG_TO_CATEGORY, CATEGORY_TO_BUILT_IN_SLUG
+from app.services.piles import BUILT_IN_SLUG_TO_CATEGORY, CATEGORY_TO_BUILT_IN_SLUG, pipeline_prompt_addendum_from_config
 from app.services.todo import TodoListService
 
 
@@ -23,7 +25,7 @@ MAX_USER_PILES_IN_CLASSIFIER_PROMPT = 8
 class SessionProcessor:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
-        self.orchestrator = ProcessingOrchestrator()
+        self.orchestrator = ProcessingOrchestrator(db=db)
         self.piles = PileService(db)
         self.base_dir = TodoListService().base_dir
 
@@ -66,29 +68,51 @@ class SessionProcessor:
             return await self.route_to_discard(session_id, reason=reason)
 
         if classification.category == SessionCategory.JOURNAL:
+            prompt_addendum = await self._prompt_addendum_for_category(classification.category)
             result = SessionPipelineResult(
                 category=classification.category,
                 classification_reason=classification.reason,
-                journal=await self.orchestrator.journal(session.messages),
+                journal=await self._invoke_pipeline(
+                    self.orchestrator.journal,
+                    session.messages,
+                    prompt_addendum=prompt_addendum,
+                ),
             )
         elif classification.category == SessionCategory.FACTUAL:
+            prompt_addendum = await self._prompt_addendum_for_category(classification.category)
+            factual = await self._invoke_pipeline(
+                self.orchestrator.factual,
+                session.messages,
+                prompt_addendum=prompt_addendum,
+            )
             result = SessionPipelineResult(
                 category=classification.category,
                 classification_reason=classification.reason,
-                factual_triplets=await self.orchestrator.factual_triplets(session.messages),
+                factual_triplets=factual.triplets,
             )
         elif classification.category == SessionCategory.TODO:
             todo_markdown = TodoListService(base_dir=self.base_dir).read_markdown()
+            prompt_addendum = await self._prompt_addendum_for_category(classification.category)
             result = SessionPipelineResult(
                 category=classification.category,
                 classification_reason=classification.reason,
-                todo=await self.orchestrator.todo(session.messages, todo_markdown),
+                todo=await self._invoke_pipeline(
+                    self.orchestrator.todo,
+                    session.messages,
+                    todo_markdown,
+                    prompt_addendum=prompt_addendum,
+                ),
             )
         else:
+            prompt_addendum = await self._prompt_addendum_for_category(classification.category)
             result = SessionPipelineResult(
                 category=classification.category,
                 classification_reason=classification.reason,
-                idea=await self.orchestrator.ideas(session.messages),
+                idea=await self._invoke_pipeline(
+                    self.orchestrator.ideas,
+                    session.messages,
+                    prompt_addendum=prompt_addendum,
+                ),
             )
 
         return await self.apply_pipeline_result(session_id, result)
@@ -145,11 +169,11 @@ class SessionProcessor:
         session = await self._load_session(session_id)
         attributes = list(target.attributes or [])
         config = target.pipeline_config or {}
-        custom_addendum = config.get("custom_prompt_addendum")
+        custom_addendum = pipeline_prompt_addendum_from_config(config)
         outputs = await self.orchestrator.pile_outputs(
             session.messages,
             attributes=attributes,
-            custom_prompt_addendum=custom_addendum if isinstance(custom_addendum, str) else None,
+            custom_prompt_addendum=custom_addendum,
         )
         session.category = None
         session.pile_id = target.id
@@ -192,31 +216,50 @@ class SessionProcessor:
 
         todo_service = TodoListService(base_dir=self.base_dir)
         current_todo = todo_service.read_markdown()
+        built_in_prompt_addendums = await self._built_in_prompt_addendum_map()
 
         for segment in segments:
             slice_messages = messages[segment.start_index : segment.end_index + 1]
             if not slice_messages:
                 continue
             outputs: dict[str, object] = {}
+            prompt_addendum = built_in_prompt_addendums.get(segment.pile_slug)
 
             if segment.pile_slug == "journal":
-                journal = await self.orchestrator.journal(slice_messages)
+                journal = await self._invoke_pipeline(
+                    self.orchestrator.journal,
+                    slice_messages,
+                    prompt_addendum=prompt_addendum,
+                )
                 outputs["journal"] = journal.model_dump(exclude_none=True)
                 journal_entries.append(journal.entry)
                 journal_actions.extend(journal.action_items)
             elif segment.pile_slug == "factual":
-                factual = await self.orchestrator.factual(slice_messages)
+                factual = await self._invoke_pipeline(
+                    self.orchestrator.factual,
+                    slice_messages,
+                    prompt_addendum=prompt_addendum,
+                )
                 outputs["factual"] = factual.model_dump(exclude_none=True)
                 triplets.extend(factual.triplets)
                 if factual.summary:
                     factual_summaries.append(factual.summary)
             elif segment.pile_slug == "ideas":
-                idea = await self.orchestrator.ideas(slice_messages)
+                idea = await self._invoke_pipeline(
+                    self.orchestrator.ideas,
+                    slice_messages,
+                    prompt_addendum=prompt_addendum,
+                )
                 outputs["idea"] = idea.model_dump(exclude={"share_post"})
                 idea_outputs.append(idea.model_dump(exclude={"share_post"}))
                 share_posts.append(idea.share_post)
             elif segment.pile_slug == "todo":
-                todo = await self.orchestrator.todo(slice_messages, current_todo)
+                todo = await self._invoke_pipeline(
+                    self.orchestrator.todo,
+                    slice_messages,
+                    current_todo,
+                    prompt_addendum=prompt_addendum,
+                )
                 outputs["todo"] = todo.model_dump(exclude_none=True)
                 todo_markdown = todo.updated_markdown
                 current_todo = todo.updated_markdown
@@ -293,6 +336,33 @@ class SessionProcessor:
         session.last_processed_at = utcnow()
         await self.db.flush()
         return session
+
+    async def _prompt_addendum_for_category(self, category: SessionCategory | None) -> str | None:
+        pile = await self.piles.resolve_pile_for_category(category)
+        return pipeline_prompt_addendum_from_config(pile.pipeline_config if pile else None)
+
+    async def _built_in_prompt_addendum_map(self) -> dict[str, str]:
+        piles = await self.piles.list_piles()
+        prompt_addendum_by_slug: dict[str, str] = {}
+        for pile in piles:
+            if pile.slug not in BUILT_IN_SLUG_TO_CATEGORY:
+                continue
+            prompt_addendum = pipeline_prompt_addendum_from_config(pile.pipeline_config)
+            if prompt_addendum:
+                prompt_addendum_by_slug[pile.slug] = prompt_addendum
+        return prompt_addendum_by_slug
+
+    @staticmethod
+    async def _invoke_pipeline(callable_obj, *args, prompt_addendum: str | None = None):
+        if prompt_addendum is None:
+            return await callable_obj(*args)
+        try:
+            signature = inspect.signature(callable_obj)
+        except (TypeError, ValueError):
+            signature = None
+        if signature is not None and "prompt_addendum" not in signature.parameters:
+            return await callable_obj(*args)
+        return await callable_obj(*args, prompt_addendum=prompt_addendum)
 
     async def mark_pending(self, session_id: str) -> ChatSession:
         session = await self._load_session(session_id)

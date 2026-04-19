@@ -24,7 +24,9 @@ const settings: ExtensionSettings = {
   blacklistWords: [],
   discardWordsEnabled: true,
   discardWords: [],
-  selectionCaptureEnabled: false
+  selectionCaptureEnabled: false,
+  contextSuggestionsEnabled: false,
+  contextSuggestionsFloatingButtonEnabled: true
 };
 
 describe("provider refresh scheduler", () => {

@@ -94,6 +94,8 @@ export interface ExtensionSettings {
   discardWordsEnabled: boolean;
   discardWords: string[];
   selectionCaptureEnabled: boolean;
+  contextSuggestionsEnabled: boolean;
+  contextSuggestionsFloatingButtonEnabled: boolean;
 }
 
 export interface BackendCapabilities {
@@ -492,6 +494,14 @@ export interface KnowledgeSearchResponse {
   error?: string;
 }
 
+export interface KnowledgeSearchRequest {
+  query?: string;
+  queries?: string[];
+  limit?: number;
+  provider?: ProviderName;
+  kinds?: string[];
+}
+
 export interface ProcessingTaskItem {
   task_key: string;
   session_id: string;
@@ -546,6 +556,29 @@ export interface PingProviderTabResponse {
 export interface PageVisitPayload {
   provider: ProviderName;
   pageUrl: string;
+}
+
+export interface ActiveChatContextMessage {
+  id: string;
+  role: MessageRole;
+  content: string;
+  occurredAt?: string;
+}
+
+export interface ActiveChatContextSnapshot {
+  provider: ProviderName;
+  externalSessionId: string;
+  title?: string;
+  sourceUrl: string;
+  pageUrl: string;
+  capturedAt: string;
+  messages: ActiveChatContextMessage[];
+}
+
+export interface ActiveChatContextResponse {
+  ok: boolean;
+  snapshot?: ActiveChatContextSnapshot;
+  error?: string;
 }
 
 export interface HistorySyncTriggerPayload {
@@ -650,6 +683,25 @@ export interface BackendPileRead {
   updated_at: string;
 }
 
+export interface BackendPromptTemplateVariableRead {
+  name: string;
+  description: string;
+}
+
+export interface BackendPromptTemplateRead {
+  key: string;
+  title: string;
+  group: string;
+  description: string;
+  system_prompt: string;
+  user_prompt: string;
+  default_system_prompt: string;
+  default_user_prompt: string;
+  has_override: boolean;
+  variables: BackendPromptTemplateVariableRead[];
+  updated_at?: string | null;
+}
+
 export interface BackendDiscardedSessionItem {
   id: string;
   provider: ProviderName;
@@ -716,7 +768,8 @@ export type RuntimeMessage =
   | { type: "START_PROCESSING" }
   | { type: "OPEN_QUICK_SEARCH" }
   | { type: "TOGGLE_QUICK_SEARCH" }
-  | { type: "SEARCH_KNOWLEDGE"; payload: { query: string; limit?: number } }
+  | { type: "SEARCH_KNOWLEDGE"; payload: KnowledgeSearchRequest }
+  | { type: "GET_ACTIVE_CHAT_CONTEXT"; payload?: { pageUrl?: string } }
   | { type: "PING_PROVIDER_TAB" }
   | { type: "RUN_PROVIDER_PROMPT"; payload: RunProviderPromptPayload }
   | { type: "GET_SETTINGS" }

@@ -22,6 +22,7 @@ from app.schemas.processing_worker import (
 from app.services.markdown import MarkdownExporter
 from app.services.orchestrator import render_transcript
 from app.services.processing import SessionProcessor
+from app.services.prompt_templates import PromptTemplateService
 from app.services.text import extract_json_object
 from app.services.todo import TodoListService
 
@@ -67,6 +68,7 @@ class ExtensionBrowserProcessingService:
         self.settings = settings or get_settings()
         self.processor = SessionProcessor(db)
         self.exporter = MarkdownExporter(db)
+        self.prompts = PromptTemplateService(db)
 
     async def status(self) -> ProcessingStatusResponse:
         if self.settings.llm_backend.lower() == "browser_proxy" and not browser_automation_enabled(self.settings):
@@ -118,7 +120,7 @@ class ExtensionBrowserProcessingService:
                 )
                 for task in tasks
             ],
-            prompt=self._build_prompt(
+            prompt=await self._build_prompt(
                 tasks,
                 current_todo_markdown=TodoListService(base_dir=self.exporter.base_dir).read_markdown(),
             ),
@@ -158,7 +160,7 @@ class ExtensionBrowserProcessingService:
         await self.db.commit()
         return ProcessingCompleteResponse(processed_count=len(results), results=results)
 
-    def _build_prompt(self, tasks: list[PendingProcessingTask], *, current_todo_markdown: str) -> str:
+    async def _build_prompt(self, tasks: list[PendingProcessingTask], *, current_todo_markdown: str) -> str:
         prompt_tasks = [
             {
                 "task_key": task.task_key,
@@ -169,26 +171,14 @@ class ExtensionBrowserProcessingService:
             }
             for task in tasks
         ]
-        return (
-            "You are SaveMyContext's private processing worker.\n"
-            "This browser conversation is reserved for fast internal transcript processing only.\n"
-            "Use fast mode. Do not use extended reasoning, hidden chain-of-thought, or thinking mode.\n"
-            "Treat each batch as a fresh independent task.\n"
-            "Return exactly one JSON object with this shape:\n"
-            '{"results":[{"task_key":"task_1","category":"journal|factual|ideas|todo","classification_reason":"...","journal":{"entry":"...","action_items":["..."]}|null,"todo":{"summary":"...","updated_markdown":"# To-Do List\\n..."}|null,"factual_triplets":[{"subject":"...","predicate":"...","object":"...","confidence":0.0-1.0|null}],"idea":{"core_idea":"...","pros":["..."],"cons":["..."],"next_steps":["..."],"share_post":"..."}|null}]}\n'
-            "The results array must contain exactly one item for each task and must use the same task_key values.\n"
-            "If category is journal, journal is required and factual_triplets must be empty and idea null.\n"
-            "If category is todo, todo is required and must contain the full updated markdown for the shared to-do list after applying that task.\n"
-            "If category is factual, factual_triplets may be non-empty and journal and idea must be null.\n"
-            "If category is ideas, idea is required and journal must be null and factual_triplets must be empty.\n"
-            "If multiple tasks are classified as todo, apply them in task order against the same shared list and return each task's cumulative updated_markdown.\n"
-            "Keep every result grounded in its transcript. Do not invent facts.\n"
-            "Keep the JSON compact and return no prose.\n\n"
-            "Current shared to-do list markdown:\n"
-            f"{current_todo_markdown}\n\n"
-            "Tasks:\n"
-            f"{json.dumps(prompt_tasks, ensure_ascii=True, separators=(',', ':'))}"
-        ).strip()
+        prompt = await self.prompts.render(
+            "processing.worker_batch",
+            values={
+                "current_todo_markdown": current_todo_markdown,
+                "tasks_json": json.dumps(prompt_tasks, ensure_ascii=True, separators=(",", ":")),
+            },
+        )
+        return f"{prompt.system_prompt}\n\n{prompt.user_prompt}".strip()
 
     async def _next_pending_tasks(self) -> list[PendingProcessingTask]:
         result = await self.db.execute(

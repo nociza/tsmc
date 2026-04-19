@@ -28,6 +28,10 @@ const autoSyncHistoryInput = document.querySelector<HTMLInputElement>("#auto-syn
 const scheduledProviderRefreshEnabledInput = document.querySelector<HTMLInputElement>("#scheduled-provider-refresh-enabled");
 const scheduledProviderRefreshIntervalInput = document.querySelector<HTMLInputElement>("#scheduled-provider-refresh-interval");
 const selectionCaptureEnabledInput = document.querySelector<HTMLInputElement>("#selection-capture-enabled");
+const contextSuggestionsEnabledInput = document.querySelector<HTMLInputElement>("#context-suggestions-enabled");
+const contextSuggestionsFloatingButtonEnabledInput = document.querySelector<HTMLInputElement>(
+  "#context-suggestions-floating-button-enabled"
+);
 const indexingModeInput = document.querySelector<HTMLInputElement>("#indexing-mode-trigger");
 const triggerWordsInput = document.querySelector<HTMLInputElement>("#trigger-words");
 const blacklistWordsInput = document.querySelector<HTMLInputElement>("#blacklist-words");
@@ -186,6 +190,13 @@ function syncFormFromSettings(settings: ExtensionSettings): void {
   if (selectionCaptureEnabledInput) {
     selectionCaptureEnabledInput.checked = settings.selectionCaptureEnabled;
   }
+  if (contextSuggestionsEnabledInput) {
+    contextSuggestionsEnabledInput.checked = settings.contextSuggestionsEnabled;
+  }
+  if (contextSuggestionsFloatingButtonEnabledInput) {
+    contextSuggestionsFloatingButtonEnabledInput.checked = settings.contextSuggestionsFloatingButtonEnabled;
+    contextSuggestionsFloatingButtonEnabledInput.disabled = !settings.contextSuggestionsEnabled;
+  }
   if (indexingModeInput) {
     indexingModeInput.checked = settings.indexingMode === "trigger_word";
   }
@@ -299,6 +310,8 @@ form?.addEventListener("submit", async (event) => {
       scheduledProviderRefreshIntervalInput?.value
     ),
     selectionCaptureEnabled: selectionCaptureEnabledInput?.checked ?? false,
+    contextSuggestionsEnabled: contextSuggestionsEnabledInput?.checked ?? false,
+    contextSuggestionsFloatingButtonEnabled: contextSuggestionsFloatingButtonEnabledInput?.checked ?? true,
     indexingMode: indexingModeInput?.checked ? "trigger_word" : "all",
     triggerWords: [],
     blacklistWords: normalizeRuleWords(blacklistWordsInput?.value ?? ""),
@@ -394,6 +407,17 @@ scheduledProviderRefreshIntervalInput?.addEventListener("input", () => {
 });
 
 selectionCaptureEnabledInput?.addEventListener("change", () => {
+  formDirty = true;
+});
+
+contextSuggestionsEnabledInput?.addEventListener("change", () => {
+  formDirty = true;
+  if (contextSuggestionsFloatingButtonEnabledInput) {
+    contextSuggestionsFloatingButtonEnabledInput.disabled = !contextSuggestionsEnabledInput.checked;
+  }
+});
+
+contextSuggestionsFloatingButtonEnabledInput?.addEventListener("change", () => {
   formDirty = true;
 });
 

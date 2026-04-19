@@ -22,6 +22,7 @@ export default defineConfig({
         note: resolve(rootDir, "note.html"),
         options: resolve(rootDir, "options.html"),
         piles: resolve(rootDir, "piles.html"),
+        prompts: resolve(rootDir, "prompts.html"),
         popup: resolve(rootDir, "popup.html")
       },
       output: {

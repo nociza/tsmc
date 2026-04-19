@@ -140,3 +140,13 @@ def pile_slug_for_category(category: SessionCategory | None) -> str | None:
 
 def is_built_in_slug(slug: str | None) -> bool:
     return bool(slug) and slug in BUILT_IN_KIND_BY_SLUG
+
+
+def pipeline_prompt_addendum_from_config(config: dict[str, Any] | None) -> str | None:
+    if not isinstance(config, dict):
+        return None
+    for key in ("pipeline_prompt_addendum", "custom_prompt_addendum"):
+        value = config.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None

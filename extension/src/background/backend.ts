@@ -11,6 +11,7 @@ import type {
   BackendGraphEdge,
   BackendGraphNode,
   BackendPileRead,
+  BackendPromptTemplateRead,
   BackendProcessingStatus,
   BackendSearchResponse,
   BackendSessionListItem,
@@ -291,6 +292,13 @@ export async function fetchPiles(
   return fetchBackendJson<BackendPileRead[]>(settings, "/piles", capabilities);
 }
 
+export async function fetchPromptTemplates(
+  settings: ExtensionSettings,
+  capabilities?: BackendCapabilities
+): Promise<BackendPromptTemplateRead[]> {
+  return fetchBackendJson<BackendPromptTemplateRead[]>(settings, "/prompts/templates", capabilities);
+}
+
 export interface PileCreatePayload {
   slug: string;
   name: string;
@@ -309,6 +317,11 @@ export interface PileUpdatePayload {
   pipeline_config?: Record<string, unknown>;
   is_active?: boolean;
   sort_order?: number;
+}
+
+export interface PromptTemplateUpdatePayload {
+  system_prompt: string;
+  user_prompt: string;
 }
 
 export async function createPile(
@@ -364,6 +377,45 @@ export async function deletePile(
   if (!response.ok && response.status !== 204) {
     const details = await response.text();
     throw new Error(`Pile delete failed with ${response.status}: ${details.slice(0, 300)}`);
+  }
+}
+
+export async function updatePromptTemplate(
+  settings: ExtensionSettings,
+  key: string,
+  payload: PromptTemplateUpdatePayload,
+  capabilities?: BackendCapabilities
+): Promise<BackendPromptTemplateRead> {
+  const response = await fetch(
+    backendApiUrl(settings, `/prompts/templates/${encodeURIComponent(key)}`, capabilities),
+    {
+      method: "PUT",
+      headers: buildBackendHeaders(settings),
+      body: JSON.stringify(payload)
+    }
+  );
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Prompt update failed with ${response.status}: ${details.slice(0, 300)}`);
+  }
+  return (await response.json()) as BackendPromptTemplateRead;
+}
+
+export async function resetPromptTemplate(
+  settings: ExtensionSettings,
+  key: string,
+  capabilities?: BackendCapabilities
+): Promise<void> {
+  const response = await fetch(
+    backendApiUrl(settings, `/prompts/templates/${encodeURIComponent(key)}`, capabilities),
+    {
+      method: "DELETE",
+      headers: buildBackendHeaders(settings)
+    }
+  );
+  if (!response.ok && response.status !== 204) {
+    const details = await response.text();
+    throw new Error(`Prompt reset failed with ${response.status}: ${details.slice(0, 300)}`);
   }
 }
 
@@ -702,12 +754,22 @@ export async function fetchKnowledgeSearch(
   settings: ExtensionSettings,
   query: string,
   limit = 8,
+  options?: {
+    provider?: ProviderName;
+    kinds?: string[];
+  },
   capabilities?: BackendCapabilities
 ): Promise<BackendSearchResponse> {
   const search = new URLSearchParams({
     q: query.trim(),
     limit: String(limit)
   });
+  if (options?.provider) {
+    search.set("provider", options.provider);
+  }
+  for (const kind of options?.kinds ?? []) {
+    search.append("kind", kind);
+  }
   return fetchBackendJson<BackendSearchResponse>(settings, `/search?${search.toString()}`, capabilities);
 }
 

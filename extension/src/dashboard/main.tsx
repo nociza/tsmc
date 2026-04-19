@@ -18,6 +18,7 @@ import {
   LoaderCircle,
   RefreshCcw,
   Search,
+  SlidersHorizontal,
   Settings2
 } from "lucide-react";
 
@@ -261,28 +262,26 @@ function App() {
     todoQuery.isFetching;
 
   return (
-    <div className="mx-auto max-w-[1180px] px-6 py-10 sm:px-10">
-      <header className="mb-10 flex items-start justify-between gap-6">
-        <div className="flex items-start gap-4">
-          <div className="flex h-11 w-11 items-center justify-center rounded-[12px] bg-[var(--color-ink)] text-[var(--color-paper)]">
-            <span className="display-serif text-[22px] font-semibold leading-none">C</span>
-          </div>
+    <div className="app-page">
+      <header className="app-page-header">
+        <div className="app-page-heading">
+          <div className="app-page-mark">C</div>
           <div>
             <div className="flex items-center gap-2">
               <span className={`h-2 w-2 rounded-full ${connectionDot}`} />
               <span className="eyebrow">{connection.label}</span>
               {isFetching ? <LoaderCircle className="h-3.5 w-3.5 animate-spin text-[var(--color-ink-subtle)]" /> : null}
             </div>
-            <h1 className="display-serif mt-1 text-[38px] font-semibold leading-[1.05] text-[var(--color-ink)]">
+            <h1 className="app-page-title">
               Your context, collected.
             </h1>
-            <p className="mt-2 max-w-[48ch] text-[15px] leading-relaxed text-[var(--color-ink-soft)]">
+            <p className="app-page-copy max-w-[48ch]">
               {settings ? formatBackendLabel(settings) : loading ? "Loading…" : "Unavailable"}
               {status ? ` · ${formatBackendStatus(status)}` : ""}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="app-page-actions">
           <Button variant="ghost" size="sm" onClick={() => void refreshAll()} disabled={isFetching}>
             <RefreshCcw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
             Refresh
@@ -297,6 +296,16 @@ function App() {
             <Layers className="h-3.5 w-3.5" />
             Piles
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              window.location.href = chrome.runtime.getURL("prompts.html");
+            }}
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            Prompts
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => void chrome.runtime.openOptionsPage()}>
             <Settings2 className="h-3.5 w-3.5" />
             Settings
@@ -307,7 +316,7 @@ function App() {
       {hasBackendError ? (
         <div
           id="backend-alert"
-          className="mb-6 rounded-[14px] border border-[rgba(193,90,64,0.35)] bg-[rgba(193,90,64,0.08)] px-5 py-4 text-sm text-[#8a3b27]"
+          className="mb-6 rounded-[8px] border border-[rgba(193,90,64,0.35)] bg-[rgba(193,90,64,0.08)] px-5 py-4 text-sm text-[#8a3b27]"
         >
           <strong className="font-semibold">Backend unavailable.</strong> {status?.backendValidationError}
         </div>
@@ -331,10 +340,10 @@ function App() {
               type="button"
               onClick={() => void handleQuickSave()}
               disabled={captureState === "saving"}
-              className="group flex items-center justify-between gap-3 rounded-[12px] bg-[var(--color-ink)] px-5 py-4 text-left text-[var(--color-paper)] transition hover:bg-[#1a2c44] disabled:opacity-70"
+              className="group flex items-center justify-between gap-3 rounded-[8px] bg-[var(--color-ink)] px-5 py-4 text-left text-[var(--color-paper)] transition hover:bg-[#1a2c44] disabled:opacity-70"
             >
               <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-white/10">
+                <div className="flex h-9 w-9 items-center justify-center rounded-[8px] bg-white/10">
                   {captureState === "saving" ? (
                     <LoaderCircle className="h-4 w-4 animate-spin" />
                   ) : (
@@ -354,10 +363,10 @@ function App() {
             <button
               type="button"
               onClick={() => void handleQuickSearch()}
-              className="flex items-center justify-between gap-3 rounded-[12px] border border-[var(--color-line)] bg-[var(--color-paper-sunken)] px-5 py-4 text-left transition hover:border-[var(--color-line-strong)] hover:bg-[#e6dfcd]"
+              className="flex items-center justify-between gap-3 rounded-[8px] border border-[var(--color-line)] bg-[var(--color-paper-sunken)] px-5 py-4 text-left transition hover:border-[var(--color-line-strong)] hover:bg-[#e6dfcd]"
             >
               <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-[var(--color-paper-raised)]">
+                <div className="flex h-9 w-9 items-center justify-center rounded-[8px] bg-[var(--color-paper-raised)]">
                   <Search className="h-4 w-4 text-[var(--color-ink)]" />
                 </div>
                 <div>
@@ -411,7 +420,7 @@ function App() {
               key={item.category}
               type="button"
               onClick={() => openCategory(item.category)}
-              className="group relative overflow-hidden rounded-[16px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] p-5 text-left transition hover:-translate-y-0.5 hover:border-[var(--color-line-strong)] hover:shadow-[0_14px_32px_-18px_rgba(15,27,44,0.22)]"
+              className="group relative overflow-hidden rounded-[8px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] p-5 text-left transition hover:-translate-y-0.5 hover:border-[var(--color-line-strong)] hover:shadow-[0_14px_32px_-18px_rgba(15,27,44,0.22)]"
             >
               <div
                 className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full opacity-50 transition group-hover:opacity-80"
@@ -419,7 +428,7 @@ function App() {
               />
               <div className="flex items-start justify-between">
                 <div
-                  className="flex h-10 w-10 items-center justify-center rounded-[10px]"
+                  className="flex h-10 w-10 items-center justify-center rounded-[8px]"
                   style={{ backgroundColor: `${item.accent}1a`, color: item.accent }}
                 >
                   <span className="display-serif text-[19px] leading-none">{categoryGlyphs[item.category]}</span>
@@ -467,7 +476,7 @@ function App() {
           </div>
           <div className="px-6 py-4">
             {recoverError ? (
-              <div className="mb-3 rounded-[10px] border border-[rgba(193,90,64,0.35)] bg-[rgba(193,90,64,0.08)] px-3 py-2 text-xs text-[#8a3b27]">
+              <div className="mb-3 rounded-[8px] border border-[rgba(193,90,64,0.35)] bg-[rgba(193,90,64,0.08)] px-3 py-2 text-xs text-[#8a3b27]">
                 {recoverError}
               </div>
             ) : null}
@@ -603,7 +612,7 @@ function App() {
             {topEntities.map((node) => (
               <div
                 key={node.id}
-                className="flex items-center justify-between gap-3 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] px-3 py-2.5"
+                className="flex items-center justify-between gap-3 rounded-[8px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] px-3 py-2.5"
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[13px] font-semibold text-[var(--color-ink)]">{node.label}</div>
@@ -627,7 +636,7 @@ function App() {
               </div>
             ))}
             {!topEntities.length ? (
-              <div className="rounded-[10px] border border-dashed border-[var(--color-line)] bg-[var(--color-paper-sunken)] px-4 py-6 text-center text-sm text-[var(--color-ink-subtle)]">
+              <div className="rounded-[8px] border border-dashed border-[var(--color-line)] bg-[var(--color-paper-sunken)] px-4 py-6 text-center text-sm text-[var(--color-ink-subtle)]">
                 No entities yet — save a chat to populate the graph.
               </div>
             ) : null}
@@ -653,7 +662,7 @@ function App() {
                   key={session.id}
                   type="button"
                   onClick={() => openCategory(category)}
-                  className="group flex w-full items-center gap-3 rounded-[10px] px-2 py-2 text-left transition hover:bg-[var(--color-paper-sunken)]"
+                  className="group flex w-full items-center gap-3 rounded-[8px] px-2 py-2 text-left transition hover:bg-[var(--color-paper-sunken)]"
                 >
                   <span className="h-8 w-1 shrink-0 rounded-full" style={{ backgroundColor: accent }} />
                   <span className="min-w-0 flex-1">
@@ -669,7 +678,7 @@ function App() {
               );
             })}
             {!recentSessions.length ? (
-              <div className="rounded-[10px] border border-dashed border-[var(--color-line)] bg-[var(--color-paper-sunken)] px-4 py-6 text-center text-sm text-[var(--color-ink-subtle)]">
+              <div className="rounded-[8px] border border-dashed border-[var(--color-line)] bg-[var(--color-paper-sunken)] px-4 py-6 text-center text-sm text-[var(--color-ink-subtle)]">
                 Recent captures will appear here.
               </div>
             ) : null}
@@ -689,7 +698,7 @@ function App() {
             </div>
           </div>
 
-          <dl className="mt-5 grid gap-px overflow-hidden rounded-[12px] border border-[var(--color-line)] bg-[var(--color-line)] sm:grid-cols-2">
+          <dl className="mt-5 grid gap-px overflow-hidden rounded-[8px] border border-[var(--color-line)] bg-[var(--color-line)] sm:grid-cols-2">
             <div className="bg-[var(--color-paper-raised)] p-4">
               <dt className="eyebrow">Auth mode</dt>
               <dd id="system-auth-mode" className="mt-2 text-[14px] font-medium text-[var(--color-ink)]">
@@ -729,7 +738,7 @@ function App() {
           </dl>
 
           {status?.providerDriftAlert ? (
-            <div className="mt-4 rounded-[12px] border border-[rgba(209,132,37,0.35)] bg-[rgba(209,132,37,0.08)] px-4 py-3 text-[13px] text-[#8a561a]">
+            <div className="mt-4 rounded-[8px] border border-[rgba(209,132,37,0.35)] bg-[rgba(209,132,37,0.08)] px-4 py-3 text-[13px] text-[#8a561a]">
               {formatProviderDriftAlert(status.providerDriftAlert)}
             </div>
           ) : null}
@@ -740,7 +749,7 @@ function App() {
             <div className="eyebrow">Shared list</div>
             <div className="display-serif mt-1 text-[22px] font-semibold text-[var(--color-ink)]">To-Do pulse</div>
           </div>
-          <div className="mt-5 grid grid-cols-3 gap-px overflow-hidden rounded-[12px] border border-[var(--color-line)] bg-[var(--color-line)]">
+          <div className="mt-5 grid grid-cols-3 gap-px overflow-hidden rounded-[8px] border border-[var(--color-line)] bg-[var(--color-line)]">
             <div className="bg-[var(--color-paper-raised)] p-4">
               <div className="eyebrow">Total</div>
               <div className="display-serif mt-2 text-[22px] font-semibold text-[var(--color-ink)]">
@@ -785,7 +794,7 @@ function App() {
       edgesQuery.error ||
       sessionsQuery.error ||
       todoQuery.error ? (
-        <div className="mt-6 rounded-[12px] border border-[rgba(193,90,64,0.35)] bg-[rgba(193,90,64,0.08)] px-4 py-3 text-sm text-[#8a3b27]">
+        <div className="mt-6 rounded-[8px] border border-[rgba(193,90,64,0.35)] bg-[rgba(193,90,64,0.08)] px-4 py-3 text-sm text-[#8a3b27]">
           {error ||
             (summaryQuery.error instanceof Error && summaryQuery.error.message) ||
             (systemQuery.error instanceof Error && systemQuery.error.message) ||

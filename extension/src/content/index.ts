@@ -8,6 +8,8 @@ import type {
   RuntimeMessage
 } from "../shared/types";
 import { BRIDGE_CONNECT_SOURCE, MAIN_WORLD_READY_ATTRIBUTE } from "../shared/bridge";
+import { detectProviderFromUrl } from "../shared/provider";
+import { createContextSuggestionController } from "./context-suggestions";
 import { createQuickSearchPalette } from "./quick-search";
 import { createSelectionCaptureController } from "./selection-capture";
 
@@ -23,6 +25,9 @@ const quickSearchPalette = createQuickSearchPalette(async <TResponse>(message: R
   return chrome.runtime.sendMessage(message) as Promise<TResponse>;
 });
 const selectionCaptureController = createSelectionCaptureController(async <TResponse>(message: RuntimeMessage) => {
+  return chrome.runtime.sendMessage(message) as Promise<TResponse>;
+});
+const contextSuggestionController = createContextSuggestionController(async <TResponse>(message: RuntimeMessage) => {
   return chrome.runtime.sendMessage(message) as Promise<TResponse>;
 });
 const pendingProxyRequests = new Map<
@@ -43,24 +48,6 @@ function enqueueRuntimeMessage(message: RuntimeMessage): void {
   };
 
   runtimeDispatchQueue = runtimeDispatchQueue.then(dispatch, dispatch);
-}
-
-function detectProviderFromUrl(url: string): "chatgpt" | "gemini" | "grok" | null {
-  try {
-    const hostname = new URL(url).hostname;
-    if (hostname === "chatgpt.com" || hostname.endsWith(".chatgpt.com") || hostname === "chat.openai.com") {
-      return "chatgpt";
-    }
-    if (/gemini\.google\.com/.test(hostname)) {
-      return "gemini";
-    }
-    if (hostname === "grok.com" || hostname.endsWith(".grok.com")) {
-      return "grok";
-    }
-  } catch {
-    return null;
-  }
-  return null;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -231,6 +218,7 @@ function installNavigationObserver(): void {
     }
     lastUrl = window.location.href;
     notifyPageVisit();
+    contextSuggestionController.handleLocationChange();
   };
 
   const nativePushState = history.pushState;

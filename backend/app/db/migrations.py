@@ -54,6 +54,24 @@ def apply_schema_migrations(sync_connection) -> None:
                 "CREATE INDEX IF NOT EXISTS ix_source_captures_is_discarded ON source_captures (is_discarded)"
             )
 
+    if "prompt_templates" not in table_names:
+        sync_connection.exec_driver_sql(
+            """
+            CREATE TABLE prompt_templates (
+                id VARCHAR(36) NOT NULL PRIMARY KEY,
+                "key" VARCHAR(128) NOT NULL,
+                system_prompt TEXT NOT NULL,
+                user_prompt TEXT NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT uq_prompt_template_key UNIQUE ("key")
+            )
+            """
+        )
+        sync_connection.exec_driver_sql(
+            'CREATE INDEX IF NOT EXISTS ix_prompt_templates_key ON prompt_templates ("key")'
+        )
+
     if "piles" in inspector.get_table_names():
         _normalize_pile_kind_values(sync_connection)
         _seed_built_in_piles(sync_connection)

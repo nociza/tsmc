@@ -76,8 +76,8 @@ function App() {
   const accent = categoryPalette[category].accent;
 
   return (
-    <div className="mx-auto max-w-[920px] px-6 py-10 sm:px-10">
-      <div className="mb-6 flex items-center justify-between gap-3">
+    <div className="app-page app-page--reader">
+      <div className="app-page-topbar">
         <Button variant="ghost" size="sm" onClick={() => (window.location.href = backUrl(route))}>
           <ArrowLeft className="h-3.5 w-3.5" />
           Back
@@ -161,7 +161,7 @@ function App() {
 
           <div className="px-8 py-8 sm:px-12 sm:py-10">
             {loading || noteQuery.isLoading ? (
-              <div className="rounded-[12px] bg-[var(--color-paper-sunken)] px-5 py-6 text-sm text-[var(--color-ink-soft)]">
+              <div className="rounded-[8px] bg-[var(--color-paper-sunken)] px-5 py-6 text-sm text-[var(--color-ink-soft)]">
                 Loading note…
               </div>
             ) : note ? (
@@ -177,7 +177,7 @@ function App() {
                 </Tabs.Content>
               </ScrollArea>
             ) : (
-              <div className="rounded-[12px] border border-dashed border-[var(--color-line)] bg-[var(--color-paper-sunken)] px-5 py-6 text-sm text-[var(--color-ink-soft)]">
+              <div className="rounded-[8px] border border-dashed border-[var(--color-line)] bg-[var(--color-paper-sunken)] px-5 py-6 text-sm text-[var(--color-ink-soft)]">
                 No note id was provided, or the note could not be loaded.
               </div>
             )}
@@ -186,7 +186,7 @@ function App() {
       </article>
 
       {status?.backendValidationError || error || noteQuery.error ? (
-        <div className="mt-6 rounded-[12px] border border-[rgba(193,90,64,0.35)] bg-[rgba(193,90,64,0.08)] px-4 py-3 text-sm text-[#8a3b27]">
+        <div className="mt-6 rounded-[8px] border border-[rgba(193,90,64,0.35)] bg-[rgba(193,90,64,0.08)] px-4 py-3 text-sm text-[#8a3b27]">
           {status?.backendValidationError ||
             error ||
             (noteQuery.error instanceof Error ? noteQuery.error.message : "Could not load note.")}

@@ -129,12 +129,14 @@ function PopupApp() {
 
   const categoryData = useMemo(() => {
     const counts = new Map(summary?.categories.map((item) => [item.category, item.count] as const) ?? []);
-    return categoryOrder.map((category) => ({
-      category,
-      label: categoryLabels[category],
-      count: counts.get(category) ?? 0,
-      accent: categoryPalette[category].accent
-    }));
+    return categoryOrder
+      .filter((category) => category !== "discarded")
+      .map((category) => ({
+        category,
+        label: categoryLabels[category],
+        count: counts.get(category) ?? 0,
+        accent: categoryPalette[category].accent
+      }));
   }, [summary]);
 
   const activeProvider = providerFromUrl(activeTabInfo?.url);
@@ -146,6 +148,26 @@ function PopupApp() {
   const lastErrorText = status?.lastError ?? status?.historySyncLastError ?? status?.processingLastError ?? "None";
   const lastSyncLabel = formatCompactDate(summary?.latest_sync_at ?? status?.lastSuccessAt, "never");
   const totalNotes = summary?.total_sessions ?? 0;
+  const historySyncing = Boolean(status?.historySyncInProgress);
+  const historySyncProcessed = status?.historySyncProcessedCount ?? 0;
+  const historySyncTotal = status?.historySyncTotalCount;
+  const historySyncSkipped = status?.historySyncSkippedCount ?? 0;
+  const historySyncProviders = status?.historySyncActiveProviders?.length
+    ? status.historySyncActiveProviders
+    : status?.historySyncProvider
+      ? [status.historySyncProvider]
+      : activeProvider
+        ? [activeProvider]
+        : [];
+  const historySyncProviderLabel = historySyncProviders.length
+    ? historySyncProviders.map((provider) => providerLabels[provider]).join(", ")
+    : "provider";
+  const historySyncProgress = typeof historySyncTotal === "number" && historySyncTotal > 0
+    ? Math.min(100, Math.max(4, Math.round((historySyncProcessed / historySyncTotal) * 100)))
+    : 36;
+  const historySyncProgressLabel = typeof historySyncTotal === "number"
+    ? `${formatNumber(historySyncProcessed)}/${formatNumber(historySyncTotal)}${historySyncSkipped ? ` · ${formatNumber(historySyncSkipped)} skipped` : ""}`
+    : "Syncing";
 
   async function handleSave(): Promise<void> {
     setCaptureStatus("");
@@ -242,7 +264,7 @@ function PopupApp() {
       </header>
 
       <div className="mx-5 mb-3 flex-none">
-        <div className="relative overflow-hidden rounded-[14px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] p-3">
+        <div className="relative overflow-hidden rounded-[8px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] p-3">
           <div
             className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full opacity-60"
             style={{ background: "radial-gradient(circle, rgba(15,138,132,0.18), transparent 65%)" }}
@@ -251,7 +273,7 @@ function PopupApp() {
             type="button"
             onClick={() => void handleSave()}
             disabled={isSaving}
-            className="group relative flex w-full items-center justify-between gap-3 rounded-[10px] bg-[var(--color-ink)] px-4 py-3 text-left text-[var(--color-paper)] transition hover:bg-[#1a2c44] disabled:opacity-70"
+            className="group relative flex w-full items-center justify-between gap-3 rounded-[8px] bg-[var(--color-ink)] px-4 py-3 text-left text-[var(--color-paper)] transition hover:bg-[#1a2c44] disabled:opacity-70"
           >
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-white/10">
@@ -276,7 +298,7 @@ function PopupApp() {
           <button
             type="button"
             onClick={() => void handleQuickSearch()}
-            className="mt-2 flex w-full items-center gap-3 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-paper)] px-4 py-2.5 text-left transition hover:border-[var(--color-line-strong)] hover:bg-[var(--color-paper-sunken)]"
+            className="mt-2 flex w-full items-center gap-3 rounded-[8px] border border-[var(--color-line)] bg-[var(--color-paper)] px-4 py-2.5 text-left transition hover:border-[var(--color-line-strong)] hover:bg-[var(--color-paper-sunken)]"
           >
             <Search className="h-4 w-4 shrink-0 text-[var(--color-ink-soft)]" />
             <span className="text-[13px] text-[var(--color-ink-soft)]">Search your vault on this page…</span>
@@ -284,6 +306,24 @@ function PopupApp() {
               ⏎
             </kbd>
           </button>
+
+          {historySyncing ? (
+            <div className="relative mt-2 rounded-[8px] border border-[rgba(15,138,132,0.22)] bg-[rgba(15,138,132,0.07)] px-3 py-2">
+              <div className="mb-1 flex items-center justify-between gap-3">
+                <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-[#076b66]">
+                  <LoaderCircle className="h-3 w-3 shrink-0 animate-spin" />
+                  <span className="truncate">Syncing {historySyncProviderLabel}</span>
+                </span>
+                <span className="shrink-0 text-[10.5px] font-medium text-[#076b66]/80">{historySyncProgressLabel}</span>
+              </div>
+              <div className="h-1 overflow-hidden rounded-full bg-[rgba(15,138,132,0.16)]">
+                <div
+                  className="h-full rounded-full bg-[var(--color-factual)] transition-[width] duration-300"
+                  style={{ width: `${historySyncProgress}%` }}
+                />
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -294,7 +334,7 @@ function PopupApp() {
             type="button"
             data-testid={`popup-category-${item.category}`}
             onClick={() => openCategory(item.category)}
-            className="group relative flex items-center justify-between gap-2 rounded-[12px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] px-3 py-2.5 text-left transition hover:-translate-y-px hover:border-[var(--color-line-strong)] hover:shadow-[0_8px_22px_-12px_rgba(15,27,44,0.18)]"
+            className="group relative flex items-center justify-between gap-2 rounded-[8px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] px-3 py-2.5 text-left transition hover:-translate-y-px hover:border-[var(--color-line-strong)] hover:shadow-[0_8px_22px_-12px_rgba(15,27,44,0.18)]"
           >
             <div className="flex min-w-0 items-center gap-2.5">
               <div
@@ -339,7 +379,7 @@ function PopupApp() {
                   key={session.id}
                   type="button"
                   onClick={() => openNote(session)}
-                  className="flex w-full items-center gap-3 rounded-[10px] border border-transparent bg-transparent px-2 py-2 text-left transition hover:border-[var(--color-line)] hover:bg-[var(--color-paper-raised)]"
+                  className="flex w-full items-center gap-3 rounded-[8px] border border-transparent bg-transparent px-2 py-2 text-left transition hover:border-[var(--color-line)] hover:bg-[var(--color-paper-raised)]"
                 >
                   <span className="h-8 w-1 rounded-full shrink-0" style={{ backgroundColor: accent }} />
                   <span className="min-w-0 flex-1">
@@ -354,7 +394,7 @@ function PopupApp() {
               );
             })
           ) : (
-            <div className="flex items-center gap-3 rounded-[10px] border border-dashed border-[var(--color-line)] bg-[var(--color-paper-raised)]/60 px-3 py-4 text-[12px] text-[var(--color-ink-subtle)]">
+            <div className="flex items-center gap-3 rounded-[8px] border border-dashed border-[var(--color-line)] bg-[var(--color-paper-raised)]/60 px-3 py-4 text-[12px] text-[var(--color-ink-subtle)]">
               <Inbox className="h-4 w-4" />
               Saved notes will appear here after your first capture.
             </div>
@@ -367,7 +407,7 @@ function PopupApp() {
           {hasDrift ? (
             <div
               id="provider-drift-card"
-              className="truncate rounded-[10px] border border-[rgba(209,132,37,0.35)] bg-[rgba(209,132,37,0.1)] px-3 py-2 text-[11.5px] font-medium text-[#8b561a]"
+              className="truncate rounded-[8px] border border-[rgba(209,132,37,0.35)] bg-[rgba(209,132,37,0.1)] px-3 py-2 text-[11.5px] font-medium text-[#8b561a]"
             >
               <span id="provider-drift" className="sr-only">
                 {status?.providerDriftAlert?.provider}: {status?.providerDriftAlert?.message}
@@ -375,11 +415,11 @@ function PopupApp() {
               {formatProviderDriftAlert(status?.providerDriftAlert)}
             </div>
           ) : toastMessage ? (
-            <div className="truncate rounded-[10px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] px-3 py-2 text-[11.5px] text-[var(--color-ink-soft)]">
+            <div className="truncate rounded-[8px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] px-3 py-2 text-[11.5px] text-[var(--color-ink-soft)]">
               {toastMessage || error}
             </div>
           ) : captureStatus ? (
-            <div className="truncate rounded-[10px] border border-[rgba(15,138,132,0.2)] bg-[rgba(15,138,132,0.08)] px-3 py-2 text-[11.5px] font-medium text-[#076b66]">
+            <div className="truncate rounded-[8px] border border-[rgba(15,138,132,0.2)] bg-[rgba(15,138,132,0.08)] px-3 py-2 text-[11.5px] font-medium text-[#076b66]">
               {captureStatus}
             </div>
           ) : null}
