@@ -36,6 +36,7 @@ export type IdeaFlowOrigin = {
 };
 
 type IdeaNodeKind =
+  | "thread"
   | "origin"
   | "core"
   | "reasoning"
@@ -51,6 +52,7 @@ type IdeaNodeData = {
   subtitle?: string;
   bullets?: string[];
   index?: number;
+  connective?: string;
 };
 
 function textList(value: unknown): string[] {
@@ -62,10 +64,12 @@ function textList(value: unknown): string[] {
 
 function cardClass(kind: IdeaNodeKind): string {
   switch (kind) {
+    case "thread":
+      return "border-[#818cf8] bg-gradient-to-r from-[#eef2ff] to-[#f5f3ff] text-[#3730a3]";
     case "origin":
-      return "border-[var(--color-line-strong)] bg-[var(--color-paper-sunken)] text-[var(--color-ink)]";
+      return "border-[var(--color-line)] bg-[var(--color-paper-sunken)] text-[var(--color-ink-soft)]";
     case "core":
-      return "border-[#4f46e5] bg-[#eef2ff] text-[#312e81] font-semibold";
+      return "border-[#4338ca] bg-gradient-to-br from-[#eef2ff] via-[#e0e7ff] to-[#ede9fe] text-[#1e1b4b] shadow-md";
     case "reasoning":
       return "border-[var(--color-line-strong)] bg-white text-[var(--color-ink)]";
     case "support":
@@ -83,44 +87,59 @@ function cardClass(kind: IdeaNodeKind): string {
 
 function kindLabel(kind: IdeaNodeKind): string {
   switch (kind) {
+    case "thread":
+      return "Thread";
     case "origin":
       return "Origin";
     case "core":
-      return "Core idea";
+      return "The idea";
     case "reasoning":
       return "Reasoning";
     case "support":
-      return "Support";
+      return "In favor";
     case "conflict":
-      return "Conflict";
+      return "Counterpoint";
     case "fact":
-      return "Fact anchor";
+      return "Grounded in";
     case "nextStep":
-      return "Next step";
+      return "What's next";
     case "share":
-      return "Share";
+      return "Ready to share";
   }
 }
 
 function IdeaNode({ data }: NodeProps<Node<IdeaNodeData, IdeaNodeKind>>) {
-  const { kind, title, subtitle, bullets, index } = data;
+  const { kind, title, subtitle, bullets, index, connective } = data;
+  const isCore = kind === "core";
+  const isArgument = kind === "support" || kind === "conflict";
+  const isThread = kind === "thread";
   return (
     <div
       className={cn(
         "relative rounded-[10px] border px-3 py-2 text-xs leading-5 shadow-sm",
-        "max-w-[240px] min-w-[180px]",
+        isCore ? "max-w-[340px] min-w-[260px] px-4 py-3" : "max-w-[240px] min-w-[180px]",
+        isThread ? "max-w-[520px]" : undefined,
         cardClass(kind)
       )}
     >
-      <Handle type="target" position={Position.Top} className="!h-2 !w-2 !border-none !bg-current opacity-50" />
+      <Handle type="target" position={Position.Top} className="!h-2 !w-2 !border-none !bg-current opacity-40" />
       <div className="mb-1 flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] opacity-70">
-        <span>{kindLabel(kind)}</span>
-        {typeof index === "number" ? <span>#{index}</span> : null}
+        <span>
+          {kindLabel(kind)}
+          {typeof index === "number" ? ` · #${index}` : ""}
+        </span>
+        {connective ? <span className="font-medium normal-case tracking-normal">{connective}</span> : null}
       </div>
-      <div className="whitespace-pre-wrap break-words">{title}</div>
-      {subtitle ? (
-        <div className="mt-1 text-[10px] leading-4 opacity-75">{subtitle}</div>
-      ) : null}
+      <div
+        className={cn(
+          "whitespace-pre-wrap break-words",
+          isCore ? "text-sm font-semibold leading-6" : undefined,
+          isArgument ? "before:mr-1 before:content-['“'] after:ml-1 after:content-['”'] italic" : undefined
+        )}
+      >
+        {title}
+      </div>
+      {subtitle ? <div className="mt-1 text-[10px] leading-4 opacity-75">{subtitle}</div> : null}
       {bullets && bullets.length ? (
         <ul className="mt-1 list-disc pl-4 text-[10px] leading-4 opacity-85">
           {bullets.map((line, idx) => (
@@ -128,190 +147,215 @@ function IdeaNode({ data }: NodeProps<Node<IdeaNodeData, IdeaNodeKind>>) {
           ))}
         </ul>
       ) : null}
-      <Handle type="source" position={Position.Bottom} className="!h-2 !w-2 !border-none !bg-current opacity-50" />
+      <Handle type="source" position={Position.Bottom} className="!h-2 !w-2 !border-none !bg-current opacity-40" />
     </div>
   );
 }
 
 const NODE_TYPES = { idea: IdeaNode } as const;
 
-type LayoutColumn = {
-  x: number;
-  align: "center" | "left" | "right";
-};
+const CENTER_X = 0;
+const SUPPORT_X = -360;
+const CONFLICT_X = 360;
+const ROW = 140;
 
-const COLUMN_SUPPORT: LayoutColumn = { x: -340, align: "right" };
-const COLUMN_CENTER: LayoutColumn = { x: 0, align: "center" };
-const COLUMN_CONFLICT: LayoutColumn = { x: 340, align: "left" };
+function reasoningConnective(index: number, total: number): string {
+  if (total === 1) return "because";
+  if (index === 0) return "because";
+  if (index === total - 1) return "so";
+  return "which means";
+}
 
 function buildGraph(idea: IdeaFlowData, origin?: IdeaFlowOrigin): { nodes: Node<IdeaNodeData>[]; edges: Edge[] } {
   const nodes: Node<IdeaNodeData>[] = [];
   const edges: Edge[] = [];
-  const rowHeight = 120;
-  let centerRow = 0;
+  let row = 0;
 
-  const push = (id: string, data: IdeaNodeData, column: LayoutColumn, row: number) => {
+  // Optional thread banner. Spans the full width to signal that this idea is a
+  // chapter in a larger evolving thread.
+  const threadHint = idea.thread_hint?.trim();
+  let threadNodeId: string | null = null;
+  if (threadHint) {
+    threadNodeId = "thread";
     nodes.push({
-      id,
+      id: threadNodeId,
       type: "idea",
-      position: { x: column.x, y: row * rowHeight },
-      data,
-      draggable: true
+      position: { x: CENTER_X, y: row * ROW },
+      data: {
+        kind: "thread",
+        title: threadHint,
+        subtitle: "Part of an evolving thread — earlier sessions contribute to this idea"
+      }
     });
-  };
+    row += 1;
+  }
 
-  // Origin + Core idea at the top.
-  const coreIdea = (idea.core_idea || idea.summary || "").trim();
+  // Origin context.
   const originSubtitleParts = [origin?.provider, origin?.occurredAt].filter(Boolean) as string[];
-  push(
-    "origin",
-    {
+  const originId = "origin";
+  nodes.push({
+    id: originId,
+    type: "idea",
+    position: { x: CENTER_X, y: row * ROW },
+    data: {
       kind: "origin",
       title: origin?.title?.trim() || "This session",
       subtitle: originSubtitleParts.join(" · ") || undefined,
-      bullets: origin?.participants?.length ? origin.participants.slice(0, 4) : undefined
-    },
-    { x: COLUMN_CENTER.x - 280, align: "right" },
-    centerRow
-  );
-  if (coreIdea) {
-    push(
-      "core",
-      {
-        kind: "core",
-        title: coreIdea,
-        subtitle: idea.thread_hint?.trim() ? `Thread: ${idea.thread_hint.trim()}` : undefined
-      },
-      COLUMN_CENTER,
-      centerRow
-    );
+      bullets: origin?.participants?.length ? [`Discussed with: ${origin.participants.slice(0, 4).join(", ")}`] : undefined
+    }
+  });
+  if (threadNodeId) {
     edges.push({
-      id: "origin->core",
-      source: "origin",
-      target: "core",
+      id: `${threadNodeId}->${originId}`,
+      source: threadNodeId,
+      target: originId,
       type: "smoothstep",
-      label: "started",
-      style: { stroke: "#64748b" },
-      labelStyle: { fontSize: 10, fill: "#475569" },
-      markerEnd: { type: MarkerType.ArrowClosed, color: "#64748b" }
+      style: { stroke: "#a5b4fc", strokeDasharray: "2 4" },
+      markerEnd: { type: MarkerType.Arrow, color: "#a5b4fc" }
     });
-    centerRow += 1;
+  }
+  row += 1;
+
+  // Hero: the core idea.
+  const coreIdea = (idea.core_idea || idea.summary || "").trim();
+  let previousCenter = originId;
+  if (coreIdea) {
+    const coreId = "core";
+    nodes.push({
+      id: coreId,
+      type: "idea",
+      position: { x: CENTER_X, y: row * ROW },
+      data: { kind: "core", title: coreIdea }
+    });
+    edges.push({
+      id: `${originId}->${coreId}`,
+      source: originId,
+      target: coreId,
+      type: "smoothstep",
+      label: "surfaced",
+      style: { stroke: "#6366f1", strokeWidth: 2 },
+      labelStyle: { fontSize: 10, fill: "#4338ca", fontWeight: 600 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: "#6366f1" }
+    });
+    previousCenter = coreId;
+    row += 1;
   }
 
-  // Reasoning chain: each step a node, linked to the previous.
+  // Reasoning chain with narrative connectives.
   const reasoning = textList(idea.reasoning_steps);
-  let previousCenter = coreIdea ? "core" : "origin";
   reasoning.forEach((step, index) => {
     const id = `step-${index}`;
-    push(
+    nodes.push({
       id,
-      { kind: "reasoning", title: step, index: index + 1 },
-      COLUMN_CENTER,
-      centerRow + index
-    );
+      type: "idea",
+      position: { x: CENTER_X, y: row * ROW },
+      data: {
+        kind: "reasoning",
+        title: step,
+        index: index + 1,
+        connective: reasoningConnective(index, reasoning.length)
+      }
+    });
     edges.push({
       id: `${previousCenter}->${id}`,
       source: previousCenter,
       target: id,
       type: "smoothstep",
-      label: index === 0 ? "because" : "then",
+      label: reasoningConnective(index, reasoning.length),
       style: { stroke: "#475569" },
       labelStyle: { fontSize: 10, fill: "#334155" },
       markerEnd: { type: MarkerType.ArrowClosed, color: "#475569" }
     });
     previousCenter = id;
+    row += 1;
   });
-  centerRow += reasoning.length;
 
-  // Supports — branch off from the core idea (or origin if no core), rendered on the left.
+  // Arguments: supports and conflicts flank the spine. Distribute them along
+  // the rows adjacent to the reasoning chain so the spine reads as "these
+  // voices weigh in on each step of the thinking."
   const supports = textList(idea.supports);
-  supports.forEach((item, index) => {
-    const id = `support-${index}`;
-    push(
-      id,
-      { kind: "support", title: item },
-      COLUMN_SUPPORT,
-      Math.max(1, Math.floor(((index + 0.5) * (reasoning.length + 1)) / Math.max(supports.length, 1)))
-    );
-    edges.push({
-      id: `${id}->spine`,
-      source: id,
-      target: coreIdea ? "core" : "origin",
-      type: "smoothstep",
-      label: "supports",
-      animated: true,
-      style: { stroke: "#16a34a", strokeDasharray: "4 4" },
-      labelStyle: { fontSize: 10, fill: "#15803d" },
-      markerEnd: { type: MarkerType.Arrow, color: "#16a34a" }
-    });
-  });
-
-  // Conflicts — right column mirror of supports.
   const conflicts = textList(idea.conflicts_with);
-  conflicts.forEach((item, index) => {
-    const id = `conflict-${index}`;
-    push(
-      id,
-      { kind: "conflict", title: item },
-      COLUMN_CONFLICT,
-      Math.max(1, Math.floor(((index + 0.5) * (reasoning.length + 1)) / Math.max(conflicts.length, 1)))
-    );
-    edges.push({
-      id: `${id}->spine`,
-      source: id,
-      target: coreIdea ? "core" : "origin",
-      type: "smoothstep",
-      label: "tension",
-      animated: true,
-      style: { stroke: "#dc2626", strokeDasharray: "4 4" },
-      labelStyle: { fontSize: 10, fill: "#b91c1c" },
-      markerEnd: { type: MarkerType.Arrow, color: "#dc2626" }
-    });
-  });
+  const spineSpan = Math.max(reasoning.length + (coreIdea ? 1 : 0), 1);
+  const spineStart = row - spineSpan;
+  const anchorForArgs = coreIdea ? "core" : originId;
 
-  // Related facts anchor at the bottom.
-  const facts = textList(idea.related_facts);
-  if (facts.length) {
-    const factsRow = centerRow + 0.5;
-    facts.forEach((fact, index) => {
-      const id = `fact-${index}`;
-      const x = -320 + (index - (facts.length - 1) / 2) * 220;
+  const placeArg = (
+    items: string[],
+    kind: "support" | "conflict",
+    x: number,
+    edgeColor: string,
+    edgeLabel: string
+  ) => {
+    items.forEach((item, index) => {
+      const id = `${kind}-${index}`;
+      const localRow = spineStart + Math.max(0, Math.floor(((index + 0.5) * spineSpan) / Math.max(items.length, 1)));
       nodes.push({
         id,
         type: "idea",
-        position: { x, y: factsRow * rowHeight },
+        position: { x, y: localRow * ROW },
+        data: { kind, title: item }
+      });
+      edges.push({
+        id: `${id}->spine`,
+        source: id,
+        target: anchorForArgs,
+        type: "smoothstep",
+        label: edgeLabel,
+        animated: true,
+        style: { stroke: edgeColor, strokeDasharray: "4 4" },
+        labelStyle: { fontSize: 10, fill: edgeColor, fontWeight: 600 },
+        markerEnd: { type: MarkerType.Arrow, color: edgeColor }
+      });
+    });
+  };
+  placeArg(supports, "support", SUPPORT_X, "#16a34a", "reinforces");
+  placeArg(conflicts, "conflict", CONFLICT_X, "#dc2626", "pushes back");
+
+  // Grounded-in facts: horizontal substrate at the bottom, each anchoring
+  // upward into the last spine node. Facts are the stable ground, not the
+  // structure — drawn thin and dashed.
+  const facts = textList(idea.related_facts);
+  if (facts.length) {
+    const factRow = row;
+    facts.forEach((fact, index) => {
+      const id = `fact-${index}`;
+      const x = CENTER_X + (index - (facts.length - 1) / 2) * 240;
+      nodes.push({
+        id,
+        type: "idea",
+        position: { x, y: factRow * ROW },
         data: { kind: "fact", title: fact }
       });
       edges.push({
-        id: `${id}->anchor`,
-        source: id,
-        target: previousCenter,
+        id: `${previousCenter}->${id}`,
+        source: previousCenter,
+        target: id,
         type: "smoothstep",
-        label: "anchors",
+        label: index === 0 ? "grounded in" : undefined,
         style: { stroke: "#2563eb", strokeDasharray: "2 4" },
         labelStyle: { fontSize: 10, fill: "#1d4ed8" },
         markerEnd: { type: MarkerType.Arrow, color: "#2563eb" }
       });
     });
-    centerRow = factsRow + 1;
+    row = factRow + 1;
   }
 
-  // Next steps follow at the bottom of the center spine.
+  // Next steps: forward-looking, single node at tail.
   const nextSteps = textList(idea.next_steps);
   if (nextSteps.length) {
     const id = "next-steps";
-    push(
+    nodes.push({
       id,
-      {
+      type: "idea",
+      position: { x: CENTER_X, y: row * ROW },
+      data: {
         kind: "nextStep",
-        title: "Next steps",
+        title: "Where this heads next",
         bullets: nextSteps.slice(0, 5)
-      },
-      COLUMN_CENTER,
-      centerRow
-    );
+      }
+    });
     edges.push({
-      id: `${previousCenter}->next`,
+      id: `${previousCenter}->${id}`,
       source: previousCenter,
       target: id,
       type: "smoothstep",
@@ -321,16 +365,22 @@ function buildGraph(idea: IdeaFlowData, origin?: IdeaFlowOrigin): { nodes: Node<
       markerEnd: { type: MarkerType.ArrowClosed, color: "#b45309" }
     });
     previousCenter = id;
-    centerRow += 1;
+    row += 1;
   }
 
-  // Share post as a footer card.
+  // Share post sits at the tail as a quieter footer — not part of the logic,
+  // just a distilled public-facing distillation.
   const share = idea.share_post?.trim();
   if (share) {
     const id = "share";
-    push(id, { kind: "share", title: share }, COLUMN_CENTER, centerRow);
+    nodes.push({
+      id,
+      type: "idea",
+      position: { x: CENTER_X, y: row * ROW },
+      data: { kind: "share", title: share }
+    });
     edges.push({
-      id: `${previousCenter}->share`,
+      id: `${previousCenter}->${id}`,
       source: previousCenter,
       target: id,
       type: "smoothstep",
@@ -393,11 +443,11 @@ export function IdeaFlow({
         <Controls showInteractive={false} position="bottom-right" />
       </ReactFlow>
       <div className="pointer-events-none absolute left-3 top-3 flex flex-wrap gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-ink-soft)]">
-        <LegendDot color="#4f46e5" label="Core" />
-        <LegendDot color="#16a34a" label="Supports" />
-        <LegendDot color="#dc2626" label="Conflicts" />
-        <LegendDot color="#2563eb" label="Fact anchors" />
-        <LegendDot color="#b45309" label="Next steps" />
+        <LegendDot color="#4338ca" label="Core idea" />
+        <LegendDot color="#16a34a" label="In favor" />
+        <LegendDot color="#dc2626" label="Counterpoints" />
+        <LegendDot color="#2563eb" label="Grounded in" />
+        <LegendDot color="#b45309" label="What's next" />
       </div>
     </div>
   );

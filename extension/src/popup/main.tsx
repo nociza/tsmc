@@ -152,22 +152,35 @@ function PopupApp() {
   const historySyncProcessed = status?.historySyncProcessedCount ?? 0;
   const historySyncTotal = status?.historySyncTotalCount;
   const historySyncSkipped = status?.historySyncSkippedCount ?? 0;
-  const historySyncProviders = status?.historySyncActiveProviders?.length
+  const historySyncStatusProviders = status?.historySyncActiveProviders?.length
     ? status.historySyncActiveProviders
     : status?.historySyncProvider
       ? [status.historySyncProvider]
-      : activeProvider
-        ? [activeProvider]
-        : [];
-  const historySyncProviderLabel = historySyncProviders.length
-    ? historySyncProviders.map((provider) => providerLabels[provider]).join(", ")
-    : "provider";
-  const historySyncProgress = typeof historySyncTotal === "number" && historySyncTotal > 0
-    ? Math.min(100, Math.max(4, Math.round((historySyncProcessed / historySyncTotal) * 100)))
-    : 36;
-  const historySyncProgressLabel = typeof historySyncTotal === "number"
-    ? `${formatNumber(historySyncProcessed)}/${formatNumber(historySyncTotal)}${historySyncSkipped ? ` · ${formatNumber(historySyncSkipped)} skipped` : ""}`
-    : "Syncing";
+      : [];
+  const historySyncProviderLabel = historySyncStatusProviders.length
+    ? historySyncStatusProviders.map((provider) => providerLabels[provider]).join(", ")
+    : activeProvider
+      ? providerLabels[activeProvider]
+      : "provider";
+  const showHistorySyncBanner = Boolean(
+    historySyncing &&
+      activeProvider &&
+      historySyncStatusProviders.includes(activeProvider)
+  );
+  const historySyncKnownTotal = typeof historySyncTotal === "number" && historySyncTotal > 0 ? historySyncTotal : null;
+  const historySyncProgressCount = historySyncKnownTotal !== null
+    ? Math.min(historySyncProcessed, historySyncKnownTotal)
+    : historySyncProcessed;
+  const historySyncProgress = historySyncKnownTotal !== null
+    ? Math.min(100, Math.max(4, Math.round((historySyncProgressCount / historySyncKnownTotal) * 100)))
+    : null;
+  const historySyncProgressLabel = historySyncKnownTotal !== null
+    ? `${formatNumber(historySyncProgressCount)}/${formatNumber(historySyncKnownTotal)} chats${
+        historySyncSkipped ? ` · ${formatNumber(historySyncSkipped)} skipped` : ""
+      }`
+    : historySyncProcessed > 0
+      ? `${formatNumber(historySyncProcessed)} chats synced${historySyncSkipped ? ` · ${formatNumber(historySyncSkipped)} skipped` : ""}`
+      : "Scanning chats…";
 
   async function handleSave(): Promise<void> {
     setCaptureStatus("");
@@ -307,20 +320,24 @@ function PopupApp() {
             </kbd>
           </button>
 
-          {historySyncing ? (
+          {showHistorySyncBanner ? (
             <div className="relative mt-2 rounded-[8px] border border-[rgba(15,138,132,0.22)] bg-[rgba(15,138,132,0.07)] px-3 py-2">
               <div className="mb-1 flex items-center justify-between gap-3">
                 <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-[#076b66]">
                   <LoaderCircle className="h-3 w-3 shrink-0 animate-spin" />
-                  <span className="truncate">Syncing {historySyncProviderLabel}</span>
+                  <span className="truncate">Syncing {historySyncProviderLabel} chats</span>
                 </span>
                 <span className="shrink-0 text-[10.5px] font-medium text-[#076b66]/80">{historySyncProgressLabel}</span>
               </div>
-              <div className="h-1 overflow-hidden rounded-full bg-[rgba(15,138,132,0.16)]">
-                <div
-                  className="h-full rounded-full bg-[var(--color-factual)] transition-[width] duration-300"
-                  style={{ width: `${historySyncProgress}%` }}
-                />
+              <div className="relative h-1 overflow-hidden rounded-full bg-[rgba(15,138,132,0.16)]">
+                {historySyncProgress === null ? (
+                  <div className="popup-progress-indeterminate absolute inset-y-0 left-0 w-[34%] rounded-full bg-[var(--color-factual)]" />
+                ) : (
+                  <div
+                    className="h-full rounded-full bg-[var(--color-factual)] transition-[width] duration-300"
+                    style={{ width: `${historySyncProgress}%` }}
+                  />
+                )}
               </div>
             </div>
           ) : null}

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 import * as Tabs from "@radix-ui/react-tabs";
@@ -58,11 +58,6 @@ import { Badge } from "../ui/components/badge";
 import { Button } from "../ui/components/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/components/card";
 import { CategoryGraph, type CategoryGraphDensity, type CategoryGraphFocusMode, type CategoryGraphSelection } from "../ui/components/category-graph";
-// The 3D graph pulls in three.js (~600 KB). Load it only when the user
-// toggles the 3D view so the initial category-page bundle stays lean.
-const CategoryGraph3D = lazy(() =>
-  import("../ui/components/category-graph-3d").then((mod) => ({ default: mod.CategoryGraph3D }))
-);
 import { ScrollArea } from "../ui/components/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/components/select";
 import { TodoWorkspace } from "../ui/components/todo-workspace";
@@ -506,7 +501,6 @@ function App() {
   const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
   const [graphDensity, setGraphDensity] = useState<CategoryGraphDensity>("curated");
   const [graphFocusMode, setGraphFocusMode] = useState<CategoryGraphFocusMode>("context");
-  const [graphRenderMode, setGraphRenderMode] = useState<"2d" | "3d">("2d");
   const [graphProviderFilter, setGraphProviderFilter] = useState<ReadonlySet<ProviderName>>(() => new Set());
   const [graphKindFilter, setGraphKindFilter] = useState<ReadonlySet<string>>(() => new Set());
   const [pathSourceId, setPathSourceId] = useState<string | null>(null);
@@ -1490,27 +1484,9 @@ function App() {
                         <span className="workspace-control-label">View</span>
                         <Button
                           size="sm"
-                          variant={graphRenderMode === "2d" ? "primary" : "secondary"}
-                          onClick={() => setGraphRenderMode("2d")}
-                          className="h-7 px-2 text-[11px]"
-                        >
-                          2D
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant={graphRenderMode === "3d" ? "primary" : "secondary"}
-                          onClick={() => setGraphRenderMode("3d")}
-                          className="h-7 px-2 text-[11px]"
-                        >
-                          3D
-                        </Button>
-                        <Button
-                          size="sm"
                           variant={graphDensity === "curated" ? "primary" : "secondary"}
                           onClick={() => setGraphDensity((current) => (current === "curated" ? "complete" : "curated"))}
                           className="h-7 px-2 text-[11px]"
-                          disabled={graphRenderMode === "3d"}
-                          title={graphRenderMode === "3d" ? "Density only affects the 2D view" : undefined}
                         >
                           {graphDensity === "curated" ? "Clean" : "Full"}
                         </Button>
@@ -1554,38 +1530,18 @@ function App() {
 
                     <div className="grid min-h-0 gap-2 xl:grid-cols-[minmax(0,1fr)_264px]">
                       <div className="flex min-h-0 flex-col">
-                        {graphRenderMode === "3d" ? (
-                          <Suspense
-                            fallback={
-                              <div className="flex h-full min-h-[340px] flex-1 items-center justify-center rounded-[8px] border border-[var(--color-line)] bg-[var(--color-paper-raised)] text-sm text-[var(--color-ink-soft)] xl:min-h-0">
-                                Loading 3D renderer…
-                              </div>
-                            }
-                          >
-                            <CategoryGraph3D
-                              graph={filteredGraph}
-                              category={activeDisplayCategory}
-                              groupingMode={groupingMode}
-                              focusSessionIds={graphFocus?.sessionIds}
-                              className="h-full min-h-[340px] flex-1 xl:min-h-0"
-                              onFocus={handleFocus}
-                              onInspect={setGraphInspect}
-                            />
-                          </Suspense>
-                        ) : (
-                          <CategoryGraph
-                            graph={filteredGraph}
-                            category={activeDisplayCategory}
-                            groupingMode={groupingMode}
-                            collapsedGroups={collapsedGroups}
-                            density={graphDensity}
-                            focusMode={graphFocusMode}
-                            focusSessionIds={graphFocus?.sessionIds}
-                            className="h-full min-h-[340px] flex-1 xl:min-h-0"
-                            onFocus={handleFocus}
-                            onInspect={setGraphInspect}
-                          />
-                        )}
+                        <CategoryGraph
+                          graph={filteredGraph}
+                          category={activeDisplayCategory}
+                          groupingMode={groupingMode}
+                          collapsedGroups={collapsedGroups}
+                          density={graphDensity}
+                          focusMode={graphFocusMode}
+                          focusSessionIds={graphFocus?.sessionIds}
+                          className="h-full min-h-[340px] flex-1 xl:min-h-0"
+                          onFocus={handleFocus}
+                          onInspect={setGraphInspect}
+                        />
                     </div>
 
                     <div className="min-h-0 space-y-2">

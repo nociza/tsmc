@@ -29,6 +29,20 @@
   color-scheme: light;
 }
 
+@keyframes popup-progress-indeterminate {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  50% {
+    transform: translateX(90%);
+  }
+
+  100% {
+    transform: translateX(240%);
+  }
+}
+
 @layer base {
   html,
   body,
@@ -370,6 +384,11 @@
 
   .scroll-fade-bottom {
     mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
+  }
+
+  .popup-progress-indeterminate {
+    animation: popup-progress-indeterminate 1.2s ease-in-out infinite;
+    will-change: transform;
   }
 
   @media (max-width: 767px) {

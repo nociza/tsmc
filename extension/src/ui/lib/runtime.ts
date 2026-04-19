@@ -30,8 +30,10 @@ export function useExtensionBootstrap(): {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const reload = useCallback(async () => {
-    setLoading(true);
+  const loadSnapshot = useCallback(async (quiet = false) => {
+    if (!quiet) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const snapshot = await loadRuntimeSnapshot();
@@ -40,13 +42,33 @@ export function useExtensionBootstrap(): {
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not load extension state.");
     } finally {
-      setLoading(false);
+      if (!quiet) {
+        setLoading(false);
+      }
     }
   }, []);
+
+  const reload = useCallback(async () => {
+    await loadSnapshot(false);
+  }, [loadSnapshot]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    if (!status?.historySyncInProgress && !status?.processingInProgress) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadSnapshot(true);
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [loadSnapshot, status?.historySyncInProgress, status?.processingInProgress]);
 
   useEffect(() => {
     function handleStorageChange(changes: Record<string, chrome.storage.StorageChange>, areaName: string): void {
